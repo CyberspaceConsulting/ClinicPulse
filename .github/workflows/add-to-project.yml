@@ -12,8 +12,14 @@ jobs:
   add-to-project:
     name: Add issue or pull request to project
     runs-on: ubuntu-latest
+    env:
+      ADD_TO_PROJECT_PAT: ${{ secrets.ADD_TO_PROJECT_PAT }}
     steps:
+      - name: Skip notice
+        if: ${{ env.ADD_TO_PROJECT_PAT == '' }}
+        run: echo "::warning::ADD_TO_PROJECT_PAT secret is not set; skipping."
       - uses: actions/add-to-project@v2
+        if: ${{ env.ADD_TO_PROJECT_PAT != '' }}
         with:
           project-url: https://github.com/users/the1andoni/projects/8
           github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
