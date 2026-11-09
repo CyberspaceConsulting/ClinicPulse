@@ -108,7 +108,7 @@ jobs:
 
       - name: Build and push API image
         id: api_image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./docker/api.Dockerfile
@@ -120,7 +120,7 @@ jobs:
 
       - name: Build and push web image
         id: web_image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           file: ./docker/web.Dockerfile
