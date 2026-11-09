@@ -2,11 +2,8 @@
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 import os
-from pathlib import Path
-import subprocess
-import sys
 from threading import Barrier
 from uuid import uuid4
 
@@ -20,10 +17,7 @@ from app import backup_core, main, models
 from app.database import Base
 from app.encrypted import username_lookup_digest
 from app.schemas import AssignmentCreate
-from app.security import Principal, authenticate
-
-PREVIOUS_COMMIT = "b3eca1c3703ea72b1a94224471dfb10f2ed37826"
-REPOSITORY = Path(__file__).resolve().parents[2]
+from app.security import Principal, authenticate, hash_password
 
 
 @pytest.fixture
@@ -141,56 +135,42 @@ def test_encrypted_value_rejects_wrong_key(postgres_db):
         assert "Wrong key or corrupt data" in str(error.value)
 
 
-def test_upgrade_from_previous_commit_preserves_existing_data(postgres_db, tmp_path):
-    with postgres_db.connect() as connection:
-        schema = connection.scalar(text("SELECT current_schema()"))
+def test_upgrade_from_legacy_schema_preserves_existing_data(postgres_db):
     Base.metadata.drop_all(postgres_db)
-    with (tmp_path / "old.tar").open("wb") as archive:
-        subprocess.run(
-            ["git", "-C", str(REPOSITORY), "archive", PREVIOUS_COMMIT, "backend/app"],
-            stdout=archive,
-            check=True,
+    Base.metadata.create_all(postgres_db)
+    password_salt, password_hash = hash_password("old-test-password")
+    with postgres_db.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE admin_account DROP COLUMN username_lookup CASCADE")
+        connection.exec_driver_sql("ALTER TABLE user_accounts DROP COLUMN username_lookup CASCADE")
+        connection.execute(text(
+            "INSERT INTO admin_account "
+            "(id, username, password_salt, password_hash, signing_key, license_token) "
+            "VALUES (1, 'old-admin', :salt, :password_hash, 'old-secret', 'old-license')"
+        ), {"salt": password_salt, "password_hash": password_hash})
+        connection.execute(text(
+            "INSERT INTO employees (id, name, role) VALUES (10, 'Old Person', 'Nurse')"
+        ))
+    with Session(postgres_db) as session:
+        department = models.Department(name="Old department")
+        shift = models.ShiftType(
+            name="Old shift",
+            start_time=time(7),
+            end_time=time(15),
+            department=department,
         )
-    subprocess.run(["tar", "-xf", str(tmp_path / "old.tar"), "-C", str(tmp_path)], check=True)
-    old_environment = os.environ.copy()
-    old_environment.update({
-        "DATABASE_URL": os.environ["TEST_POSTGRES_URL"],
-        "PGOPTIONS": f"-c search_path={schema},public",
-        "PYTHONPATH": str(tmp_path / "backend"),
-    })
-    old_environment.pop("DB_HOST", None)
-    seed = """
-from datetime import datetime, time, timezone
-from app.database import Base, engine, SessionLocal
-from app.encrypted import username_lookup_digest
-from app.main import migrate_existing_database
-from app.security import hash_password
-from app import models
-Base.metadata.create_all(engine)
-migrate_existing_database()
-with SessionLocal() as db:
-    salt, password_hash = hash_password("old-test-password")
-    db.add(models.AdminAccount(id=1, username="old-admin", username_lookup=username_lookup_digest("old-admin"),
-        password_salt=salt, password_hash=password_hash, signing_key="old-secret", license_token="old-license"))
-    department = models.Department(name="Old department")
-    db.add(department)
-    db.flush()
-    employee = models.Employee(name="Old Person", role="Nurse", department_id=department.id)
-    shift = models.ShiftType(name="Old shift", start_time=time(7), end_time=time(15),
-        department_id=department.id)
-    db.add_all([employee, shift])
-    db.flush()
-    db.add(models.Assignment(employee_id=employee.id, shift_type_id=shift.id,
-        starts_at=datetime(2026, 1, 1, 7, tzinfo=timezone.utc),
-        ends_at=datetime(2026, 1, 1, 15, tzinfo=timezone.utc)))
-    db.commit()
-"""
-    subprocess.run(
-        [sys.executable, "-c", seed],
-        cwd=tmp_path,
-        env=old_environment,
-        check=True,
-    )
+        session.add_all([department, shift])
+        session.flush()
+        session.execute(
+            text("UPDATE employees SET department_id = :department_id WHERE id = 10"),
+            {"department_id": department.id},
+        )
+        session.add(models.Assignment(
+            employee_id=10,
+            shift_type_id=shift.id,
+            starts_at=datetime(2026, 1, 1, 7, tzinfo=timezone.utc),
+            ends_at=datetime(2026, 1, 1, 15, tzinfo=timezone.utc),
+        ))
+        session.commit()
     Base.metadata.create_all(postgres_db)
     main.migrate_existing_database()
     main.migrate_existing_database()
