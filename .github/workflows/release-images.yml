@@ -1,0 +1,198 @@
+name: Release images
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  test:
+    name: Tests (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinicpulse_test
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: clinicpulse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clinicpulse_test -d clinicpulse_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          python -m pytest -q
+      - name: PostgreSQL encryption, migration and restore tests
+        working-directory: backend
+        env:
+          TEST_POSTGRES_URL: postgresql+psycopg://clinicpulse_test:test-only-password@localhost:5432/clinicpulse_test
+        run: python -m pytest -q tests/test_postgres_integrity.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  frontend-browser:
+    name: Frontend browser (Chromium)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        working-directory: frontend
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: release-browser-test-results
+          path: frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: [test, frontend-browser]
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        id: api_image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/the1andoni/clinicpulse-api:${{ env.IMAGE_TAG }}
+          provenance: true
+          sbom: true
+
+      - name: Build and push web image
+        id: web_image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/the1andoni/clinicpulse-web:${{ env.IMAGE_TAG }}
+          provenance: true
+          sbom: true
+
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@8e94d75ddd33f69f691467e42275782e4bfefe84
+        with:
+          syft-version: v1.57.0
+
+      - name: Generate and validate CycloneDX SBOM
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          API_DIGEST: ${{ steps.api_image.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web_image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist sbom
+          for arch in amd64 arm64; do
+            "$SYFT" scan "registry:ghcr.io/the1andoni/clinicpulse-api@${API_DIGEST}" \
+              --platform "linux/${arch}" -o "cyclonedx-json=sbom/api-${arch}.json"
+            "$SYFT" scan "registry:ghcr.io/the1andoni/clinicpulse-web@${WEB_DIGEST}" \
+              --platform "linux/${arch}" -o "cyclonedx-json=sbom/web-${arch}.json"
+          done
+          SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES=true \
+            "$SYFT" scan dir:frontend -o cyclonedx-json=sbom/frontend-dependencies.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for name in ("api-amd64", "api-arm64", "web-amd64", "web-arm64", "frontend-dependencies"):
+              bom = json.loads(Path(f"sbom/{name}.json").read_text())
+              components = bom.get("components", [])
+              if bom.get("bomFormat") != "CycloneDX" or not components:
+                  raise SystemExit(f"Empty or invalid SBOM: {name}")
+              names = {component.get("name", "").lower() for component in components}
+              required = {"fastapi"} if name.startswith("api-") else (
+                  {"vue", "vite"} if name == "frontend-dependencies" else set()
+              )
+              if not required.issubset(names):
+                  raise SystemExit(f"Missing expected components in SBOM: {name}")
+          PY
+          curl --fail --location --retry 3 \
+            -o sbom/cyclonedx \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64
+          echo 'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746  sbom/cyclonedx' | sha256sum --check
+          chmod +x sbom/cyclonedx
+          sbom/cyclonedx merge \
+            --input-files sbom/api-amd64.json sbom/api-arm64.json sbom/web-amd64.json sbom/web-arm64.json sbom/frontend-dependencies.json \
+            --output-file dist/clinicpulse.cdx.json --output-format json --output-version v1_5
+          sbom/cyclonedx validate --input-file dist/clinicpulse.cdx.json --fail-on-errors
+          python -c "import json; d=json.load(open('dist/clinicpulse.cdx.json')); c=d.get('components', []); assert d['bomFormat'] == 'CycloneDX' and d['specVersion'] == '1.5' and c; assert all(any(x.get('name', '').lower() == n for x in c) for n in ('fastapi', 'vue', 'vite'))"
+
+      - name: Prepare pinned release artifacts
+        run: |
+          mkdir -p dist
+          sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g; s/__VERSION__/${IMAGE_TAG#v}/g" \
+            deploy/compose.release.yaml > dist/compose.yaml
+          cp deploy/install.sh dist/install.sh
+          cp deploy/compose.encrypted.yaml dist/compose.encrypted.yaml
+          cp deploy/dependency_track_upload.py dist/dependency_track_upload.py
+          chmod +x dist/install.sh
+          (cd dist && sha256sum compose.yaml compose.encrypted.yaml install.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)
+
+      - name: Publish release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$IMAGE_TAG" in *-*) prerelease="--prerelease";; esac
+          gh release view "$IMAGE_TAG" >/dev/null 2>&1 || gh release create "$IMAGE_TAG" --title "$IMAGE_TAG" --generate-notes $prerelease
+          gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/install.sh dist/clinicpulse.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS --clobber
