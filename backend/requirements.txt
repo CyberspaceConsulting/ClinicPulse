@@ -1,4 +1,4 @@
-fastapi>=0.115,<1.0
+fastapi>=0.162.0,<1.0
 uvicorn[standard]>=0.54.0,<1.0
 SQLAlchemy>=2.0,<3.0
 psycopg[binary]>=3.2,<4.0
@@ -10,4 +10,4 @@ holidays>=0.60,<1.0
 ortools>=9.11,<10.0
 cryptography>=42
 paramiko>=5.1.0,<6
-boto3>=1.34,<2
+boto3>=1.43.125,<2
