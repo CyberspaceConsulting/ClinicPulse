@@ -1,4 +1,4 @@
-[![Tests](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml/badge.svg)](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml) [![Dependency Graph](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph)
+[![Tests](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml) [![Dependency Graph](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph) [![Release images](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml)
 
 # ClinicPulse
 
