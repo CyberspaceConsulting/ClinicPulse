@@ -1,4 +1,4 @@
-name: Release images
+name: Build and Push Docker Image
 
 on:
   push:
@@ -46,12 +46,12 @@ jobs:
         working-directory: backend
         run: |
           pip install -r requirements.txt
-          python -m pytest -q
+          python -m pytest -q ../tests/backend
       - name: PostgreSQL encryption, migration and restore tests
         working-directory: backend
         env:
           TEST_POSTGRES_URL: postgresql+psycopg://clinicpulse_test:test-only-password@localhost:5432/clinicpulse_test
-        run: python -m pytest -q tests/test_postgres_integrity.py
+        run: python -m pytest -q ../tests/backend/test_postgres_integrity.py
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -111,6 +111,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./backend
+          file: ./docker/api.Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/the1andoni/clinicpulse-api:${{ env.IMAGE_TAG }}
@@ -122,6 +123,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
+          file: ./docker/web.Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/the1andoni/clinicpulse-web:${{ env.IMAGE_TAG }}
@@ -181,9 +183,9 @@ jobs:
         run: |
           mkdir -p dist
           sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g; s/__VERSION__/${IMAGE_TAG#v}/g" \
-            deploy/compose.release.yaml > dist/compose.yaml
+            docker/compose.release.yaml > dist/compose.yaml
           cp deploy/install.sh dist/install.sh
-          cp deploy/compose.encrypted.yaml dist/compose.encrypted.yaml
+          cp docker/compose.encrypted.yaml dist/compose.encrypted.yaml
           cp deploy/dependency_track_upload.py dist/dependency_track_upload.py
           chmod +x dist/install.sh
           (cd dist && sha256sum compose.yaml compose.encrypted.yaml install.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)

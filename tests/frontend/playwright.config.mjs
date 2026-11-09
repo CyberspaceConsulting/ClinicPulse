@@ -1,7 +1,12 @@
-import { defineConfig, devices } from '@playwright/test'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+const require = createRequire(new URL('../../frontend/package.json', import.meta.url))
+const { defineConfig, devices } = require('@playwright/test')
 
 export default defineConfig({
-  testDir: './tests',
+  testDir: '.',
+  outputDir: '../../frontend/test-results',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -19,6 +24,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4173 --strictPort',
+    cwd: fileURLToPath(new URL('../../frontend', import.meta.url)),
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

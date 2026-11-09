@@ -1,4 +1,7 @@
-import { expect, test } from '@playwright/test'
+import { createRequire } from 'node:module'
+
+const require = createRequire(new URL('../../frontend/package.json', import.meta.url))
+const { expect, test } = require('@playwright/test')
 
 const employee = { id: 1, name: 'Alex Beispiel', role: 'Pflege', department_id: 1 }
 const shift = {

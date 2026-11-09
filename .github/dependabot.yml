@@ -1,0 +1,36 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    assignees:
+      - the1andoni
+
+  - package-ecosystem: docker-compose
+    directory: /docker
+    schedule:
+      interval: daily
+    assignees:
+      - the1andoni
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: daily
+    assignees:
+      - the1andoni
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: daily
+    assignees:
+      - the1andoni
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: daily
+    assignees:
+      - the1andoni
