@@ -16,3 +16,6 @@ frontend/playwright-report/
 
 # Local backup directory
 /backups/
+
+# VitePress
+docs/.vitepress/cache/

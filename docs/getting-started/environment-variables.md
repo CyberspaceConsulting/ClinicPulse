@@ -1,4 +1,4 @@
-# Konfiguration
+# Umgebungsvariablen
 
 Die Konfiguration erfolgt über Umgebungsvariablen (siehe `docker/docker-compose.yml`) und Docker-Secrets. Geheimnisse gehören in Dateien unter `secrets/`, nicht in Variablen oder ins Repository.
 
