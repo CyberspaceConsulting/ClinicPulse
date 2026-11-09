@@ -11,14 +11,14 @@ Das Skript richtet bei Bedarf eine virtuelle Umgebung ein und führt die
 Backend-Tests aus:
 
 ```sh
-./run-tests.sh
+./tests/run-tests.sh
 ```
 
 Alternativ:
 
 ```sh
 cd backend
-python -m pytest -q
+python -m pytest -q ../tests/backend
 ```
 
 PostgreSQL-Integrationstests werden übersprungen, wenn keine separate

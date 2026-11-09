@@ -1,4 +1,4 @@
-name: Tests
+name: Test
 
 on:
   push:
@@ -38,12 +38,12 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: ./run-tests.sh
+      - run: ./tests/run-tests.sh
       - name: PostgreSQL encryption, migration and restore tests
         working-directory: backend
         env:
           TEST_POSTGRES_URL: postgresql+psycopg://clinicpulse_test:test-only-password@localhost:5432/clinicpulse_test
-        run: .venv/bin/python -m pytest -q tests/test_postgres_integrity.py
+        run: .venv/bin/python -m pytest -q ../tests/backend/test_postgres_integrity.py
 
   frontend-browser:
     name: Frontend browser (Chromium)

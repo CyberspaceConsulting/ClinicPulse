@@ -1,3 +1,5 @@
+name: clinicpulse
+
 services:
   db:
     image: postgres:16-alpine
@@ -17,7 +19,9 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./backend
+    build:
+      context: ../backend
+      dockerfile: ../docker/api.Dockerfile
     environment:
       DB_HOST: db
       DB_NAME: clinicpulse
@@ -36,7 +40,7 @@ services:
       CLINICPULSE_BACKUP_DIR: /backups
       CLINICPULSE_VERSION: ${CLINICPULSE_VERSION:-0.1.0}
     volumes:
-      - ${CLINICPULSE_BACKUP_HOST_DIR:-./backups}:/backups
+      - ${CLINICPULSE_BACKUP_HOST_DIR:-../backups}:/backups
     secrets:
       - clinicpulse_data_encryption_key
       - smtp_password
@@ -49,7 +53,9 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./frontend
+    build:
+      context: ../frontend
+      dockerfile: ../docker/web.Dockerfile
     ports:
       - "${CLINICPULSE_PORT:-8080}:80"
     depends_on:
@@ -68,6 +74,6 @@ volumes:
 
 secrets:
   clinicpulse_data_encryption_key:
-    file: ${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-./secrets/data_encryption_key}
+    file: ${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-../secrets/data_encryption_key}
   smtp_password:
-    file: ./secrets/smtp_password
+    file: ../secrets/smtp_password
