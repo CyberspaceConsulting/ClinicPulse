@@ -1,7 +1,9 @@
+# Labels are applied to PRs based on the files changed.
 backend:
   - changed-files:
       - any-glob-to-any-file:
           - 'backend/**'
+          - 'main.py'
           - 'tests/backend/**'
 
 frontend:
@@ -13,14 +15,22 @@ frontend:
 docker:
   - changed-files:
       - any-glob-to-any-file:
+          - 'Dockerfile'
+          - 'docker-compose.yml'
+          - 'entrypoint.sh'
+          - '.dockerignore'
           - 'docker/**'
 
 dependencies:
   - changed-files:
       - any-glob-to-any-file:
+          - 'pyproject.toml'
+          - 'requirements.txt'
           - 'backend/requirements.txt'
+          - 'uv.lock'
           - 'frontend/package.json'
           - 'frontend/package-lock.json'
+          - 'frontend/yarn.lock'
 
 tests:
   - changed-files:
@@ -36,3 +46,5 @@ documentation:
   - changed-files:
       - any-glob-to-any-file:
           - '**/*.md'
+          - 'CHANGELOG'
+          - 'docs/**'
