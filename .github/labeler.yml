@@ -6,6 +6,11 @@ backend:
           - 'main.py'
           - 'tests/backend/**'
 
+deploymend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'deploy/**'
+
 frontend:
   - changed-files:
       - any-glob-to-any-file:
