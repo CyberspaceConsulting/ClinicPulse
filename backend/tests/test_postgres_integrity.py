@@ -144,8 +144,9 @@ def test_upgrade_from_legacy_schema_preserves_existing_data(postgres_db):
         connection.exec_driver_sql("ALTER TABLE user_accounts DROP COLUMN username_lookup CASCADE")
         connection.execute(text(
             "INSERT INTO admin_account "
-            "(id, username, password_salt, password_hash, signing_key, license_token) "
-            "VALUES (1, 'old-admin', :salt, :password_hash, 'old-secret', 'old-license')"
+            "(id, username, password_salt, password_hash, signing_key, license_token, "
+            "profile_photo_visibility, token_version) "
+            "VALUES (1, 'old-admin', :salt, :password_hash, 'old-secret', 'old-license', 'private', 0)"
         ), {"salt": password_salt, "password_hash": password_hash})
         connection.execute(text(
             "INSERT INTO employees (id, name, role) VALUES (10, 'Old Person', 'Nurse')"
