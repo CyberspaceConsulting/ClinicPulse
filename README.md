@@ -85,7 +85,8 @@ npm run build
 ```
 
 Weitere Hinweise zu Testarten und lokalen Voraussetzungen stehen in
-[TEST.md](TEST.md).
+[TEST.md](TEST.md). Beiträge sind in [CONTRIBUTING.md](CONTRIBUTING.md)
+beschrieben, die ausführliche Dokumentation steht in [docs/](docs/index.md).
 
 ## Sicherheit
 
