@@ -21,87 +21,75 @@ jobs:
       - uses: actions/first-interaction@v3
         with:
           issue_message: |
-            ## 👋 Welcome to ClinicPulse, and thanks for opening your first issue!
+            ## 👋 Willkommen bei ClinicPulse und danke für dein erstes Issue!
 
-            Thanks for taking the time to report this. Bug reports, ideas and questions from users are how ClinicPulse gets better. A maintainer will triage this issue as soon as possible. In the meantime, here's what helps us act on it quickly.
+            Danke, dass du dir die Zeit genommen hast. Fehlerberichte, Ideen und Fragen helfen, ClinicPulse zu verbessern. Wir schauen uns das Issue so bald wie möglich an. Damit wir schnell reagieren können, helfen folgende Angaben:
 
-            ### 🐛 Reporting a bug?
+            ### 🐛 Fehler melden?
 
-            Please make sure the issue includes:
+            Bitte gib an:
 
-            - **ClinicPulse version** and **how you run it** (Docker, Docker Compose, Umbrel, local…).
-            - **Steps to reproduce**, plus what you expected and what happened instead.
-            - **Logs** from around the time it failed:
+            - **ClinicPulse-Version** bzw. Commit und **wie du es betreibst** (Docker Compose, lokal …).
+            - **Schritte zur Reproduktion** sowie erwartetes und tatsächliches Verhalten.
+            - **Logs** aus dem betreffenden Zeitraum:
 
             ```bash
-            docker logs ClinicPulse --tail 100            # Docker
-            docker compose logs ClinicPulse --tail 100    # Docker Compose
+            docker compose logs --tail 100
             ```
 
-            > [!TIP]
-            
+            > [!WARNING]
+            > Bitte keine Zugangsdaten, Lizenz-Tokens, Schlüssel oder echten Personen- und Gesundheitsdaten in Issues einfügen. Logs und Screenshots vorher bereinigen.
 
-            💡 Suggesting a feature?
+            ### 💡 Feature vorschlagen?
 
-            - Start with the problem you're trying to solve, then the solution you have in mind. That makes it easier to find the best fit for the project.
-            
-            ❓ Asking a question?
+            Beschreibe zuerst das Problem, das du lösen möchtest, und dann deine Lösungsidee.
 
-            Check the documentation first. Open-ended questions and setup help also fit well in Discussions, where other users can chime in.
+            ### 🛠️ Selbst beitragen?
 
-            🛠️  Want to fix it yourself?
+            Gerne! Hinterlasse einen Kommentar, damit niemand doppelt arbeitet. Bei größeren Änderungen klären wir den Ansatz bitte zuerst in diesem Issue. Hinweise zu Tests findest du in [TEST.md](https://github.com/the1andoni/ClinicPulse/blob/main/TEST.md).
 
-            You're very welcome to! Leave a comment here so nobody duplicates the work, then read CONTRIBUTING.md for the setup and PR checklist. For bigger changes, let's agree on the approach in this issue before you write the code. Translations of the app or the docs are
-            always welcome too: see Internationalization.
+            ### 📌 Gut zu wissen
 
-            📌 Good to know
+            - Es können Rückfragen kommen. Eine kurze Antwort hält das Issue aktuell.
+            - Sicherheitslücken bitte nicht öffentlich melden, sondern per E-Mail an info@cyberspaceconsulting.de.
 
-            - We may ask follow-up questions. Issues with no activity for 60 days are marked stale and closed 7 days later, so a quick reply keeps yours open.
-            - Found a security vulnerability? Please don't discuss it publicly. Email info@cyberspaceconsulting.de instead.
-
-            Thanks again, and welcome! 🎶
+            Danke und willkommen! 🩺
           pr_message: |
-            ## 👋 Welcome to ClinicPulse, and thanks for your first pull request!
+            ## 👋 Willkommen bei ClinicPulse und danke für deinen ersten Pull Request!
 
-            It's great to have you here. Every contribution (code, tests, docs or translations) helps keep Downtify alive, and we're glad you chose to spend your time on it. A maintainer will review this PR as soon as possible. In the meantime, here's what helps it get merged
-            quickly.
+            Schön, dass du da bist. Jeder Beitrag (Code, Tests oder Dokumentation) hilft dem Projekt. Wir prüfen den PR so bald wie möglich. Damit er schnell gemergt werden kann, beachte bitte Folgendes:
 
-            ### ✅ Before review
+            ### ✅ Vor dem Review
 
-            - **Rebase on the latest `main`** so the diff only contains your change.
-            - **Format and lint:** run `make format`, then `make lint` (Ruff for Python, Prettier for the frontend and docs). CI runs the same checks.
-            - **Run the tests:** `make test` (pytest + Vitest). New behavior should come with a test, or the description should explain why it can't.
-            - **Update the docs** if the change is user-facing (a new setting, env var, endpoint or UI control): a short note in `README.md` and the details in [`docs/`] (Link to docs).
+            - **Auf den aktuellen `main` rebasen**, damit der Diff nur deine Änderung enthält.
+            - **Backend-Tests ausführen:** `./tests/run-tests.sh`. Neues Verhalten sollte durch Tests abgedeckt sein, oder die Beschreibung erklärt, warum das nicht geht.
+            - **Frontend prüfen:** in `frontend` `npm ci`, `npm run build` und `npm run test:e2e`.
+            - **Doku aktualisieren**, wenn die Änderung sichtbar ist (neue Einstellung, Umgebungsvariable, Endpunkt oder UI-Element): kurz in der `README.md` bzw. in `TEST.md`.
 
             <details>
-            <summary><strong>🧭 Project rules worth knowing</strong></summary>
+            <summary><strong>🧭 Projektregeln</strong></summary>
 
             <br>
 
-            - **Tests run offline.** Stub HTTP with fixtures or `monkeypatch`. Never call Spotify, YouTube or lrclib from a test.
-            - **The API is a contract.** The web app and the Android client depend on the current endpoint paths and response shapes. Add new endpoints or fields instead of renaming or removing existing ones.
-            - **No Spotify credentials.** `spotdl`, `spotipy` and the Spotify Web API were removed on purpose. Metadata comes from the public embed endpoints.
-            - **Don't hand-edit `requirements.txt`.** Change `pyproject.toml`, then run `uv lock && make export`.
-            - **Don't silence the linter** with `# noqa` or wider ignore rules. Fix the code instead.
-            - **UI text goes in the locale files** (`frontend/src/i18n/locales/en.js`), never hard-coded in components.
-            - **Don't bump the version.** The maintainer does that at release time.
+            - **Tests laufen offline** und ohne Produktivdaten oder externe Dienste.
+            - **API- und Berechtigungsänderungen** brauchen Tests für Erfolgsfälle, Validierung und fehlende Berechtigungen.
+            - **PostgreSQL-Integrationstests** nur gegen eine entbehrliche Testdatenbank (`TEST_POSTGRES_URL`), niemals gegen Produktivdaten.
+            - **Keine Geheimnisse committen:** Zugangsdaten, Lizenz-Tokens, Schlüssel und echte Personen- oder Gesundheitsdaten gehören nicht in Code, Testdaten oder PRs.
 
             </details>
 
-            ### 📝 A good PR description
+            ### 📝 Eine gute PR-Beschreibung
 
-            - **What** changed and **why**, plus `Closes #123` if it fixes an issue.
-            - **Screenshots or a short clip** for UI changes.
-            - **How you tested it:** what you ran, and for changes to downloading, the track and playlist you pulled to check tags, cover art and lyrics.
+            - **Was** sich ändert und **warum**, plus `Closes #123`, falls ein Issue behoben wird.
+            - **Screenshots** bei UI-Änderungen.
+            - **Wie du getestet hast:** welche Befehle du ausgeführt hast.
 
-            ### 💬 Need help?
+            ### 💬 Hilfe nötig?
 
-            - Questions about the code or the direction of a change: ask right here, or open a thread in [Discussions](https://github.com/henriquesebastiao/downtify/discussions).
-            - Bigger changes go more smoothly when they start as an [issue](https://github.com/henriquesebastiao/downtify/issues), so we can agree on the scope first.
-            - Want to translate the app or the documentation? See [Internationalization](https://downtify.henriquesebastiao.com/features/internationalization/).
-            - Found a security issue? Please don't post it publicly. Email **contato@henriquesebastiao.com** instead.
+            - Fragen zum Code oder zur Richtung einer Änderung: gerne direkt hier im PR.
+            - Größere Änderungen starten besser als [Issue](https://github.com/the1andoni/ClinicPulse/issues), damit wir den Umfang vorab klären.
+            - Sicherheitslücken bitte nicht öffentlich posten, sondern per E-Mail an **info@cyberspaceconsulting.de**.
 
-            Reviews are a conversation, so expect a round or two of feedback. That's normal, not a sign something is wrong. By contributing, you agree that your work is licensed under the project's [AGPL-3.0](https://github.com/henriquesebastiao/downtify/blob/main/LICENSE)
-            license.
+            Reviews sind ein Austausch. Ein bis zwei Feedbackrunden sind normal. Für dieses Repository ist derzeit keine Lizenzdatei hinterlegt.
 
-            Thanks again, and welcome aboard! 🎶
+            Danke und willkommen an Bord! 🩺
