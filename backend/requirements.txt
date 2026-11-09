@@ -8,6 +8,6 @@ httpx>=0.28.1,<1.0
 tzdata>=2024.1
 holidays>=0.60,<1.0
 ortools>=9.11,<10.0
-cryptography>=42
+cryptography>=50.0.2
 paramiko>=5.1.0,<6
 boto3>=1.43.125,<2
