@@ -1,4 +1,4 @@
-[![Tests](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml) [![Dependency Graph](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph/badge.svg?branch=main)](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph) [![Release images](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml/badge.svg?branch=main)](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml)
+[![Tests](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml) [![Dependency Graph](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph) [![Release images](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml)
 
 # ClinicPulse
 
@@ -46,7 +46,7 @@ fi
 touch secrets/smtp_password
 chmod 600 secrets/data_encryption_key secrets/smtp_password
 
-docker compose -f docker/docker-compose.yml up --build -d
+docker compose up --build -d
 ```
 
 Rufe anschließend <http://localhost:8080> auf. Für die Ersteinrichtung ist ein
@@ -57,8 +57,8 @@ Zugriff auf den konfigurierten Lizenzdienst; dessen Adresse kann mit
 Nützliche Befehle:
 
 ```sh
-docker compose -f docker/docker-compose.yml logs -f
-docker compose -f docker/docker-compose.yml down
+docker compose logs -f
+docker compose down
 ```
 
 Die Datenbank wird in einem Docker-Volume gespeichert. Sichere
@@ -73,7 +73,7 @@ unter [GitHub Releases](https://github.com/the1andoni/ClinicPulse/releases).
 Backend-Tests:
 
 ```sh
-./tests/run-tests.sh
+./run-tests.sh
 ```
 
 Frontend-Build:
@@ -86,17 +86,6 @@ npm run build
 
 Weitere Hinweise zu Testarten und lokalen Voraussetzungen stehen in
 [TEST.md](TEST.md).
-
-## GitHub-Automatisierung
-
-Der Labeler versieht Pull Requests anhand der Pfade in
-`.github/labeler.yml` mit Labels. Der Workflow „Add to project“ fügt neue
-Issues und Pull Requests dem Projekt
-[ClinicPulse](https://github.com/users/the1andoni/projects/8) hinzu. Dafür
-muss im Repository unter **Settings → Secrets and variables → Actions** das
-Secret `ADD_TO_PROJECT_PAT` eingerichtet sein: ein persönliches Zugriffstoken
-mit Zugriff auf das Projekt (bei klassischen Tokens die Scopes `project` und
-`repo`). Ohne dieses Secret schlägt der Workflow fehl.
 
 ## Sicherheit
 
