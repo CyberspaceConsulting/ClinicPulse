@@ -80,6 +80,7 @@ async function login(page) {
 test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page }) => {
   await mockApi(page)
   await page.goto('/')
+  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://the1andoni.github.io/ClinicPulse/')
   await page.getByLabel('Benutzername').fill('planer')
   await page.getByLabel('Passwort', { exact: true }).fill('falsch')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
@@ -87,6 +88,7 @@ test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://the1andoni.github.io/ClinicPulse/')
   await page.getByRole('button', { name: 'Abmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Willkommen zurück' })).toBeVisible()
 })

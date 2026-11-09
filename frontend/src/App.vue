@@ -457,6 +457,7 @@ const pageTitle = computed(() => {
   return 'Dienstplan'
 })
 const repositoryUrl = 'https://github.com/the1andoni/ClinicPulse'
+const documentationUrl = 'https://the1andoni.github.io/ClinicPulse/'
 const selectedPlanName = computed(() =>
   selectedPlanId.value === null
     ? 'Alle Dienstpläne'
@@ -1886,7 +1887,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main v-if="!setupChecked" class="login-shell">
-    <section class="login-card"><div class="brand-mark">C</div><h1>ClinicPulse startet …</h1><p class="muted">Installationsstatus wird geprüft.</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version 0.1.0</footer></section>
+    <section class="login-card"><div class="brand-mark">C</div><h1>ClinicPulse startet …</h1><p class="muted">Installationsstatus wird geprüft.</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version 0.1.0</footer></section>
   </main>
 
   <main v-else-if="setupRequired && !authenticated" class="login-shell">
@@ -1906,7 +1907,7 @@ onBeforeUnmount(() => {
         <button class="primary full" :disabled="busy">{{ busy ? 'Einrichtung …' : 'Admin-Zugang erstellen' }}</button>
       </form>
       <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version {{ displayVersion }}</footer>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
@@ -1922,7 +1923,7 @@ onBeforeUnmount(() => {
         <button class="primary full" :disabled="busy">{{ busy ? 'Passwort wird gespeichert …' : 'Passwort festlegen' }}</button>
       </form>
       <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version {{ displayVersion }}</footer>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
@@ -1942,7 +1943,7 @@ onBeforeUnmount(() => {
         <button class="primary full" :disabled="busy">{{ busy ? 'Anmeldung …' : 'Anmelden' }}</button>
       </form>
       <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version {{ displayVersion }}</footer>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
@@ -2276,6 +2277,8 @@ onBeforeUnmount(() => {
           <span>ClinicPulse · Version {{ displayVersion }}</span>
           <span>·</span>
           <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">GitHub-Repository</a>
+          <span>·</span>
+          <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a>
           <template v-if="roleKey === 'ADMIN'">
             <span>·</span>
             <button class="footer-update-button" :disabled="updateCheckBusy" @click="void checkForUpdates(true)">
