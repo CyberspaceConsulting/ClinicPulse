@@ -1,0 +1,13 @@
+services:
+  db:
+    restart: "no"
+    volumes:
+      - type: bind
+        source: ${CLINICPULSE_ENCRYPTED_PGDATA:?Set CLINICPULSE_ENCRYPTED_PGDATA to an existing directory on encrypted storage}
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+  api:
+    restart: "no"
+  web:
+    restart: "no"

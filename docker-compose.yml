@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: clinicpulse
+      POSTGRES_USER: clinicpulse
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - clinicpulse_data:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinicpulse -d clinicpulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    environment:
+      DB_HOST: db
+      DB_NAME: clinicpulse
+      DB_USER: clinicpulse
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      CLINICPULSE_DATA_ENCRYPTION_KEY_FILE: /run/secrets/clinicpulse_data_encryption_key
+      CLINICPULSE_LICENSE_API_URL: ${CLINICPULSE_LICENSE_API_URL:-https://lic.api.cyberspaceconsulting.de/api/v1}
+      CLINICPULSE_PUBLIC_URL: ${CLINICPULSE_PUBLIC_URL:-}
+      CLINICPULSE_SMTP_HOST: ${CLINICPULSE_SMTP_HOST:-}
+      CLINICPULSE_SMTP_PORT: ${CLINICPULSE_SMTP_PORT:-587}
+      CLINICPULSE_SMTP_USERNAME: ${CLINICPULSE_SMTP_USERNAME:-}
+      CLINICPULSE_SMTP_PASSWORD_FILE: ${CLINICPULSE_SMTP_PASSWORD_FILE:-/run/secrets/smtp_password}
+      CLINICPULSE_SMTP_FROM: ${CLINICPULSE_SMTP_FROM:-}
+      CLINICPULSE_SMTP_USE_SSL: ${CLINICPULSE_SMTP_USE_SSL:-false}
+      CLINICPULSE_SMTP_USE_STARTTLS: ${CLINICPULSE_SMTP_USE_STARTTLS:-true}
+      CLINICPULSE_BACKUP_DIR: /backups
+      CLINICPULSE_VERSION: ${CLINICPULSE_VERSION:-0.1.0}
+    volumes:
+      - ${CLINICPULSE_BACKUP_HOST_DIR:-./backups}:/backups
+    secrets:
+      - clinicpulse_data_encryption_key
+      - smtp_password
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - database
+      - application
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    ports:
+      - "${CLINICPULSE_PORT:-8080}:80"
+    depends_on:
+      - api
+    networks:
+      - application
+    restart: unless-stopped
+
+networks:
+  database:
+    internal: true
+  application:
+
+volumes:
+  clinicpulse_data:
+
+secrets:
+  clinicpulse_data_encryption_key:
+    file: ${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-./secrets/data_encryption_key}
+  smtp_password:
+    file: ./secrets/smtp_password

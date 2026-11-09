@@ -1,0 +1,2579 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import BackupPanel from './BackupPanel.vue'
+import PasswordInput from './PasswordInput.vue'
+
+type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
+type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
+type Department = { id: number; name: string }
+type BusinessConfiguration = {
+  federal_state: string
+  operational_profile: 'hospital' | 'rescue_service' | 'ils' | 'care_facility' | 'other'
+  operational_profile_managed?: boolean
+  federal_state_managed?: boolean
+  timezone: string
+  sunday_work_authorized: boolean
+}
+type MailSettings = {
+  public_url: string
+  smtp_host: string
+  smtp_port: number
+  smtp_username: string
+  smtp_password_configured: boolean
+  from_address: string
+  use_ssl: boolean
+  use_starttls: boolean
+}
+type Absence = {
+  id: number
+  employee_id: number
+  employee_name: string
+  kind: 'vacation' | 'sick' | 'other'
+  start_date: string
+  end_date: string
+  status: 'pending' | 'approved' | 'rejected'
+  note: string | null
+  requested_by: string | null
+  created_at: string | null
+  decided_by: string | null
+  decided_at: string | null
+}
+type SessionInfo = {
+  username: string
+  idle_timeout_minutes?: number | null
+  role_key: string
+  department_id: number | null
+  can_view: boolean
+  can_edit: boolean
+  can_approve: boolean
+  can_manage: boolean
+  remember_me: boolean
+}
+type AccountUser = {
+  id: number
+  username: string
+  role_key: string
+  department_id: number | null
+  department_ids: number[]
+  employee_id: number | null
+  first_name?: string | null
+  last_name?: string | null
+  birth_date?: string | null
+  address?: string | null
+  phone?: string | null
+  can_view: boolean
+  can_edit: boolean
+  can_approve: boolean
+  is_locked?: boolean
+  email?: string | null
+  invitation_status?: string
+}
+type ShiftType = {
+  id: number
+  name: string
+  start_time: string
+  end_time: string
+  color: string
+  position: string
+  required_staff: number
+  break_minutes: number
+  break_start_minutes: number
+  department_id: number | null
+}
+type Assignment = {
+  id: number
+  employee_id: number
+  shift_type_id: number
+  starts_at: string
+  ends_at: string
+  employee_name: string
+  shift_name: string
+}
+type Candidate = {
+  employee_id: number
+  employee_name: string
+  role: string
+  role_match: boolean
+  planned_assignments: number
+}
+type OptimizationSuggestion = {
+  employee_id: number
+  employee_name: string
+  employee_role: string
+  shift_type_id: number
+  shift_name: string
+  role_match: boolean
+  starts_at: string
+  ends_at: string
+}
+type PlanningDay = {
+  target_date: string
+  status: 'OPTIMAL' | 'FEASIBLE' | 'UNKNOWN'
+  suggestions: OptimizationSuggestion[]
+  unfilled_slots: { shift_type_id: number; shift_name: string; position: string }[]
+}
+type OptimizationPreview = {
+  target_date: string
+  status: 'OPTIMAL' | 'FEASIBLE' | 'UNKNOWN'
+  suggestions: OptimizationSuggestion[]
+  unfilled_slots: { shift_type_id: number; shift_name: string; position: string }[]
+}
+type Gap = { date: string; shift: ShiftType }
+type UpdateInfo = {
+  current_version: string
+  channel: 'stable' | 'nightly'
+  latest_version: string | null
+  update_available: boolean
+  status: 'up_to_date' | 'update_available' | 'no_release' | 'unavailable'
+  message: string
+  release_url: string | null
+  repository_url: string
+  checked_at: string
+}
+type LicenseInfo = {
+  status: 'PAID' | 'GRACE_PERIOD' | 'OVERDUE' | 'BLOCKED' | 'UNVERIFIED'
+  checked_at: string | null
+  license_expires_at: string | null
+  grace_until: string | null
+  read_only: boolean
+  message: string | null
+  vip: boolean
+  suppress_warnings: boolean
+  last_error: string | null
+  next_check_at: string | null
+  max_users: number | null
+  features: string[]
+  institution_name: string | null
+  operational_profile?: string | null
+  federal_state?: string | null
+}
+type AuditEvent = {
+  id: number
+  created_at: string
+  actor_username: string
+  action: string
+  entity_type: string
+  entity_id: string
+}
+type ProfileInfo = {
+  username: string
+  role_key: string
+  department_id: number | null
+  profile_image_data: string | null
+  profile_photo_visibility: 'private' | 'department'
+  first_name?: string | null
+  last_name?: string | null
+  birth_date?: string | null
+  address?: string | null
+  phone?: string | null
+  remember_me: boolean
+}
+type TeamProfile = {
+  username: string
+  role_key: string
+  profile_image_data: string | null
+  department_id: number | null
+}
+
+const authenticated = ref(false)
+const theme = ref(localStorage.getItem('clinicpulse-theme') ?? 'light')
+const username = ref('')
+const roleKey = ref('ADMIN')
+const departmentId = ref<number | null>(null)
+const canView = ref(true)
+const canEdit = ref(true)
+const canApprove = ref(true)
+const canManage = ref(true)
+const canManageTeam = computed(() => ['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(roleKey.value))
+const loginUsername = ref('admin')
+const password = ref('')
+const setupUsername = ref('')
+const setupPassword = ref('')
+const setupPasswordConfirm = ref('')
+const invitationToken = ref(new URLSearchParams(window.location.hash.slice(1)).get('invite') ?? '')
+const invitationPassword = ref('')
+const invitationPasswordConfirm = ref('')
+const invitationMessage = ref('')
+const teamNotice = ref('')
+const onboardingMailSkipped = ref(localStorage.getItem('clinicpulse-onboarding-mail-skipped') === 'true')
+const showMailOnboarding = computed(() =>
+  roleKey.value === 'ADMIN' && departments.value.length === 0 && !onboardingMailSkipped.value,
+)
+const mailSettings = ref<MailSettings>({
+  public_url: window.location.origin,
+  smtp_host: '',
+  smtp_port: 587,
+  smtp_username: '',
+  smtp_password_configured: false,
+  from_address: '',
+  use_ssl: false,
+  use_starttls: true,
+})
+const mailPassword = ref('')
+const clearMailPassword = ref(false)
+const mailSettingsMessage = ref('')
+const mailTestRecipient = ref('')
+const mailTestMessage = ref('')
+const mailTestBusy = ref(false)
+const mailSettingsLoaded = ref(false)
+const setupLicenseToken = ref('')
+const setupSundayWorkAuthorized = ref(false)
+const setupChecked = ref(false)
+const setupRequired = ref(false)
+const institutionName = ref<string | null>(null)
+const error = ref('')
+const confirmDialog = ref<{ message: string; confirmLabel: string; resolve: (value: boolean) => void } | null>(null)
+
+function askConfirmation(message: string, confirmLabel = 'Löschen') {
+  return new Promise<boolean>((resolve) => {
+    confirmDialog.value = { message, confirmLabel, resolve }
+  })
+}
+
+function answerConfirmation(answer: boolean) {
+  confirmDialog.value?.resolve(answer)
+  confirmDialog.value = null
+}
+
+let errorToastTimer: number | undefined
+watch(error, (message) => {
+  window.clearTimeout(errorToastTimer)
+  if (message && authenticated.value) errorToastTimer = window.setTimeout(() => { error.value = '' }, 8000)
+})
+const busy = ref(false)
+const employees = ref<Employee[]>([])
+const shiftTypes = ref<ShiftType[]>([])
+const departments = ref<Department[]>([])
+const selectedPlanId = ref<number | null>(null)
+const users = ref<AccountUser[]>([])
+const assignments = ref<Assignment[]>([])
+const today = new Date()
+const weekOffset = ref(0)
+const selectedDay = ref<string | null>(null)
+const showEmployeeForm = ref(false)
+const showShiftForm = ref(false)
+const showAssignmentForm = ref(false)
+const showSettings = ref(false)
+const settingsTab = ref('appearance')
+const settingsTabs = computed(() => roleKey.value === 'ADMIN'
+  ? [
+      { key: 'appearance', label: 'Darstellung' },
+      { key: 'operations', label: 'Betrieb & Arbeitszeit' },
+      { key: 'mail', label: 'E-Mail-Versand' },
+      { key: 'license', label: 'Lizenz' },
+      { key: 'backup', label: 'Backup' },
+      { key: 'archive', label: 'Archivierung' },
+      { key: 'security', label: 'Sicherheit' },
+      { key: 'audit', label: 'Audit-Protokoll' },
+    ]
+  : [{ key: 'appearance', label: 'Darstellung' }])
+const showManagement = ref(false)
+const sidebarCollapsed = ref(localStorage.getItem('clinicpulse-sidebar-collapsed') === '1')
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  localStorage.setItem('clinicpulse-sidebar-collapsed', sidebarCollapsed.value ? '1' : '0')
+}
+const showNotifications = ref(false)
+const showProfile = ref(false)
+const staySignedIn = ref(false)
+const profile = ref<ProfileInfo | null>(null)
+const teamProfiles = ref<TeamProfile[]>([])
+const profileImageData = ref<string | null>(null)
+const profilePhotoVisibility = ref<'private' | 'department'>('private')
+const updateChannel = ref<'stable' | 'nightly'>('stable')
+let idleLogoutTimer: ReturnType<typeof setTimeout> | undefined
+let lastActivityAt = Date.now()
+const idleTimeoutMinutes = ref(5)
+const idleTimeoutMs = () => idleTimeoutMinutes.value * 60 * 1000
+const IDLE_ACTIVITY_STORAGE_KEY = 'clinicpulse-last-activity'
+const employeeId = ref<number | null>(null)
+const employeeRole = ref('Pflegefachkraft')
+const roleCatalog = ref<{ access_roles: { key: string; label: string }[]; functions: string[] }>({
+  access_roles: [
+    { key: 'HOSPITAL_MANAGEMENT', label: 'Krankenhausleitung' },
+    { key: 'PERSONNEL', label: 'Personaler' },
+    { key: 'OBERARZT', label: 'Oberarzt' },
+    { key: 'CHEFARZT', label: 'Chefarzt' },
+    { key: 'KIOSK', label: 'Kiosk' },
+    { key: 'EMPLOYEE', label: 'Mitarbeiter' },
+  ],
+  functions: ['Pflegefachkraft', 'Arzt', 'Assistenzarzt', 'Pflegeassistenz', 'Hebamme', 'Medizinische Fachangestellte'],
+})
+const defaultEmployeeRole = computed(() => roleCatalog.value.functions[0] ?? 'Individuell')
+const employeeDepartmentId = ref('')
+const employeeCreateAccount = ref(false)
+const employeeLoginUsername = ref('')
+const employeeEmail = ref('')
+const employeeCustomRole = ref('')
+const shiftName = ref('')
+const shiftPosition = ref('Pflegefachkraft')
+const shiftBreak = ref<number | null>(null)
+const shiftBreakStart = ref<number | null>(null)
+const workRules = ref({ rest_hours: 11, max_daily_hours: 10, max_weekly_hours: 48 })
+const workRulesMessage = ref('')
+const businessConfiguration = ref<BusinessConfiguration>({
+  federal_state: '',
+  operational_profile: 'hospital',
+  timezone: 'Europe/Berlin',
+  sunday_work_authorized: false,
+})
+const businessConfigurationMessage = ref('')
+const requiredStaff = ref(1)
+const shiftStart = ref('07:00')
+const shiftEnd = ref('15:00')
+const selectedEmployee = ref('')
+const selectedShift = ref('')
+const selectedDate = ref(today.toLocaleDateString('sv-SE'))
+const currentPassword = ref('')
+const changedUsername = ref('')
+const newPassword = ref('')
+const smartGap = ref<Gap | null>(null)
+const smartCandidates = ref<Candidate[]>([])
+const optimizationPreview = ref<OptimizationPreview | null>(null)
+const optimizationBusy = ref(false)
+const showPlanning = ref(false)
+const planningMode = ref<'week' | 'month'>('week')
+const planningAnchor = ref(localDate(new Date()))
+const planningDays = ref<PlanningDay[] | null>(null)
+const planningBusy = ref(false)
+const planningNotice = ref('')
+const departmentName = ref('')
+const editingDepartmentId = ref<number | null>(null)
+const userId = ref<number | null>(null)
+const userName = ref('')
+const userFirstName = ref('')
+const userLastName = ref('')
+const userBirthDate = ref('')
+const userAddress = ref('')
+const userPhone = ref('')
+const employeeFirstName = ref('')
+const employeeLastName = ref('')
+const profileFirstName = ref('')
+const profileLastName = ref('')
+const profileBirthDate = ref('')
+const profileAddress = ref('')
+const profilePhone = ref('')
+const userPassword = ref('')
+const userEmail = ref('')
+const userRoleKey = ref('OBERARZT')
+const userDepartmentIds = ref<number[]>([])
+const userCanView = ref(true)
+const userCanEdit = ref(false)
+const userCanApprove = ref(false)
+const userEmployeeId = ref<number | null>(null)
+const allEmployees = ref<Employee[]>([])
+const showAbsences = ref(false)
+const showArchive = ref(false)
+interface PlanArchiveSummary { id: number; created_at: string; created_by: string; start_date: string; end_date: string; department_id: number | null; department_name: string; note: string | null; entry_count: number; content_sha256: string }
+const planArchives = ref<PlanArchiveSummary[]>([])
+const archiveStart = ref('')
+const archiveEnd = ref('')
+const archiveDepartmentId = ref('')
+const archiveNote = ref('')
+const archiveSettings = ref<{ auto_enabled: boolean; period: string; last_period_end: string | null }>({ auto_enabled: false, period: 'monthly', last_period_end: null })
+const archiveSettingsMessage = ref('')
+const idleTimeoutMessage = ref('')
+const canViewArchive = computed(() => ['OBERARZT', 'CHEFARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value))
+const absences = ref<Absence[]>([])
+const absenceKind = ref<Absence['kind']>('vacation')
+const absenceStart = ref('')
+const absenceEnd = ref('')
+const absenceNote = ref('')
+const absenceEmployeeId = ref('')
+const updateInfo = ref<UpdateInfo | null>(null)
+const updateCheckBusy = ref(false)
+const licenseInfo = ref<LicenseInfo | null>(null)
+const licenseCheckBusy = ref(false)
+const licenseTokenInput = ref('')
+const appVersion = ref('0.1.0')
+const appArchitecture = ref('')
+const displayVersion = computed(() => (appArchitecture.value ? `${appVersion.value}-${appArchitecture.value}` : appVersion.value))
+const auditEvents = ref<AuditEvent[]>([])
+const auditCategory = ref('')
+const auditOffset = ref(0)
+const auditHasMore = ref(false)
+const auditBusy = ref(false)
+const federalStates = [
+  'Baden-Württemberg', 'Bayern', 'Berlin', 'Brandenburg', 'Bremen', 'Hamburg', 'Hessen',
+  'Mecklenburg-Vorpommern', 'Niedersachsen', 'Nordrhein-Westfalen', 'Rheinland-Pfalz',
+  'Saarland', 'Sachsen', 'Sachsen-Anhalt', 'Schleswig-Holstein', 'Thüringen',
+]
+const operationalProfiles = [
+  { value: 'hospital', label: 'Krankenhaus' },
+  { value: 'rescue_service', label: 'Rettungsdienst' },
+  { value: 'ils', label: 'Integrierte Leitstelle (ILS)' },
+  { value: 'care_facility', label: 'Pflegeeinrichtung' },
+  { value: 'other', label: 'Sonstiger Betrieb' },
+] as const
+
+const weekStart = computed(() => {
+  const date = new Date(today)
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7) + weekOffset.value * 7)
+  date.setHours(0, 0, 0, 0)
+  return date
+})
+const days = computed(() => Array.from({ length: 7 }, (_, index) => {
+  const date = new Date(weekStart.value)
+  date.setDate(date.getDate() + index)
+  return date
+}))
+const weekLabel = computed(() => {
+  const start = days.value[0]
+  const end = days.value[6]
+  return `${start.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })} – ${end.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })}`
+})
+const totalHours = computed(() => assignments.value.reduce((total, assignment) => {
+  return total + (new Date(assignment.ends_at).getTime() - new Date(assignment.starts_at).getTime()) / 3_600_000
+}, 0))
+const notifications = computed(() => days.value.flatMap((day) => {
+  const date = localDate(day)
+  return shiftTypes.value.flatMap((shift) => {
+    const filled = assignmentsFor(date, shift.id).length
+    const open = Math.max(0, shift.required_staff - filled)
+    return open ? [{
+      id: `${date}-${shift.id}`,
+      date,
+      shift,
+      count: open,
+      text: `${open} unbesetzte ${shift.position}-Stelle${open === 1 ? '' : 'n'} · ${shift.name}`,
+    }] : []
+  })
+}))
+const notificationDays = ref(14)
+const notificationHistory = ref<{ id: string; date: string; text: string }[]>([])
+const notificationsLoading = ref(false)
+const pageTitle = computed(() => {
+  if (!setupChecked.value) return 'Starting …'
+  if (setupRequired.value && !authenticated.value) return 'Ersteinrichtung'
+  if (!authenticated.value) return 'Anmeldung'
+  if (showPlanning.value) return 'Dienstplanung'
+  if (showAbsences.value) return 'Abwesenheiten'
+  if (showArchive.value) return 'Archiv'
+  if (showManagement.value) return 'Verwaltung'
+  if (showSettings.value) return 'Einstellungen'
+  if (showProfile.value) return 'Profil'
+  if (showNotifications.value) return 'Meldungen'
+  if (selectedDay.value) return dateLabel(selectedDay.value)
+  return 'Dienstplan'
+})
+const repositoryUrl = 'https://github.com/the1andoni/ClinicPulse'
+const selectedPlanName = computed(() =>
+  selectedPlanId.value === null
+    ? 'Alle Dienstpläne'
+    : departments.value.find((department) => department.id === selectedPlanId.value)?.name ?? 'Dienstplan',
+)
+const licenseReadOnly = computed(() => licenseInfo.value?.read_only ?? true)
+const canEditPlan = computed(() => roleKey.value === 'OBERARZT' && canEdit.value && !licenseReadOnly.value)
+
+watch(pageTitle, (title) => {
+  document.title = `ClinicPulse – ${title}`
+}, { immediate: true })
+
+watch([authenticated, roleKey], ([isAuthenticated, role]) => {
+  clearTimeout(idleLogoutTimer)
+  if (!isAuthenticated || role === 'KIOSK') return
+  resetIdleLogoutTimer()
+})
+
+watch([selectedDay, selectedPlanId], () => {
+  optimizationPreview.value = null
+})
+
+watch([selectedPlanId, planningMode, planningAnchor], () => {
+  planningDays.value = null
+  planningNotice.value = ''
+})
+
+const planningPeriod = computed(() => {
+  const anchor = new Date(`${planningAnchor.value || localDate(new Date())}T12:00:00`)
+  if (planningMode.value === 'month') {
+    return {
+      start: localDate(new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12)),
+      end: localDate(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 12)),
+    }
+  }
+  const monday = new Date(anchor)
+  monday.setDate(anchor.getDate() - ((anchor.getDay() + 6) % 7))
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  return { start: localDate(monday), end: localDate(sunday) }
+})
+const planningSuggestionCount = computed(() =>
+  planningDays.value?.reduce((sum, day) => sum + day.suggestions.length, 0) ?? 0,
+)
+const planningUnfilledCount = computed(() =>
+  planningDays.value?.reduce((sum, day) => sum + day.unfilled_slots.length, 0) ?? 0,
+)
+const planningLoad = computed(() => {
+  const counts = new Map<string, number>()
+  for (const day of planningDays.value ?? []) {
+    for (const item of day.suggestions) {
+      counts.set(item.employee_name, (counts.get(item.employee_name) ?? 0) + 1)
+    }
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'de'))
+})
+
+watch(userRoleKey, (role) => {
+  if (role !== 'EMPLOYEE') userEmployeeId.value = null
+  if (role === 'KIOSK' || role === 'EMPLOYEE') {
+    userCanView.value = true
+    userCanEdit.value = false
+    userCanApprove.value = false
+  }
+})
+
+function localDate(date: Date) {
+  return date.toLocaleDateString('sv-SE')
+}
+
+function assignmentsFor(date: string, shiftTypeId: number) {
+  return assignments.value.filter((item) => {
+    return item.shift_type_id === shiftTypeId && localDate(new Date(item.starts_at)) === date
+  })
+}
+
+function dateAssignments(date: Date) {
+  const day = localDate(date)
+  return assignments.value.filter((item) => localDate(new Date(item.starts_at)) === day)
+}
+
+function timeLabel(value: string) {
+  return new Date(value).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+}
+
+function dateLabel(value: string) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString('de-DE', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  })
+}
+
+function formatApiErrorDetail(detail: unknown): string | null {
+  if (typeof detail === 'string') return detail
+  if (!Array.isArray(detail)) return null
+
+  const messages = detail.flatMap((item: unknown) => {
+    if (typeof item !== 'object' || item === null || !('msg' in item)) return []
+    return typeof item.msg === 'string' ? [item.msg] : []
+  })
+  return messages.length ? [...new Set(messages)].join('; ') : null
+}
+
+let apiAbortController = new AbortController()
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    signal: apiAbortController.signal,
+    ...options,
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  })
+  if (response.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/setup')) {
+    authenticated.value = false
+    username.value = ''
+    profile.value = null
+    teamProfiles.value = []
+    profileImageData.value = null
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    const detail = typeof data === 'object' && data !== null && 'detail' in data
+      ? formatApiErrorDetail(data.detail)
+      : null
+    throw new Error(detail ?? `Anfrage fehlgeschlagen (${response.status})`)
+  }
+  if (response.status === 204) return undefined as T
+  return response.json() as Promise<T>
+}
+
+function storeSession(result: Partial<SessionInfo> & { username: string }) {
+  authenticated.value = true
+  username.value = result.username
+  roleKey.value = result.role_key ?? 'ADMIN'
+  departmentId.value = result.department_id ?? null
+  canView.value = result.can_view ?? true
+  canEdit.value = result.can_edit ?? true
+  canApprove.value = result.can_approve ?? true
+  canManage.value = result.can_manage ?? roleKey.value === 'ADMIN'
+  if (result.idle_timeout_minutes) {
+    idleTimeoutMinutes.value = result.idle_timeout_minutes
+  } else {
+    void api<{ idle_timeout_minutes?: number }>('/auth/session').then((info) => {
+      if (info.idle_timeout_minutes) {
+        idleTimeoutMinutes.value = info.idle_timeout_minutes
+        scheduleIdleLogout()
+      }
+    }).catch(() => undefined)
+  }
+}
+
+async function checkSetup(restoreSession = true) {
+  try {
+    const health = await api<{ version?: string; architecture?: string }>('/health')
+    appArchitecture.value = health.architecture ?? ''
+    if (health.version) appVersion.value = health.version
+    const state = await api<{ setup_required: boolean; institution_name: string | null }>('/setup/status')
+    setupRequired.value = state.setup_required
+    institutionName.value = state.institution_name
+    if (!state.setup_required && restoreSession) {
+      try {
+        storeSession(await api<SessionInfo>('/auth/session'))
+        await loadData()
+        if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
+          teamNotice.value = 'Willkommen bei ClinicPulse. Lege zuerst eine Abteilung an und richte danach dein Team und die Zugänge ein. Du kannst diesen Schritt schließen und später links unter Teamverwaltung fortsetzen.'
+          await openManagement()
+        }
+        void checkForUpdates()
+        void refreshLicenseStatus()
+      } catch (err) {
+        if (!(err instanceof Error) || !err.message.includes('(401)')) {
+          error.value = err instanceof Error ? err.message : 'Sitzung konnte nicht geprüft werden'
+        }
+      }
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Installationsstatus konnte nicht geladen werden'
+  } finally {
+    setupChecked.value = true
+  }
+}
+
+async function loadRoleCatalog() {
+  try {
+    roleCatalog.value = await api('/role-catalog')
+  } catch {
+    // Der Standardkatalog bleibt aktiv, falls der Abruf scheitert.
+  }
+}
+
+async function loadData() {
+  void loadRoleCatalog()
+  if (!authenticated.value || !canView.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const from = localDate(days.value[0])
+    const to = localDate(days.value[6])
+    const [allStaff, allShifts, allAssignments, organization] = await Promise.all([
+      api<Employee[]>('/employees'),
+      api<ShiftType[]>('/shift-types'),
+      roleKey.value === 'ADMIN'
+        ? Promise.resolve<Assignment[]>([])
+        : api<Assignment[]>(`/assignments?from=${from}&to=${to}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
+      api<Department[]>('/departments'),
+    ])
+    departments.value = organization
+    allEmployees.value = allStaff
+    if (selectedPlanId.value !== null && !organization.some((item) => item.id === selectedPlanId.value)) {
+      selectedPlanId.value = null
+    }
+    if (!canManage.value && selectedPlanId.value === null && organization.length) {
+      selectedPlanId.value = organization[0].id
+    }
+    const inSelectedPlan = (departmentId: number | null) =>
+      selectedPlanId.value === null || departmentId === selectedPlanId.value
+    employees.value = allStaff.filter((employee) => inSelectedPlan(employee.department_id))
+    shiftTypes.value = allShifts.filter((shift) => inSelectedPlan(shift.department_id))
+    const shiftIds = new Set(shiftTypes.value.map((shift) => shift.id))
+    assignments.value = allAssignments.filter((assignment) => shiftIds.has(assignment.shift_type_id))
+    if (!selectedEmployee.value && employees.value.length) selectedEmployee.value = String(employees.value[0].id)
+    if (!selectedShift.value && shiftTypes.value.length) selectedShift.value = String(shiftTypes.value[0].id)
+    if (!employeeDepartmentId.value && departments.value.length) employeeDepartmentId.value = String(departments.value[0].id)
+    if (!userDepartmentIds.value.length && departments.value.length) userDepartmentIds.value = [departments.value[0].id]
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Daten konnten nicht geladen werden'
+  } finally {
+    busy.value = false
+  }
+
+}
+
+const kindLabels = { vacation: 'Urlaub', sick: 'Krank', other: 'Sonstiges' } as const
+const statusLabels = { pending: 'Offen', approved: 'Genehmigt', rejected: 'Abgelehnt' } as const
+const canRequestAbsence = computed(() => roleKey.value === 'EMPLOYEE' && !licenseReadOnly.value)
+const canRecordAbsence = computed(() => canEditPlan.value)
+
+async function loadAbsences() {
+  try {
+    absences.value = await api<Absence[]>('/absences')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Abwesenheiten konnten nicht geladen werden'
+  }
+}
+
+async function loadArchives() {
+  try {
+    planArchives.value = await api<PlanArchiveSummary[]>('/archives')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Archiv konnte nicht geladen werden'
+  }
+}
+
+async function saveIdleTimeout() {
+  idleTimeoutMessage.value = ''
+  try {
+    const result = await api<{ idle_timeout_minutes: number }>('/admin/security-settings', {
+      method: 'PUT',
+      body: JSON.stringify({ idle_timeout_minutes: Number(idleTimeoutMinutes.value) }),
+    })
+    idleTimeoutMinutes.value = result.idle_timeout_minutes
+    scheduleIdleLogout()
+    idleTimeoutMessage.value = 'Gespeichert'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Sicherheitseinstellungen konnten nicht gespeichert werden'
+  }
+}
+
+async function loadArchiveSettings() {
+  try {
+    archiveSettings.value = await api('/admin/archive-settings')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Archiv-Einstellungen konnten nicht geladen werden'
+  }
+}
+
+async function saveArchiveSettings() {
+  archiveSettingsMessage.value = ''
+  try {
+    archiveSettings.value = await api('/admin/archive-settings', {
+      method: 'PUT',
+      body: JSON.stringify({ auto_enabled: archiveSettings.value.auto_enabled, period: archiveSettings.value.period }),
+    })
+    archiveSettingsMessage.value = 'Gespeichert'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Archiv-Einstellungen konnten nicht gespeichert werden'
+  }
+}
+
+async function openArchive() {
+  showArchive.value = true
+  const now = new Date()
+  archiveStart.value = archiveStart.value || localDate(new Date(now.getFullYear(), now.getMonth(), 1))
+  archiveEnd.value = archiveEnd.value || localDate(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+  if (!archiveDepartmentId.value) {
+    const preferred = selectedPlanId.value ?? departments.value[0]?.id
+    archiveDepartmentId.value = preferred ? String(preferred) : ''
+  }
+  await loadArchives()
+}
+
+async function createArchive() {
+  try {
+    await api('/archives', {
+      method: 'POST',
+      body: JSON.stringify({
+        start_date: archiveStart.value,
+        end_date: archiveEnd.value,
+        department_id: Number(archiveDepartmentId.value),
+        note: archiveNote.value.trim() || null,
+      }),
+    })
+    archiveNote.value = ''
+    await loadArchives()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Archivierung fehlgeschlagen'
+  }
+}
+
+async function openAbsences() {
+  showPlanning.value = false
+  showNotifications.value = false
+  selectedDay.value = null
+  showAbsences.value = true
+  absenceStart.value = absenceStart.value || localDate(new Date())
+  absenceEnd.value = absenceEnd.value || absenceStart.value
+  if (!absenceEmployeeId.value && employees.value.length) absenceEmployeeId.value = String(employees.value[0].id)
+  await loadAbsences()
+}
+
+async function submitAbsence() {
+  error.value = ''
+  try {
+    await api('/absences', {
+      method: 'POST',
+      body: JSON.stringify({
+        kind: absenceKind.value,
+        start_date: absenceStart.value,
+        end_date: absenceEnd.value,
+        note: absenceNote.value.trim() || null,
+        ...(roleKey.value === 'EMPLOYEE' ? {} : { employee_id: Number(absenceEmployeeId.value) }),
+      }),
+    })
+    absenceNote.value = ''
+    await loadAbsences()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Abwesenheit konnte nicht gespeichert werden'
+  }
+}
+
+async function decideAbsence(absence: Absence, decision: 'approved' | 'rejected') {
+  error.value = ''
+  try {
+    await api(`/absences/${absence.id}/decision`, { method: 'POST', body: JSON.stringify({ decision }) })
+    await loadAbsences()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Entscheidung konnte nicht gespeichert werden'
+  }
+}
+
+async function removeAbsence(absence: Absence) {
+  error.value = ''
+  try {
+    await api(`/absences/${absence.id}`, { method: 'DELETE' })
+    await loadAbsences()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Abwesenheit konnte nicht gelöscht werden'
+  }
+}
+
+async function checkForUpdates(refresh = false) {
+  if (!authenticated.value || roleKey.value !== 'ADMIN') return
+  updateCheckBusy.value = true
+  try {
+    updateInfo.value = await api<UpdateInfo>(`/admin/updates${refresh ? '?refresh=true' : ''}`)
+    updateChannel.value = updateInfo.value.channel
+    appVersion.value = updateInfo.value.current_version
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Update-Status konnte nicht geladen werden'
+  } finally {
+    updateCheckBusy.value = false
+  }
+}
+
+async function refreshLicenseStatus() {
+  if (!authenticated.value) return
+  try {
+    licenseInfo.value = await api<LicenseInfo>('/license/status')
+  } catch (err) {
+    if (roleKey.value === 'ADMIN') {
+      error.value = err instanceof Error ? err.message : 'Lizenzstatus konnte nicht geladen werden'
+    }
+  }
+}
+
+async function loadAuditEvents(reset = false) {
+  if (roleKey.value !== 'ADMIN' || auditBusy.value) return
+  auditBusy.value = true
+  try {
+    const offset = reset ? 0 : auditOffset.value
+    const result = await api<{ items: AuditEvent[]; limit: number; offset: number }>(
+      `/admin/audit?limit=25&offset=${offset}${auditCategory.value ? `&category=${auditCategory.value}` : ''}`,
+    )
+    auditEvents.value = reset ? result.items : [...auditEvents.value, ...result.items]
+    auditOffset.value = offset + result.items.length
+    auditHasMore.value = result.items.length === result.limit
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Audit-Protokoll konnte nicht geladen werden'
+  } finally {
+    auditBusy.value = false
+  }
+}
+
+async function loadMailSettings() {
+  try {
+    mailSettings.value = await api<MailSettings>('/admin/mail-settings')
+    mailSettingsLoaded.value = true
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'E-Mail-Einstellungen konnten nicht geladen werden'
+  }
+}
+
+async function saveMailSettings(): Promise<boolean> {
+  mailSettingsMessage.value = ''
+  try {
+    const saved = await api<MailSettings>('/admin/mail-settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        public_url: mailSettings.value.public_url.trim(),
+        smtp_host: mailSettings.value.smtp_host.trim(),
+        smtp_port: Number(mailSettings.value.smtp_port),
+        smtp_username: mailSettings.value.smtp_username.trim(),
+        smtp_password: mailPassword.value || null,
+        clear_smtp_password: clearMailPassword.value,
+        from_address: mailSettings.value.from_address.trim(),
+        use_ssl: mailSettings.value.use_ssl,
+        use_starttls: mailSettings.value.use_ssl ? false : mailSettings.value.use_starttls,
+      }),
+    })
+    mailSettings.value = saved
+    mailPassword.value = ''
+    clearMailPassword.value = false
+    mailSettingsMessage.value = 'E-Mail-Einstellungen gespeichert.'
+    return true
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'E-Mail-Einstellungen konnten nicht gespeichert werden'
+    return false
+  }
+}
+
+async function testMailDelivery() {
+  mailTestMessage.value = ''
+  mailTestBusy.value = true
+  try {
+    if (!await saveMailSettings()) return
+    await api('/admin/mail-settings/test', {
+      method: 'POST',
+      body: JSON.stringify({ recipient: mailTestRecipient.value.trim() }),
+    })
+    mailTestMessage.value = `Testmail an ${mailTestRecipient.value.trim()} wurde versendet.`
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Testmail konnte nicht versendet werden'
+  } finally {
+    mailTestBusy.value = false
+  }
+}
+
+function skipMailOnboarding() {
+  onboardingMailSkipped.value = true
+  localStorage.setItem('clinicpulse-onboarding-mail-skipped', 'true')
+}
+
+function openAppSettings(tab = 'appearance') {
+  showManagement.value = false
+  showEmployeeForm.value = false
+  showShiftForm.value = false
+  showAssignmentForm.value = false
+  showSettings.value = true
+  settingsTab.value = tab
+  if (roleKey.value === 'ADMIN') {
+    void loadBusinessConfiguration()
+    void loadArchiveSettings()
+    void loadWorkRules()
+    mailSettingsLoaded.value = false
+    void loadMailSettings()
+    auditEvents.value = []
+    auditOffset.value = 0
+    void loadAuditEvents(true)
+  }
+}
+
+async function checkLicenseNow() {
+  if (!authenticated.value || roleKey.value !== 'ADMIN') return
+  licenseCheckBusy.value = true
+  try {
+    licenseInfo.value = await api<LicenseInfo>('/admin/license/check', { method: 'POST' })
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Lizenzprüfung fehlgeschlagen'
+  } finally {
+    licenseCheckBusy.value = false
+  }
+}
+
+async function replaceLicenseToken() {
+  if (!licenseTokenInput.value.trim()) return
+  licenseCheckBusy.value = true
+  try {
+    licenseInfo.value = await api<LicenseInfo>('/admin/license/token', {
+      method: 'PUT',
+      body: JSON.stringify({ license_token: licenseTokenInput.value.trim() }),
+    })
+    licenseTokenInput.value = ''
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Lizenz-Token konnte nicht ersetzt werden'
+  } finally {
+    licenseCheckBusy.value = false
+  }
+}
+
+const clockNow = ref(Date.now())
+let clockTicker: ReturnType<typeof setInterval> | undefined
+const idleRemainingLabel = computed(() => {
+  if (roleKey.value === 'KIOSK') return 'Kein automatisches Abmelden'
+  const seconds = Math.max(0, Math.ceil((idleTimeoutMs() - (clockNow.value - idleActivityAt.value)) / 1000))
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  return `Abmeldung in ${clock} ohne Aktivität`
+})
+const idleWarning = computed(() => roleKey.value !== 'KIOSK' && idleTimeoutMs() - (clockNow.value - idleActivityAt.value) <= 60000)
+const idleActivityAt = ref(Date.now())
+
+function resetIdleLogoutTimer() {
+  clearTimeout(idleLogoutTimer)
+  if (!authenticated.value || roleKey.value === 'KIOSK') return
+  lastActivityAt = Date.now()
+  idleActivityAt.value = lastActivityAt
+  localStorage.setItem(IDLE_ACTIVITY_STORAGE_KEY, String(lastActivityAt))
+  scheduleIdleLogout()
+}
+
+function scheduleIdleLogout() {
+  clearTimeout(idleLogoutTimer)
+  if (!authenticated.value || roleKey.value === 'KIOSK') return
+  const remaining = idleTimeoutMs() - (Date.now() - lastActivityAt)
+  if (remaining <= 0) {
+    void logout().then(() => {
+      error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+    })
+    return
+  }
+  idleLogoutTimer = setTimeout(async () => {
+    await logout()
+    error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+  }, remaining)
+}
+
+let lastKeepAliveAt = 0
+
+function onUserActivity() {
+  if (!authenticated.value || roleKey.value === 'KIOSK') return
+  resetIdleLogoutTimer()
+  clockNow.value = Date.now()
+  // Nur Klicks zählen als Aktivität; der Server verlängert die Sitzung per Cookie nur bei API-Aufrufen.
+  if (Date.now() - lastKeepAliveAt >= 2000) {
+    lastKeepAliveAt = Date.now()
+    void api('/auth/session').catch(() => undefined)
+  }
+}
+
+function checkIdleDeadline() {
+  if (document.visibilityState !== 'visible') return
+  if (
+    authenticated.value
+    && roleKey.value !== 'KIOSK'
+    && Date.now() - lastActivityAt >= idleTimeoutMs()
+  ) {
+    void logout().then(() => {
+      error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+    })
+    return
+  }
+  scheduleIdleLogout()
+}
+
+function onSharedActivity(event: StorageEvent) {
+  if (
+    event.key !== IDLE_ACTIVITY_STORAGE_KEY
+    || !authenticated.value
+    || roleKey.value === 'KIOSK'
+    || event.newValue === null
+  ) return
+  const activityAt = Number(event.newValue)
+  if (Number.isFinite(activityAt) && activityAt > lastActivityAt) {
+    lastActivityAt = activityAt
+    idleActivityAt.value = activityAt
+    scheduleIdleLogout()
+  }
+}
+
+async function openProfile() {
+  showProfile.value = true
+  changedUsername.value = username.value
+  currentPassword.value = ''
+  newPassword.value = ''
+  try {
+    const [ownProfile, colleagues] = await Promise.all([
+      api<ProfileInfo>('/profile/me'),
+      api<TeamProfile[]>('/profile/department'),
+    ])
+    profile.value = ownProfile
+    profileImageData.value = ownProfile.profile_image_data
+    profilePhotoVisibility.value = ownProfile.profile_photo_visibility
+    profileFirstName.value = ownProfile.first_name ?? ''
+    profileLastName.value = ownProfile.last_name ?? ''
+    profileBirthDate.value = ownProfile.birth_date ?? ''
+    profileAddress.value = ownProfile.address ?? ''
+    profilePhone.value = ownProfile.phone ?? ''
+    teamProfiles.value = colleagues
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Profil konnte nicht geladen werden'
+  }
+}
+
+function selectProfileImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 256_000) {
+    error.value = 'Bitte ein PNG-, JPEG- oder WebP-Bild bis maximal 256 KB auswählen.'
+    input.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.addEventListener('load', () => {
+    if (typeof reader.result === 'string') profileImageData.value = reader.result
+  })
+  reader.addEventListener('error', () => {
+    error.value = 'Profilbild konnte nicht gelesen werden.'
+  })
+  reader.readAsDataURL(file)
+}
+
+async function saveProfile() {
+  try {
+    profile.value = await api<ProfileInfo>('/profile/me', {
+      method: 'PUT',
+      body: JSON.stringify({
+        profile_image_data: profileImageData.value,
+        profile_photo_visibility: profilePhotoVisibility.value,
+        ...(roleKey.value === 'ADMIN' ? {} : {
+          first_name: profileFirstName.value.trim() || null,
+          last_name: profileLastName.value.trim() || null,
+          birth_date: profileBirthDate.value || null,
+          address: profileAddress.value.trim() || null,
+          phone: profilePhone.value.trim() || null,
+        }),
+      }),
+    })
+    teamProfiles.value = await api<TeamProfile[]>('/profile/department')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Profil konnte nicht gespeichert werden'
+  }
+}
+
+async function changeUpdateChannel(event: Event) {
+  const channel = (event.target as HTMLSelectElement).value as 'stable' | 'nightly'
+  try {
+    const result = await api<{ channel: 'stable' | 'nightly' }>('/admin/update-channel', {
+      method: 'PUT',
+      body: JSON.stringify({ channel }),
+    })
+    updateChannel.value = result.channel
+    await checkForUpdates(true)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Update-Kanal konnte nicht geändert werden'
+  }
+}
+
+async function loadWorkRules() {
+  try {
+    workRules.value = await api('/admin/work-rules')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Arbeitszeitregeln konnten nicht geladen werden'
+  }
+}
+
+async function loadBusinessConfiguration() {
+  try {
+    businessConfiguration.value = await api<BusinessConfiguration>('/admin/business-configuration')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Betriebskonfiguration konnte nicht geladen werden'
+  }
+}
+
+async function saveBusinessConfiguration() {
+  businessConfigurationMessage.value = ''
+  try {
+    businessConfiguration.value = await api<BusinessConfiguration>('/admin/business-configuration', {
+      method: 'PUT',
+      body: JSON.stringify(businessConfiguration.value),
+    })
+    businessConfigurationMessage.value = 'Gespeichert'
+    void loadRoleCatalog()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Betriebskonfiguration konnte nicht gespeichert werden'
+  }
+}
+
+async function saveWorkRules() {
+  workRulesMessage.value = ''
+  try {
+    workRules.value = await api('/admin/work-rules', { method: 'PUT', body: JSON.stringify(workRules.value) })
+    workRulesMessage.value = 'Gespeichert'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Arbeitszeitregeln konnten nicht gespeichert werden'
+  }
+}
+
+async function login() {
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await api<SessionInfo>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: loginUsername.value,
+        password: password.value,
+        stay_signed_in: staySignedIn.value,
+      }),
+    })
+    storeSession(result)
+    staySignedIn.value = result.remember_me
+    password.value = ''
+    await loadData()
+    void checkForUpdates()
+    void refreshLicenseStatus()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function acceptInvitation() {
+  if (invitationPassword.value !== invitationPasswordConfirm.value) {
+    error.value = 'Die beiden Passwörter stimmen nicht überein.'
+    return
+  }
+  busy.value = true
+  error.value = ''
+  try {
+    await api('/auth/accept-invitation', {
+      method: 'POST',
+      body: JSON.stringify({ token: invitationToken.value, password: invitationPassword.value }),
+    })
+    invitationToken.value = ''
+    invitationPassword.value = ''
+    invitationPasswordConfirm.value = ''
+    invitationMessage.value = 'Dein Passwort wurde gesetzt. Du kannst dich jetzt anmelden.'
+    window.history.replaceState({}, '', window.location.pathname + window.location.search)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Einladung konnte nicht angenommen werden'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function completeSetup() {
+  if (setupPassword.value !== setupPasswordConfirm.value) {
+    error.value = 'Die beiden Passwörter stimmen nicht überein.'
+    return
+  }
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await api<SessionInfo>('/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: setupUsername.value,
+        password: setupPassword.value,
+        license_token: setupLicenseToken.value,
+        sunday_work_authorized: setupSundayWorkAuthorized.value,
+      }),
+    })
+    storeSession(result)
+    setupRequired.value = false
+    const installationInfo = await api<{ institution_name: string | null }>('/setup/status')
+    institutionName.value = installationInfo.institution_name
+    setupPassword.value = ''
+    setupPasswordConfirm.value = ''
+    setupLicenseToken.value = ''
+    await loadData()
+    if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
+      teamNotice.value = 'Willkommen bei ClinicPulse. Lege zuerst eine Abteilung an und richte danach dein Team und die Zugänge ein.'
+      await openManagement()
+    }
+    void checkForUpdates()
+    void refreshLicenseStatus()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Einrichtung fehlgeschlagen'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function logout() {
+  // Laufende Anfragen abbrechen, damit sie das Sitzungs-Cookie nach dem Abmelden nicht erneuern.
+  apiAbortController.abort()
+  apiAbortController = new AbortController()
+  try {
+    await api('/auth/logout', { method: 'POST' })
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Abmeldung beim Server fehlgeschlagen'
+  }
+  authenticated.value = false
+  username.value = ''
+  assignments.value = []
+  employees.value = []
+  shiftTypes.value = []
+  departments.value = []
+  users.value = []
+  showSettings.value = false
+  showAbsences.value = false
+  showProfile.value = false
+  showManagement.value = false
+  await checkSetup(false)
+}
+
+function applyTheme(value: string) {
+  theme.value = value
+  localStorage.setItem('clinicpulse-theme', value)
+  document.documentElement.dataset.theme = value
+}
+
+async function submitEmployee() {
+  try {
+    const body = {
+        first_name: employeeFirstName.value.trim(),
+        last_name: employeeLastName.value.trim(),
+        role: (employeeRole.value === 'Individuell' ? employeeCustomRole.value : employeeRole.value).trim(),
+        department_id: Number(employeeDepartmentId.value),
+        create_account: employeeCreateAccount.value,
+        username: employeeCreateAccount.value ? employeeLoginUsername.value.trim() : null,
+        email: employeeCreateAccount.value ? employeeEmail.value.trim() : null,
+    }
+    const result = employeeId.value
+      ? await api<Employee>('/employees/' + employeeId.value, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        }).then((employee) => ({ employee, invitation_status: null }))
+      : await api<EmployeeOnboardResult>('/employees/onboard', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+    employeeId.value = null
+    employeeFirstName.value = ''
+  employeeLastName.value = ''
+    employeeRole.value = defaultEmployeeRole.value
+    employeeCustomRole.value = ''
+    employeeCreateAccount.value = false
+    employeeLoginUsername.value = ''
+    employeeEmail.value = ''
+    showEmployeeForm.value = false
+    if (result.invitation_status === 'pending') {
+      teamNotice.value = 'Mitarbeiter angelegt und Einladung per E-Mail versendet.'
+    } else if (result.invitation_status === 'delivery_failed') {
+      teamNotice.value = 'Mitarbeiter angelegt, aber die Einladung konnte nicht gesendet werden. Das Konto bleibt gesperrt; SMTP prüfen und Einladung erneut senden.'
+    } else {
+      teamNotice.value = 'Mitarbeiter angelegt.'
+    }
+    if (authenticated.value && canView.value) await loadData()
+    if (canManageTeam.value) await openManagement()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Mitarbeitende konnten nicht angelegt werden'
+  }
+}
+
+function editEmployee(employee: Employee) {
+  employeeId.value = employee.id
+  employeeFirstName.value = employee.first_name ?? employee.name.split(' ')[0] ?? ''
+  employeeLastName.value = employee.last_name ?? employee.name.split(' ').slice(1).join(' ')
+  const commonRoles = roleCatalog.value.functions
+  employeeRole.value = commonRoles.includes(employee.role) ? employee.role : 'Individuell'
+  employeeCustomRole.value = commonRoles.includes(employee.role) ? '' : employee.role
+  employeeDepartmentId.value = employee.department_id === null ? '' : String(employee.department_id)
+  employeeCreateAccount.value = false
+  showEmployeeForm.value = true
+}
+
+function newEmployee() {
+  employeeId.value = null
+  employeeFirstName.value = ''
+  employeeLastName.value = ''
+  employeeRole.value = defaultEmployeeRole.value
+  employeeCustomRole.value = ''
+  employeeDepartmentId.value = String(selectedPlanId.value ?? departments.value[0]?.id ?? '')
+  employeeCreateAccount.value = false
+  employeeLoginUsername.value = ''
+  employeeEmail.value = ''
+  showEmployeeForm.value = true
+}
+
+async function submitShift() {
+  try {
+    await api('/shift-types', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: shiftName.value.trim(),
+        start_time: `${shiftStart.value}:00`,
+        end_time: `${shiftEnd.value}:00`,
+        color: '#287b71',
+        position: shiftPosition.value.trim(),
+        required_staff: requiredStaff.value,
+        break_minutes: shiftBreak.value,
+        break_start_minutes: shiftBreakStart.value,
+        department_id: selectedPlanId.value ?? departmentId.value,
+      }),
+    })
+    shiftName.value = ''
+    shiftBreak.value = null
+    shiftBreakStart.value = null
+    showShiftForm.value = false
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Schicht konnte nicht angelegt werden'
+  }
+}
+
+function shiftInterval(date: string, shift: ShiftType) {
+  const start = new Date(`${date}T${shift.start_time}`)
+  const end = new Date(`${date}T${shift.end_time}`)
+  if (end <= start) end.setDate(end.getDate() + 1)
+  return { starts_at: start.toISOString(), ends_at: end.toISOString() }
+}
+
+async function addAssignment(employeeId: number, date: string, shift: ShiftType) {
+  const interval = shiftInterval(date, shift)
+  await api('/assignments', {
+    method: 'POST',
+    body: JSON.stringify({
+      employee_id: employeeId,
+      shift_type_id: shift.id,
+      ...interval,
+    }),
+  })
+  smartGap.value = null
+  smartCandidates.value = []
+  await loadData()
+}
+
+async function submitAssignment() {
+  const shift = shiftTypes.value.find((item) => item.id === Number(selectedShift.value))
+  if (!shift) {
+    error.value = 'Bitte zuerst eine Schichtart anlegen.'
+    return
+  }
+  try {
+    await addAssignment(Number(selectedEmployee.value), selectedDate.value, shift)
+    showAssignmentForm.value = false
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht geplant werden'
+  }
+}
+
+async function removeAssignment(id: number) {
+  if (!await askConfirmation('Diesen Dienst aus dem Plan entfernen?', 'Entfernen')) return
+  try {
+    await api(`/assignments/${id}`, { method: 'DELETE' })
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht entfernt werden'
+  }
+}
+
+async function suggestFor(date: string, shift: ShiftType) {
+  smartGap.value = { date, shift }
+  const interval = shiftInterval(date, shift)
+  const params = new URLSearchParams({
+    shift_type_id: String(shift.id),
+    starts_at: interval.starts_at,
+    ends_at: interval.ends_at,
+  })
+  try {
+    const result = await api<{ candidates: Candidate[] }>(`/smart-selection?${params}`)
+    smartCandidates.value = result.candidates
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Smart-Auswahl konnte nicht erstellt werden'
+    smartGap.value = null
+  }
+}
+
+async function approveCandidate(candidate: Candidate) {
+  if (!smartGap.value) return
+  try {
+    const interval = shiftInterval(smartGap.value.date, smartGap.value.shift)
+    await api('/smart-selection/approve', {
+      method: 'POST',
+      body: JSON.stringify({
+        employee_id: candidate.employee_id,
+        shift_type_id: smartGap.value.shift.id,
+        ...interval,
+      }),
+    })
+    smartGap.value = null
+    smartCandidates.value = []
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Vorschlag konnte nicht übernommen werden'
+  }
+}
+
+function openPlanning() {
+  showAbsences.value = false
+  showNotifications.value = false
+  showPlanning.value = true
+  selectedDay.value = null
+}
+
+async function proposePlanning() {
+  planningBusy.value = true
+  planningDays.value = null
+  planningNotice.value = ''
+  error.value = ''
+  try {
+    const result = await api<{ days: PlanningDay[] }>('/planning/preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        start_date: planningPeriod.value.start,
+        end_date: planningPeriod.value.end,
+        ...(selectedPlanId.value === null ? {} : { department_id: selectedPlanId.value }),
+      }),
+    })
+    planningDays.value = result.days
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Dienstplan konnte nicht berechnet werden'
+  } finally {
+    planningBusy.value = false
+  }
+}
+
+async function approvePlanning() {
+  if (!planningDays.value || !planningSuggestionCount.value) return
+  planningBusy.value = true
+  error.value = ''
+  try {
+    const result = await api<{ created: number }>('/planning/approve', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: planningDays.value.flatMap((day) => day.suggestions.map((item) => ({
+          employee_id: item.employee_id,
+          shift_type_id: item.shift_type_id,
+          target_date: day.target_date,
+        }))),
+      }),
+    })
+    planningNotice.value = `${result.created} Dienste wurden genehmigt und eingetragen.`
+    planningDays.value = null
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Dienstplan konnte nicht genehmigt werden'
+  } finally {
+    planningBusy.value = false
+  }
+}
+
+async function optimizeSelectedDay() {
+  if (!selectedDay.value) return
+  optimizationBusy.value = true
+  optimizationPreview.value = null
+  error.value = ''
+  try {
+    optimizationPreview.value = await api<OptimizationPreview>('/optimization/preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        target_date: selectedDay.value,
+        ...(selectedPlanId.value === null ? {} : { department_id: selectedPlanId.value }),
+      }),
+    })
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Optimierung konnte nicht berechnet werden'
+  } finally {
+    optimizationBusy.value = false
+  }
+}
+
+async function applyOptimizationSuggestion(suggestion: OptimizationSuggestion) {
+  try {
+    await api('/assignments', {
+      method: 'POST',
+      body: JSON.stringify({
+        employee_id: suggestion.employee_id,
+        shift_type_id: suggestion.shift_type_id,
+        starts_at: suggestion.starts_at,
+        ends_at: suggestion.ends_at,
+      }),
+    })
+    if (optimizationPreview.value) {
+      optimizationPreview.value.suggestions = optimizationPreview.value.suggestions.filter(
+        (item) => item.employee_id !== suggestion.employee_id
+          || item.shift_type_id !== suggestion.shift_type_id,
+      )
+    }
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Optimierungsvorschlag konnte nicht übernommen werden'
+  }
+}
+
+function dragEmployee(event: DragEvent, employee: Employee) {
+  event.dataTransfer?.setData('text/plain', String(employee.id))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
+}
+
+async function dropEmployee(event: DragEvent, date: string, shift: ShiftType) {
+  const employeeId = Number(event.dataTransfer?.getData('text/plain'))
+  if (!employeeId) return
+  try {
+    await addAssignment(employeeId, date, shift)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht zugewiesen werden'
+  }
+}
+
+async function saveSettings() {
+  try {
+    const result = await api<SessionInfo>('/settings/account', {
+      method: 'PUT',
+      body: JSON.stringify({
+        current_password: currentPassword.value,
+        username: changedUsername.value.trim(),
+        new_password: newPassword.value || null,
+      }),
+    })
+    storeSession(result)
+    currentPassword.value = ''
+    newPassword.value = ''
+    showProfile.value = false
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Einstellungen konnten nicht gespeichert werden'
+  }
+}
+
+async function openManagement() {
+    void loadRoleCatalog()
+    showManagement.value = true
+    if (!canManageTeam.value) return
+    try {
+      const [managedUsers, organization, staff] = await Promise.all([
+        api<AccountUser[]>('/users'),
+        api<Department[]>('/departments'),
+        api<Employee[]>('/employees'),
+      ])
+      users.value = managedUsers
+      departments.value = organization
+      allEmployees.value = staff
+      if (!employeeDepartmentId.value && organization.length) employeeDepartmentId.value = String(organization[0].id)
+      if (roleKey.value === 'PERSONNEL' && userId.value === null) resetUserForm()
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Verwaltungsdaten konnten nicht geladen werden'
+    }
+  }
+
+function resetUserForm() {
+    userId.value = null
+    userName.value = ''
+    userFirstName.value = ''
+    userLastName.value = ''
+    userBirthDate.value = ''
+    userAddress.value = ''
+    userPhone.value = ''
+    userPassword.value = ''
+    userEmail.value = ''
+    userRoleKey.value = roleKey.value === 'PERSONNEL' ? 'EMPLOYEE' : 'OBERARZT'
+    userDepartmentIds.value = departments.value.length ? [departments.value[0].id] : []
+    userEmployeeId.value = null
+    userCanView.value = true
+    userCanEdit.value = false
+    userCanApprove.value = false
+  }
+
+function editUser(user: AccountUser) {
+    userId.value = user.id
+    userName.value = user.username
+    userFirstName.value = user.first_name ?? ''
+    userLastName.value = user.last_name ?? ''
+    userBirthDate.value = user.birth_date ?? ''
+    userAddress.value = user.address ?? ''
+    userPhone.value = user.phone ?? ''
+    userPassword.value = ''
+    userEmail.value = user.email ?? ''
+    userRoleKey.value = user.role_key
+    userDepartmentIds.value = [...(user.department_ids ?? (user.department_id ? [user.department_id] : []))]
+    userCanView.value = user.can_view
+    userCanEdit.value = user.can_edit
+    userCanApprove.value = user.can_approve
+    userEmployeeId.value = user.employee_id ?? null
+  }
+
+async function toggleUserLock(user: AccountUser) {
+    try {
+      const updated = await api<AccountUser>(`/users/${user.id}/lock`, {
+        method: 'PUT',
+        body: JSON.stringify({ locked: !user.is_locked }),
+      })
+      users.value = users.value.map((item) => (item.id === updated.id ? updated : item))
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Konto konnte nicht geändert werden'
+    }
+  }
+
+  async function resendInvitation(user: AccountUser) {
+      try {
+        const updated = await api<AccountUser>(`/users/${user.id}/invitation`, { method: 'POST' })
+        users.value = users.value.map((item) => item.id === updated.id ? updated : item)
+        teamNotice.value = updated.invitation_status === 'pending'
+          ? `Einladung an ${updated.email} erneut versendet.`
+          : 'Einladung konnte nicht versendet werden. SMTP-Konfiguration prüfen.'
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : 'Einladung konnte nicht versendet werden'
+      }
+  }
+
+  async function revokeInvitation(user: AccountUser) {
+        if (!await askConfirmation(`Einladung für „${user.username}“ widerrufen? Das Konto bleibt gesperrt.`, 'Einladung widerrufen')) return
+        try {
+          await api(`/users/${user.id}/invitation`, { method: 'DELETE' })
+          teamNotice.value = `Einladung für ${user.username} widerrufen.`
+          await openManagement()
+        } catch (err) {
+          error.value = err instanceof Error ? err.message : 'Einladung konnte nicht widerrufen werden'
+        }
+  }
+
+  async function saveUser() {
+    try {
+      const payload = {
+        username: userName.value.trim(),
+        first_name: userFirstName.value.trim(),
+        last_name: userLastName.value.trim(),
+        birth_date: userBirthDate.value || null,
+        address: userAddress.value.trim() || null,
+        phone: userPhone.value.trim() || null,
+        email: userEmail.value.trim() || null,
+        role_key: userRoleKey.value,
+        department_id: userDepartmentIds.value[0] ?? null,
+        department_ids: userRoleKey.value === 'HOSPITAL_MANAGEMENT' ? [] : userDepartmentIds.value,
+        can_view: userCanView.value,
+        can_edit: userRoleKey.value === 'CHEFARZT' || userRoleKey.value === 'EMPLOYEE' ? false : userCanEdit.value,
+        can_approve: userRoleKey.value === 'CHEFARZT' || userRoleKey.value === 'EMPLOYEE' ? false : userCanApprove.value,
+        employee_id: userRoleKey.value === 'EMPLOYEE' ? userEmployeeId.value : null,
+        ...(userId.value ? { new_password: userPassword.value || null } : { password: userEmail.value.trim() ? null : userPassword.value || null }),
+      }
+      const saved = await api<AccountUser>(userId.value ? `/users/${userId.value}` : '/users', {
+        method: userId.value ? 'PUT' : 'POST',
+        body: JSON.stringify(payload),
+      })
+      if (saved.invitation_status === 'pending') {
+        teamNotice.value = `Zugang erstellt. Einladung an ${saved.email} versendet.`
+      } else if (saved.invitation_status === 'delivery_failed') {
+        teamNotice.value = 'Zugang erstellt, aber die Einladung konnte nicht gesendet werden. Das Konto bleibt gesperrt; SMTP prüfen und Einladung erneut senden.'
+      }
+      resetUserForm()
+      await openManagement()
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Benutzerkonto konnte nicht gespeichert werden'
+    }
+  }
+
+async function removeUser(user: AccountUser) {
+    if (!await askConfirmation(`Konto „${user.username}“ löschen?`)) return
+    try {
+      await api(`/users/${user.id}`, { method: 'DELETE' })
+      await openManagement()
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Benutzerkonto konnte nicht gelöscht werden'
+    }
+  }
+
+async function saveDepartment() {
+    try {
+      await api(editingDepartmentId.value ? `/departments/${editingDepartmentId.value}` : '/departments', {
+        method: editingDepartmentId.value ? 'PUT' : 'POST',
+        body: JSON.stringify({ name: departmentName.value.trim() }),
+      })
+      departmentName.value = ''
+      editingDepartmentId.value = null
+      await openManagement()
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Abteilung konnte nicht gespeichert werden'
+    }
+  }
+
+function editDepartment(department: Department) {
+    editingDepartmentId.value = department.id
+    departmentName.value = department.name
+  }
+
+async function removeDepartment(department: Department) {
+    if (!await askConfirmation(`Abteilung „${department.name}“ löschen?`)) return
+    try {
+      await api(`/departments/${department.id}`, { method: 'DELETE' })
+      await openManagement()
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Abteilung konnte nicht gelöscht werden'
+    }
+  }
+
+function systemRoleSelectable(key: string) {
+  if (roleKey.value === 'PERSONNEL') return key === 'EMPLOYEE'
+  if (key === 'HOSPITAL_MANAGEMENT') return roleKey.value === 'ADMIN'
+  if (key === 'PERSONNEL') return roleKey.value !== 'EMPLOYEE'
+  return true
+}
+
+function initialsOf(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?'
+}
+
+function employeePhoto(employeeId: number | null | undefined) {
+  return employees.value.find((item) => item.id === employeeId)?.profile_image_data ?? null
+}
+
+function roleLabel(key: string) {
+  const catalogLabel = roleCatalog.value.access_roles.find((role) => role.key === key)?.label
+  if (catalogLabel) return catalogLabel
+    return ({
+      ADMIN: 'Administrator',
+      HOSPITAL_MANAGEMENT: 'Krankenhausleitung',
+      PERSONNEL: 'Personaler',
+      OBERARZT: 'Oberarzt',
+      CHEFARZT: 'Chefarzt',
+      KIOSK: 'Kiosk',
+      EMPLOYEE: 'Mitarbeiter',
+    } as Record<string, string>)[key] ?? key
+}
+
+function moveWeek(amount: number) {
+  weekOffset.value += amount
+  void loadData()
+}
+
+function selectPlan(departmentId: number | null) {
+  showAbsences.value = false
+  if (selectedPlanId.value === departmentId) return
+  showNotifications.value = false
+  selectedPlanId.value = departmentId
+  selectedDay.value = null
+  smartGap.value = null
+  smartCandidates.value = []
+  selectedEmployee.value = ''
+  selectedShift.value = ''
+  void loadData()
+}
+
+function openNotification(item: { date: string }) {
+  selectedDay.value = item.date
+  showNotifications.value = false
+}
+
+async function loadNotificationHistory() {
+  if (roleKey.value === 'ADMIN') {
+    notificationHistory.value = []
+    return
+  }
+  notificationsLoading.value = true
+  try {
+    const today = new Date()
+    const start = new Date(today)
+    start.setDate(start.getDate() - notificationDays.value)
+    const from = localDate(start)
+    const to = localDate(today)
+    const [shifts, rangeAssignments] = await Promise.all([
+      Promise.resolve(shiftTypes.value),
+      api<Assignment[]>(`/assignments?from=${from}&to=${to}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
+    ])
+    const shiftIds = new Set(shifts.map((shift) => shift.id))
+    const items: { id: string; date: string; text: string }[] = []
+    for (let offset = 0; offset <= notificationDays.value; offset++) {
+      const day = new Date(today)
+      day.setDate(day.getDate() - offset)
+      const date = localDate(day)
+      for (const shift of shifts) {
+        const filled = rangeAssignments.filter((item) => shiftIds.has(item.shift_type_id) && item.shift_type_id === shift.id && localDate(new Date(item.starts_at)) === date).length
+        const open = Math.max(0, shift.required_staff - filled)
+        if (open) items.push({ id: `${date}-${shift.id}`, date, text: `${open} unbesetzte ${shift.position}-Stelle${open === 1 ? '' : 'n'} · ${shift.name}` })
+      }
+    }
+    notificationHistory.value = items
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Meldungen konnten nicht geladen werden'
+  } finally {
+    notificationsLoading.value = false
+  }
+}
+
+function openNotificationsPage() {
+  showAbsences.value = false
+  showPlanning.value = false
+  selectedDay.value = null
+  showNotifications.value = true
+  void loadNotificationHistory()
+}
+
+onMounted(() => {
+  document.documentElement.dataset.theme = theme.value
+  for (const eventName of ['pointerdown']) {
+    document.addEventListener(eventName, onUserActivity, { passive: true })
+  }
+  document.addEventListener('visibilitychange', checkIdleDeadline)
+  clockTicker = setInterval(() => { clockNow.value = Date.now() }, 1000)
+  window.addEventListener('storage', onSharedActivity)
+  void checkSetup()
+})
+
+onBeforeUnmount(() => {
+  clearInterval(clockTicker)
+  clearTimeout(idleLogoutTimer)
+  for (const eventName of ['pointerdown', 'keydown', 'touchstart', 'wheel']) {
+    document.removeEventListener(eventName, onUserActivity)
+  }
+  document.removeEventListener('visibilitychange', checkIdleDeadline)
+  window.removeEventListener('storage', onSharedActivity)
+})
+</script>
+
+<template>
+  <main v-if="!setupChecked" class="login-shell">
+    <section class="login-card"><div class="brand-mark">C</div><h1>ClinicPulse startet …</h1><p class="muted">Installationsstatus wird geprüft.</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version 0.1.0</footer></section>
+  </main>
+
+  <main v-else-if="setupRequired && !authenticated" class="login-shell">
+    <section class="login-card setup-card">
+      <div class="brand-mark">C</div>
+      <p class="eyebrow">CLINICPULSE · ERSTEINRICHTUNG</p>
+      <h1>Dein Admin-Zugang</h1>
+      <p class="muted">Erstelle deinen Zugang. Passwort und Signaturschlüssel werden sicher serverseitig in der Datenbank gespeichert.</p>
+      <form class="stack" @submit.prevent="completeSetup">
+        <label>Admin-Benutzername<input v-model="setupUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
+        <PasswordInput v-model="setupPassword" label="Passwort (mindestens 8 Zeichen)" required />
+        <label>Passwort wiederholen<input v-model="setupPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
+        <label>Lizenz-Token aus dem Licensing-Tool<input v-model="setupLicenseToken" type="password" autocomplete="off" maxlength="4096" required /></label>
+        <label class="permission-toggle"><input v-model="setupSundayWorkAuthorized" type="checkbox" /> Unser Betrieb nimmt notwendige Sonn- und Feiertagsarbeit nach ArbZG §10 in Anspruch</label>
+        <p class="muted">Nur aktivieren, wenn die rechtlichen Voraussetzungen für deinen Betrieb geprüft sind. Sonst werden Dienste an Sonn- und gesetzlichen Feiertagen blockiert.</p>
+        <p class="muted">Die Lizenzsignatur wird geprüft. Das Token wird anschließend serverseitig gespeichert.</p>
+        <button class="primary full" :disabled="busy">{{ busy ? 'Einrichtung …' : 'Admin-Zugang erstellen' }}</button>
+      </form>
+      <p v-if="error" class="error-message">{{ error }}</p>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version {{ displayVersion }}</footer>
+    </section>
+  </main>
+
+  <main v-else-if="invitationToken && !authenticated" class="login-shell">
+    <section class="login-card setup-card">
+      <div class="brand-mark">C</div>
+      <p class="eyebrow">CLINICPULSE · EINLADUNG</p>
+      <h1>Eigenes Passwort festlegen</h1>
+      <p class="muted">Lege ein Passwort mit mindestens 8 Zeichen fest. Der Einladungslink kann nur einmal verwendet werden.</p>
+      <form class="stack" @submit.prevent="acceptInvitation">
+        <PasswordInput v-model="invitationPassword" label="Neues Passwort" required />
+        <label>Passwort wiederholen<input v-model="invitationPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
+        <button class="primary full" :disabled="busy">{{ busy ? 'Passwort wird gespeichert …' : 'Passwort festlegen' }}</button>
+      </form>
+      <p v-if="error" class="error-message">{{ error }}</p>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version {{ displayVersion }}</footer>
+    </section>
+  </main>
+
+  <main v-else-if="!authenticated" class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark">C</div>
+      <p class="eyebrow">CLINICPULSE · DIENSTPLANUNG</p>
+      <p v-if="institutionName" class="institution-label">Lizenz für <strong>{{ institutionName }}</strong></p>
+      <h1>Willkommen zurück</h1>
+      <p class="muted">Melde dich an, um den Dienstplan zu verwalten.</p>
+      <p v-if="invitationMessage" class="success-message" role="status">{{ invitationMessage }}</p>
+      <form class="stack" @submit.prevent="login">
+        <label>Benutzername<input v-model="loginUsername" autocomplete="username" required /></label>
+        <label>Passwort<input v-model="password" type="password" autocomplete="current-password" required /></label>
+        <label class="permission-toggle"><input v-model="staySignedIn" type="checkbox" /> Angemeldet bleiben (30 Tage)</label>
+        <p class="muted">Für Administrationskonten ist diese Option gesperrt.</p>
+        <button class="primary full" :disabled="busy">{{ busy ? 'Anmeldung …' : 'Anmelden' }}</button>
+      </form>
+      <p v-if="error" class="error-message">{{ error }}</p>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · Version {{ displayVersion }}</footer>
+    </section>
+  </main>
+
+  <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <aside class="sidebar">
+      <a class="brand" href="#"><span class="brand-mark small">C</span><span class="brand-text">Clinic<span class="brand-light">Pulse</span></span></a>
+      <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'" :title="sidebarCollapsed ? 'Ausklappen' : 'Einklappen'" @click="toggleSidebar">{{ sidebarCollapsed ? '»' : '«' }}</button>
+      <div v-if="roleKey !== 'PERSONNEL'" class="plan-nav-list">
+        <p class="nav-caption">DIENSTPLÄNE</p>
+        <button v-if="canManage" class="nav-item plan-nav-item" title="Alle Dienstpläne" :class="{ active: selectedPlanId === null }" @click="selectPlan(null)"><span>▦</span> Alle Dienstpläne</button>
+        <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
+      </div>
+      <p class="nav-caption nav-caption-spaced">ARBEITSBEREICH</p>
+      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" title="Dienstplan" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null"><span>▦</span> Dienstplan</button>
+      <button v-if="canEditPlan" class="nav-item" title="Dienstplanung" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> Dienstplanung</button>
+      <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" class="nav-item" title="Abwesenheiten" @click="void openAbsences()"><span>☾</span> Abwesenheiten</button>
+      <button v-if="canViewArchive" class="nav-item" title="Archiv" @click="void openArchive()"><span>▤</span> Archiv</button>
+      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" title="Meldungen" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> Meldungen <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
+      <button v-if="canManageTeam" class="nav-item" title="Teamverwaltung" :class="{ active: showManagement }" @click="void openManagement()"><span>♙</span> Teamverwaltung</button>
+      <div class="sidebar-bottom">
+        <button class="profile profile-button" title="Mein Profil" @click="void openProfile()">
+          <img v-if="profile?.profile_image_data" class="avatar profile-avatar" :src="profile.profile_image_data" alt="" />
+          <div v-else class="avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
+          <span class="profile-text"><strong>{{ username }}</strong><small>{{ roleLabel(roleKey) }} · Mein Profil</small></span>
+        </button>
+        <p class="idle-hint" :class="{ warning: idleWarning }" role="status" :title="idleRemainingLabel">⏱ {{ idleRemainingLabel }}</p>
+        <button class="logout" :title="'Abmelden'" @click="logout"><span class="logout-icon">⏻</span><span class="logout-text">Abmelden</span></button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <nav class="mobile-navigation" aria-label="Mobile Navigation">
+        <button v-if="roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null">Dienstplan</button>
+        <button v-if="canEditPlan" @click="openPlanning()">Dienstplanung</button>
+        <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" @click="void openAbsences()">Abwesenheiten</button>
+        <button v-if="canViewArchive" @click="void openArchive()">Archiv</button>
+        <button v-if="roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">Meldungen</button>
+        <button v-if="canManageTeam" @click="void openManagement()">Teamverwaltung</button>
+        <button @click="logout()">Abmelden</button>
+      </nav>
+      <header class="topbar">
+        <div class="breadcrumb">Arbeitsbereich <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? 'Tagesansicht' : 'Wochenübersicht' }}</div>
+        <div class="topbar-right">
+          <select class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" aria-label="Dienstplan auswählen" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
+            <option v-if="canManage" value="all">Alle Dienstpläne</option>
+            <option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option>
+          </select>
+          <span class="status-dot"></span> Lokal verbunden
+          <div class="notification-wrap">
+            <button class="icon-button notification-button" aria-label="Meldungen öffnen" @click="openNotificationsPage()">♧<span v-if="notifications.length" class="notification-count">{{ notifications.length }}</span></button>
+          </div>
+          <button v-if="canManageTeam" class="secondary management-button" @click="void openManagement()">Teamverwaltung</button>
+          <button class="icon-button" aria-label="Einstellungen" @click="openAppSettings()">⚙</button>
+          <button class="profile-avatar-button" aria-label="Eigenes Profil öffnen" @click="void openProfile()">
+            <img v-if="profile?.profile_image_data" class="avatar profile-avatar" :src="profile.profile_image_data" alt="" />
+            <span v-else class="avatar">{{ username.slice(0, 1).toUpperCase() }}</span>
+          </button>
+        </div>
+      </header>
+      <main v-if="showPlanning" class="content">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">DIENSTPLANUNG</p>
+            <h1>Dienstplan vorschlagen</h1>
+            <p class="muted">Bereits eingetragene Dienste bleiben unverändert. Der Vorschlag füllt nur offene Stellen und wird erst nach deiner Genehmigung gespeichert.</p>
+          </div>
+        </div>
+        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" aria-label="Meldung schließen">×</button></div>
+        <p v-if="planningNotice" class="planning-notice" role="status">{{ planningNotice }}</p>
+        <section class="planning-controls">
+          <label>Zeitraum
+            <select v-model="planningMode">
+              <option value="week">Woche</option>
+              <option value="month">Monat</option>
+            </select>
+          </label>
+          <label>Datum im Zeitraum
+            <input v-model="planningAnchor" type="date" />
+          </label>
+          <p class="muted">{{ planningPeriod.start.split('-').reverse().join('.') }} – {{ planningPeriod.end.split('-').reverse().join('.') }} · {{ selectedPlanName }}</p>
+          <button class="primary" :disabled="planningBusy || !shiftTypes.length" @click="void proposePlanning()">
+            {{ planningBusy ? 'Berechne …' : '✧ Dienstplan vorschlagen' }}
+          </button>
+        </section>
+        <section v-if="planningDays" class="optimization-panel smart-panel" aria-live="polite">
+          <header class="smart-heading">
+            <strong>{{ planningSuggestionCount }} neue Dienste vorgeschlagen · {{ planningUnfilledCount }} Stellen unbesetzt</strong>
+            <span>Jeder Dienst wird beim Genehmigen erneut gegen Arbeitszeitgesetz und Abwesenheiten geprüft.</span>
+            <button class="primary approve-button" :disabled="planningBusy || !planningSuggestionCount" @click="void approvePlanning()">Plan genehmigen</button>
+          </header>
+          <p v-if="planningLoad.length" class="muted">
+            Verteilung: <span v-for="([name, count], index) in planningLoad" :key="name">{{ index ? ' · ' : '' }}{{ name }} {{ count }}</span>
+          </p>
+          <article v-for="day in planningDays.filter((entry) => entry.suggestions.length || entry.unfilled_slots.length)" :key="day.target_date" class="planning-day">
+            <h3>{{ dateLabel(day.target_date) }}</h3>
+            <p v-for="suggestion in day.suggestions" :key="`${suggestion.shift_type_id}-${suggestion.employee_id}`" class="planning-line">
+              <strong>{{ suggestion.employee_name }}</strong> · {{ suggestion.shift_name }}
+              <small>{{ timeLabel(suggestion.starts_at) }}–{{ timeLabel(suggestion.ends_at) }}{{ suggestion.role_match ? '' : ' · Rollenabweichung' }}</small>
+            </p>
+            <p v-for="(slot, index) in day.unfilled_slots" :key="`gap-${slot.shift_type_id}-${index}`" class="planning-line planning-gap">
+              Unbesetzt: {{ slot.shift_name }} ({{ slot.position }})
+            </p>
+          </article>
+          <p v-if="!planningSuggestionCount && !planningUnfilledCount" class="muted">Im gewählten Zeitraum sind keine offenen Stellen vorhanden.</p>
+        </section>
+      </main>
+      <main v-else-if="showAbsences" class="content">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">PERSONAL</p>
+            <h1>Abwesenheiten</h1>
+            <p class="muted">Urlaub, Krankheit und sonstige Abwesenheiten im Überblick.</p>
+          </div>
+        </div>
+        <div class="absence-layout">
+          <section v-if="canRequestAbsence || canRecordAbsence" class="panel absence-panel">
+          <form class="stack absence-form" @submit.prevent="submitAbsence">
+              <label v-if="!canRequestAbsence">Mitarbeitende<select v-model="absenceEmployeeId" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
+              <label>Art<select v-model="absenceKind"><option value="vacation">Urlaub</option><option value="sick">Krank</option><option value="other">Sonstiges</option></select></label>
+              <div class="form-row"><label>Von<input v-model="absenceStart" type="date" required /></label><label>Bis<input v-model="absenceEnd" type="date" :min="absenceStart" required /></label></div>
+              <label>Notiz (optional)<input v-model="absenceNote" maxlength="500" /></label>
+              <p v-if="absenceKind === 'sick'" class="muted">Krankmeldungen müssen nicht genehmigt werden.</p>
+            <button class="primary full">{{ canRequestAbsence && absenceKind !== 'sick' ? 'Antrag stellen' : absenceKind === 'sick' && canRequestAbsence ? 'Krank melden' : 'Abwesenheit eintragen' }}</button>
+            </form>
+          </section>
+          <section class="panel absence-panel absence-list">
+          <div v-for="absence in absences" :key="absence.id" class="management-row absence-row">
+            <div>
+              <strong>{{ absence.employee_name }} · {{ kindLabels[absence.kind] }}</strong>
+              <small>{{ dateLabel(absence.start_date) }} – {{ dateLabel(absence.end_date) }} · {{ absence.kind === 'sick' ? 'Keine Genehmigung nötig' : statusLabels[absence.status] }}</small>
+              <small v-if="absence.requested_by">{{ absence.kind === 'sick' ? 'Gemeldet' : 'Beantragt' }} von {{ absence.requested_by }}<span v-if="absence.created_at"> am {{ new Date(absence.created_at).toLocaleString('de-DE') }}</span></small>
+              <small v-if="absence.kind !== 'sick' && absence.decided_by">{{ absence.status === 'rejected' ? 'Abgelehnt' : 'Genehmigt' }} von {{ absence.decided_by }}<span v-if="absence.decided_at"> am {{ new Date(absence.decided_at).toLocaleString('de-DE') }}</span></small>
+              <small v-if="absence.note">Notiz: {{ absence.note }}</small>
+            </div>
+            <div v-if="!licenseReadOnly">
+              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && roleKey === 'OBERARZT' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">Genehmigen</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">Ablehnen</button></template>
+              <button v-if="(roleKey === 'EMPLOYEE' && absence.status === 'pending') || canRecordAbsence" class="text-button danger-text" @click="removeAbsence(absence)">{{ roleKey === 'EMPLOYEE' ? 'Zurückziehen' : 'Löschen' }}</button>
+            </div>
+          </div>
+          <p v-if="!absences.length" class="notification-empty">Keine Abwesenheiten</p>
+          </section>
+        </div>
+      </main>
+      <main v-else-if="showNotifications" class="content">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">MELDUNGEN</p>
+            <h1>Meldungen</h1>
+            <p class="muted">Offene Besetzungslücken der letzten Tage.</p>
+          </div>
+          <label class="notification-range">Zeitraum
+            <select v-model.number="notificationDays" @change="void loadNotificationHistory()">
+              <option :value="7">Letzte 7 Tage</option><option :value="14">Letzte 14 Tage</option><option :value="30">Letzte 30 Tage</option><option :value="90">Letzte 90 Tage</option>
+            </select>
+          </label>
+        </div>
+        <section class="notification-page">
+          <p v-if="notificationsLoading" class="notification-empty">Lade Meldungen …</p>
+          <button v-for="item in notificationHistory" :key="item.id" class="notification-item" @click="openNotification(item)">
+            <span class="notification-warning">!</span><span><strong>{{ item.text }}</strong><small>{{ dateLabel(item.date) }}</small></span>
+          </button>
+          <p v-if="!notificationsLoading && !notificationHistory.length" class="notification-empty">Keine Meldungen im gewählten Zeitraum.</p>
+        </section>
+      </main>
+      <main v-else class="content">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">PERSONALPLANUNG</p>
+            <h1>{{ selectedDay ? dateLabel(selectedDay) : 'Dienstplan' }}</h1>
+            <p class="muted">{{ selectedDay ? 'Besetzung nach Schicht, Funktion und offenen Stellen.' : 'Wochenüberblick mit Besetzungsstatus auf einen Blick.' }}</p>
+          </div>
+          <div class="heading-actions">
+            <button v-if="selectedDay" class="secondary" @click="selectedDay = null; smartGap = null">‹ Wochenübersicht</button>
+            <button v-if="canEditPlan" class="primary" :disabled="!employees.length || !shiftTypes.length" @click="selectedDate = selectedDay ?? localDate(today); showAssignmentForm = true">＋ Dienst eintragen</button>
+          </div>
+        </div>
+
+        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" aria-label="Meldung schließen">×</button></div>
+        <section
+          v-if="roleKey === 'ADMIN' && licenseInfo && !licenseInfo.suppress_warnings && (licenseInfo.status !== 'PAID' || licenseInfo.read_only || licenseInfo.last_error)"
+          class="license-banner"
+          :class="{ 'license-blocked': licenseInfo.read_only || licenseInfo.status === 'BLOCKED' }"
+          role="status"
+        >
+          <div>
+            <strong v-if="licenseInfo.read_only || licenseInfo.status === 'BLOCKED'">Lizenz eingeschränkt · Dienstplan im Lesemodus</strong>
+            <strong v-else-if="licenseInfo.status === 'GRACE_PERIOD'">Lizenzverlängerung erforderlich</strong>
+            <strong v-else>Lizenzserver derzeit nicht erreichbar</strong>
+            <p>{{ licenseInfo.message ?? licenseInfo.last_error ?? `Lizenzstatus: ${licenseInfo.status}` }}<span v-if="licenseInfo.grace_until"> · Kulanz bis {{ new Date(licenseInfo.grace_until).toLocaleString('de-DE') }}</span></p>
+          </div>
+          <button class="secondary" :disabled="licenseCheckBusy" @click="void checkLicenseNow()">{{ licenseCheckBusy ? 'Prüfe …' : 'Jetzt prüfen' }}</button>
+        </section>
+
+        <template v-if="canView">
+        <section class="stats">
+          <article class="stat-card"><span class="stat-icon teal">▦</span><div><span class="stat-label">Geplante Dienste</span><strong>{{ assignments.length }}</strong></div><small>in dieser Woche</small></article>
+          <article class="stat-card"><span class="stat-icon blue">◷</span><div><span class="stat-label">Geplante Stunden</span><strong>{{ totalHours.toLocaleString('de-DE', { maximumFractionDigits: 0 }) }}</strong></div><small>in dieser Woche</small></article>
+          <article class="stat-card"><span class="stat-icon" :class="notifications.length ? 'amber' : 'teal'">!</span><div><span class="stat-label">Offene Stellen</span><strong>{{ notifications.reduce((sum, item) => sum + item.count, 0) }}</strong></div><small>in dieser Woche</small></article>
+        </section>
+
+        <section v-if="!selectedDay" class="today-panel panel">
+          <header class="today-heading">
+            <div><p class="eyebrow">HEUTE</p><h2>{{ dateLabel(localDate(today)) }}</h2><p class="muted">{{ dateAssignments(today).length }} Dienste · {{ shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(today), shift.id).length), 0) }} offene Stellen</p></div>
+            <button class="secondary" @click="selectedDay = localDate(today)">Tagesdetails öffnen →</button>
+          </header>
+          <div v-if="shiftTypes.length" class="today-shifts">
+            <article v-for="shift in shiftTypes" :key="shift.id" class="today-shift">
+              <span class="shift-color" :style="{ background: shift.color }"></span>
+              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }}</small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || 'Noch niemand eingeteilt' }}</p></div>
+              <span v-if="shift.required_staff > assignmentsFor(localDate(today), shift.id).length" class="overview-gap">{{ shift.required_staff - assignmentsFor(localDate(today), shift.id).length }} offen</span>
+              <span v-else class="overview-filled">Besetzt</span>
+            </article>
+          </div>
+          <p v-else class="muted today-empty">Noch keine Schichten für deine Abteilung eingerichtet.</p>
+        </section>
+
+        <section class="panel">
+          <div class="planner-toolbar">
+            <div><h2>{{ selectedDay ? 'Tagesdetails' : 'Wochenübersicht' }}</h2><p class="muted">{{ selectedDay ? dateLabel(selectedDay) : weekLabel }}</p></div>
+            <div class="toolbar-actions">
+              <template v-if="!selectedDay">
+                <div class="week-nav"><button aria-label="Vorherige Woche" @click="moveWeek(-1)">‹</button><button @click="weekOffset = 0; void loadData()">Heute</button><button aria-label="Nächste Woche" @click="moveWeek(1)">›</button></div>
+                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
+                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart</button>
+              </template>
+              <template v-else>
+                <button v-if="canEditPlan" class="secondary" :disabled="optimizationBusy" @click="void optimizeSelectedDay()">
+                  {{ optimizationBusy ? 'Berechne …' : '✧ Tag optimieren' }}
+                </button>
+                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
+                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart</button>
+              </template>
+            </div>
+          </div>
+
+          <div v-if="!employees.length || !shiftTypes.length" class="empty-state">
+            <div class="empty-icon">▦</div><h3>Starte mit deinem Dienstplan</h3>
+            <p>Lege zuerst Mitarbeitende und Schichtarten an, um Dienste einzutragen.</p>
+            <div class="empty-actions">
+              <button v-if="canManageTeam" class="secondary" @click="void openManagement()">Teamverwaltung öffnen</button>
+              <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart anlegen</button>
+            </div>
+          </div>
+
+          <div v-else-if="!selectedDay" class="week-overview">
+            <button v-for="day in days" :key="day.toISOString()" class="overview-day" :class="{ 'today-column': localDate(day) === localDate(today) }" @click="selectedDay = localDate(day)">
+              <span class="overview-weekday">{{ day.toLocaleDateString('de-DE', { weekday: 'long' }) }}</span>
+              <strong class="overview-date">{{ day.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' }) }}</strong>
+              <span class="overview-shifts">{{ dateAssignments(day).length }} {{ dateAssignments(day).length === 1 ? 'Dienst' : 'Dienste' }}</span>
+              <span v-if="shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0)" class="overview-gap">
+                {{ shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0) }} offen
+              </span>
+              <span v-else class="overview-filled">Besetzung vollständig</span>
+              <span class="overview-link">Tagesdetails ansehen →</span>
+            </button>
+          </div>
+
+          <div v-else class="day-detail">
+            <section v-if="optimizationPreview" class="optimization-panel smart-panel" aria-live="polite">
+              <header class="smart-heading">
+                <strong>Optimierungsvorschlag</strong>
+                <span>CP-SAT · ArbZG-regelgeprüfter Entwurf · Änderungen erst nach deiner Übernahme</span>
+                <button class="text-button" @click="optimizationPreview = null">Schließen</button>
+              </header>
+              <p v-if="optimizationPreview.status === 'UNKNOWN'" class="muted">
+                In der verfügbaren Rechenzeit konnte kein Vorschlag erstellt werden. Bitte Zeitraum oder Umfang prüfen und erneut versuchen.
+              </p>
+              <template v-else>
+                <article v-for="suggestion in optimizationPreview.suggestions" :key="`${suggestion.shift_type_id}-${suggestion.employee_id}`" class="smart-candidate">
+                  <span class="candidate-avatar"><img v-if="employeePhoto(suggestion.employee_id)" :src="employeePhoto(suggestion.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(suggestion.employee_name) }}</template></span>
+                  <div>
+                    <strong>{{ suggestion.employee_name }} · {{ suggestion.shift_name }}</strong>
+                    <small>{{ suggestion.employee_role }} · {{ suggestion.role_match ? 'Rolle passt' : 'Rollenabweichung' }}</small>
+                  </div>
+                  <button v-if="canEditPlan" class="primary approve-button" @click="applyOptimizationSuggestion(suggestion)">Übernehmen</button>
+                </article>
+                <p v-if="!optimizationPreview.suggestions.length && !optimizationPreview.unfilled_slots.length" class="muted">
+                  Für diesen Tag sind keine offenen Stellen mehr zu besetzen.
+                </p>
+                <p v-if="optimizationPreview.unfilled_slots.length" class="muted">
+                  {{ optimizationPreview.unfilled_slots.length }} Stelle{{ optimizationPreview.unfilled_slots.length === 1 ? '' : 'n' }} bleiben unbesetzt, weil keine regelkonforme Besetzung gefunden wurde.
+                </p>
+              </template>
+            </section>
+            <div v-for="shift in shiftTypes" :key="shift.id" class="shift-section">
+              <header class="shift-section-heading">
+                <div class="shift-color" :style="{ background: shift.color }"></div>
+                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }} · {{ shift.required_staff }} benötigt</p></div>
+                <span class="coverage-count">{{ assignmentsFor(selectedDay, shift.id).length }}/{{ shift.required_staff }}</span>
+                <button v-if="(canEditPlan || (canApprove && !licenseReadOnly))" class="secondary smart-button" @click="suggestFor(selectedDay, shift)">✧ Smart-Auswahl</button>
+              </header>
+              <div class="position-slots">
+                <article v-for="(assignment, index) in assignmentsFor(selectedDay, shift.id)" :key="assignment.id" class="position-slot filled-slot">
+                  <span class="slot-index">{{ index + 1 }}</span>
+                  <div class="slot-person"><span class="candidate-avatar"><img v-if="employeePhoto(assignment.employee_id)" :src="employeePhoto(assignment.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(assignment.employee_name) }}</template></span><div class="slot-employee"><strong>{{ assignment.employee_name }}</strong><small>{{ shift.position }} · {{ timeLabel(assignment.starts_at) }}–{{ timeLabel(assignment.ends_at) }}</small></div></div>
+                  <button v-if="canEditPlan" class="remove-assignment" :aria-label="`${assignment.employee_name}: Dienst entfernen`" @click="removeAssignment(assignment.id)">×</button>
+                </article>
+                <article
+                  v-for="slot in Math.max(0, shift.required_staff - assignmentsFor(selectedDay, shift.id).length)"
+                  :key="`gap-${shift.id}-${slot}`"
+                  class="position-slot vacancy-slot"
+                  :class="{ droppable: canEditPlan }"
+                  @dragover.prevent
+                  @drop.prevent="canEditPlan && dropEmployee($event, selectedDay!, shift)"
+                  @click="canEditPlan && (selectedDate = selectedDay!); canEditPlan && (selectedShift = String(shift.id)); canEditPlan && (showAssignmentForm = true)"
+                >
+                  <span class="slot-index">{{ assignmentsFor(selectedDay, shift.id).length + slot }}</span>
+                  <div class="slot-employee"><strong>Offene Stelle</strong><small>{{ shift.position }} · {{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}</small></div>
+                  <span class="drag-hint">Mitarbeitende hier ablegen oder auswählen</span>
+                </article>
+                <div v-if="smartGap?.date === selectedDay && smartGap.shift.id === shift.id" class="smart-panel">
+                  <div class="smart-heading"><strong>Smart-Auswahl</strong><span>Heuristischer Vorschlag nach Rollenpassung und Wochenbelastung</span></div>
+                  <article v-if="smartCandidates[0]" class="smart-candidate">
+                    <span class="candidate-avatar"><img v-if="employeePhoto(smartCandidates[0].employee_id)" :src="employeePhoto(smartCandidates[0].employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(smartCandidates[0].employee_name) }}</template></span>
+                    <div><strong>{{ smartCandidates[0].employee_name }}</strong><small>{{ smartCandidates[0].role }} · {{ smartCandidates[0].role_match ? 'Rolle passt' : 'andere Rolle' }} · {{ smartCandidates[0].planned_assignments }} geplante Dienste</small></div>
+                    <button v-if="canApprove && !licenseReadOnly" class="primary approve-button" @click="approveCandidate(smartCandidates[0])">Freigeben</button>
+                    <span v-else class="approval-needed">{{ licenseReadOnly ? 'Lizenzstatus erlaubt derzeit keine Änderungen' : 'Freigabe durch berechtigten Oberarzt erforderlich' }}</span>
+                  </article>
+                  <p v-else class="muted">Keine verfügbare Person für diesen Zeitraum gefunden.</p>
+                  <button v-if="smartCandidates.length > 1" class="text-button" @click="smartCandidates.shift()">Anderen Vorschlag ansehen</button>
+                </div>
+              </div>
+            </div>
+            <aside v-if="canEditPlan" class="team-roster"><strong>Team · Ziehen zum Eintragen</strong><div><button v-for="employee in employees" :key="employee.id" class="roster-person" draggable="true" @dragstart="dragEmployee($event, employee)"><span class="candidate-avatar"><img v-if="employeePhoto(employee.id)" :src="employeePhoto(employee.id) ?? undefined" alt="" /><template v-else>{{ initialsOf(employee.name) }}</template></span><span><b>{{ employee.name }}</b><small>{{ employee.role }}</small></span><span class="drag-grip">⠿</span></button></div></aside>
+            <p v-if="!shiftTypes.length" class="empty-state">Für diesen Tag sind keine Schichtarten eingerichtet.</p>
+          </div>
+          <div v-if="busy" class="loading">Dienstplan wird aktualisiert …</div>
+        </section>
+
+        <footer class="page-footer">
+          <span>ClinicPulse · Version {{ displayVersion }}</span>
+          <span>·</span>
+          <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">GitHub-Repository</a>
+          <template v-if="roleKey === 'ADMIN'">
+            <span>·</span>
+            <button class="footer-update-button" :disabled="updateCheckBusy" @click="void checkForUpdates(true)">
+              {{ updateCheckBusy ? 'Prüfe Updates …' : 'Update prüfen' }}
+            </button>
+            <label class="update-channel-control">Kanal
+              <select v-model="updateChannel" aria-label="Update-Kanal" @change="changeUpdateChannel">
+                <option value="stable">Stable</option>
+                <option value="nightly">Nightly</option>
+              </select>
+            </label>
+            <span>·</span>
+            <span v-if="updateInfo" class="update-channel-label">{{ updateInfo.channel }}</span>
+            <span v-if="updateInfo" class="update-status" :class="`update-${updateInfo.status}`" role="status">
+              <template v-if="updateInfo.update_available">
+                <a :href="updateInfo.release_url ?? repositoryUrl" target="_blank" rel="noopener noreferrer">Update {{ updateInfo.latest_version }} verfügbar</a>
+              </template>
+              <template v-else>{{ updateInfo.message }}</template>
+            </span>
+          </template>
+        </footer>
+        </template>
+        <section v-else class="panel restricted-panel"><h2>Kein Zugriff auf Dienstpläne</h2><p>Dein Konto hat aktuell keine Berechtigung zum Ansehen der Pläne. Bitte wende dich an die Krankenhausleitung.</p></section>
+      </main>
+    </section>
+
+    <div v-if="authenticated && error" class="toast toast-error" role="alert">
+      <span>{{ error }}</span><button type="button" aria-label="Meldung schließen" @click="error = ''">×</button>
+    </div>
+    <div v-if="confirmDialog" class="modal-backdrop confirm-backdrop" @click.self="answerConfirmation(false)" @keydown.esc="answerConfirmation(false)">
+      <section class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-label="Bestätigung">
+        <p>{{ confirmDialog.message }}</p>
+        <div class="form-row"><button class="secondary" autofocus @click="answerConfirmation(false)">Abbrechen</button><button class="primary danger-action" @click="answerConfirmation(true)">{{ confirmDialog.confirmLabel }}</button></div>
+      </section>
+    </div>
+    <div v-if="showEmployeeForm || showShiftForm || showAssignmentForm || showSettings || showManagement || showProfile || showArchive" class="modal-backdrop" @click.self="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">
+      <section class="modal" :class="{ 'modal-wide': showSettings && !showProfile && !showEmployeeForm && !showShiftForm && !showAssignmentForm && !showManagement }" role="dialog" aria-modal="true">
+        <button class="modal-close" aria-label="Schließen" @click="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">×</button>
+        <template v-if="showArchive">
+          <p class="eyebrow">NACHWEIS</p><h2>Dienstplan-Archiv</h2>
+          <p class="muted">Archivierte Stände sind unveränderlich und zeigen, wer wann welchen Dienst hatte – auch nach späteren Änderungen am Plan.</p>
+          <form v-if="canEditPlan" class="stack" @submit.prevent="createArchive">
+            <label>Abteilung<select v-model="archiveDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <div class="form-row"><label>Von<input v-model="archiveStart" type="date" required /></label><label>Bis<input v-model="archiveEnd" type="date" :min="archiveStart" required /></label></div>
+            <label>Notiz (optional)<input v-model="archiveNote" maxlength="200" /></label>
+            <button class="primary full">Zeitraum archivieren</button>
+          </form>
+          <div v-for="archive in planArchives" :key="archive.id" class="management-row">
+            <div><strong>{{ archive.department_name }} · {{ dateLabel(archive.start_date) }} – {{ dateLabel(archive.end_date) }}</strong><small>{{ archive.entry_count }} Dienste · archiviert {{ new Date(archive.created_at).toLocaleString('de-DE') }} von {{ archive.created_by }}<span v-if="archive.note"> · {{ archive.note }}</span></small></div>
+            <div><a class="text-button" :href="`/api/archives/${archive.id}/pdf`" download>PDF</a></div>
+          </div>
+          <p v-if="!planArchives.length" class="notification-empty">Noch nichts archiviert</p>
+        </template>
+        <template v-else-if="showProfile">
+          <p class="eyebrow">BENUTZERKONTO</p><h2>Mein Profil</h2>
+          <div class="profile-editor">
+            <img v-if="profileImageData" class="profile-editor-image" :src="profileImageData" alt="Profilbild-Vorschau" />
+            <div v-else class="profile-editor-placeholder">{{ username.slice(0, 1).toUpperCase() }}</div>
+            <strong>{{ username }}</strong><span class="muted">{{ roleLabel(roleKey) }}</span>
+          </div>
+          <form class="stack" @submit.prevent="saveProfile">
+            <template v-if="roleKey !== 'ADMIN'">
+              <label>Vorname<input v-model="profileFirstName" maxlength="80" required /></label>
+              <label>Nachname<input v-model="profileLastName" maxlength="80" required /></label>
+              <label>Geburtsdatum<input v-model="profileBirthDate" type="date" /></label>
+              <label>Adresse<input v-model="profileAddress" maxlength="300" autocomplete="street-address" /></label>
+              <label>Telefon<input v-model="profilePhone" type="tel" maxlength="50" /></label>
+            </template>
+            <label>Profilbild (PNG, JPEG oder WebP, maximal 256 KB)<input type="file" accept="image/png,image/jpeg,image/webp" @change="selectProfileImage" /></label>
+            <button v-if="profileImageData" type="button" class="text-button danger-text" @click="profileImageData = null">Profilbild entfernen</button>
+            <label>Profilbild-Sichtbarkeit<select v-model="profilePhotoVisibility" :disabled="roleKey === 'ADMIN' || departmentId === null"><option value="private">Nur für mich</option><option value="department">Für meine Abteilung</option></select></label>
+            <p class="muted">Abteilungsprofile werden nur angemeldeten Benutzern derselben Abteilung angezeigt. Dein Bild wird nicht für externe Dienste freigegeben.</p>
+            <button class="primary full">Profil speichern</button>
+          </form>
+          <form class="stack account-settings-form" @submit.prevent="saveSettings">
+            <strong>Benutzerkonto-Einstellungen</strong>
+            <label>Benutzername<input v-model="changedUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
+            <PasswordInput v-model="newPassword" label="Neues Passwort" optional />
+            <label>Aktuelles Passwort zur Bestätigung<input v-model="currentPassword" type="password" autocomplete="current-password" required /></label>
+            <button class="secondary full">Kontodaten und Passwort speichern</button>
+            <p class="settings-note">Beim Speichern werden bisherige Sitzungs-Token ungültig. Dein Browser erhält automatisch ein neues Token.</p>
+          </form>
+          <section v-if="teamProfiles.length" class="team-profiles">
+            <h3>Geteilte Profile aus deiner Abteilung</h3>
+            <article v-for="teammate in teamProfiles" :key="teammate.username" class="team-profile-card">
+              <img v-if="teammate.profile_image_data" :src="teammate.profile_image_data" alt="" />
+              <span v-else class="avatar">{{ teammate.username.slice(0, 1).toUpperCase() }}</span>
+              <span><strong>{{ teammate.username }}</strong><small>{{ roleLabel(teammate.role_key) }}</small></span>
+            </article>
+          </section>
+        </template>
+        <template v-else-if="showEmployeeForm">
+          <p class="eyebrow">TEAMVERWALTUNG</p><h2>{{ employeeId ? 'Mitarbeiter bearbeiten' : 'Mitarbeiter erstellen' }}</h2>
+          <form class="stack" @submit.prevent="submitEmployee">
+            <label>Vorname<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
+            <label>Nachname<input v-model="employeeLastName" maxlength="80" required /></label>
+            <label>Dienstplanfunktion<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ fn }}</option><option value="Individuell">Individuell</option></select></label>
+            <label v-if="employeeRole === 'Individuell'">Eigene Funktion<input v-model="employeeCustomRole" maxlength="80" required /></label>
+            <label>Abteilung<select v-model="employeeDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> ClinicPulse-Zugang einrichten</label>
+            <template v-if="employeeCreateAccount && !employeeId">
+              <label>Benutzername<input v-model="employeeLoginUsername" minlength="3" maxlength="64" required /></label>
+              <label>E-Mail für die Einladung<input v-model="employeeEmail" type="email" maxlength="254" autocomplete="email" required /></label>
+              <p class="muted">Es wird kein Startpasswort benötigt. Die Person erhält einen einmaligen Link und setzt ihr eigenes Passwort.</p>
+            </template>
+            <button class="primary full">{{ employeeId ? 'Änderungen speichern' : 'Mitarbeiter erstellen' }}</button>
+          </form>
+        </template>
+        <template v-else-if="showShiftForm">
+          <p class="eyebrow">SCHICHTVERWALTUNG</p><h2>Schichtart anlegen</h2>
+          <form class="stack" @submit.prevent="submitShift">
+            <label>Bezeichnung<input v-model="shiftName" maxlength="80" placeholder="z. B. Frühdienst" required autofocus /></label>
+            <label>Benötigte Position<input v-model="shiftPosition" maxlength="80" placeholder="z. B. Pflegefachkraft" required /></label>
+            <label>Benötigte Mitarbeitende<input v-model.number="requiredStaff" type="number" min="1" max="100" required /></label>
+            <div class="form-row"><label>Beginn<input v-model="shiftStart" type="time" required /></label><label>Ende<input v-model="shiftEnd" type="time" required /></label></div>
+            <label>Pause in Minuten (leer = gesetzliches Minimum)<input v-model.number="shiftBreak" type="number" min="0" max="240" placeholder="automatisch" /></label>
+            <label>Pause nach Arbeitsbeginn (Minuten; leer = automatisch, spätestens nach 6 Stunden)<input v-model.number="shiftBreakStart" type="number" min="0" max="360" placeholder="automatisch" /></label>
+            <button class="primary full">Schichtart speichern</button>
+          </form>
+        </template>
+        <template v-else-if="showAssignmentForm">
+          <p class="eyebrow">DIENSTPLANUNG</p><h2>Dienst eintragen</h2>
+          <form class="stack" @submit.prevent="submitAssignment">
+            <label>Mitarbeitende<select v-model="selectedEmployee" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
+            <label>Schichtart<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ shift.position }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
+            <label>Datum<input v-model="selectedDate" type="date" required /></label>
+            <button class="primary full">Dienst speichern</button>
+          </form>
+        </template>
+        <template v-else-if="showManagement">
+          <p class="eyebrow">TEAMVERWALTUNG</p><h2>Team & Zugänge</h2>
+          <section v-if="canManageTeam" class="management-section">
+            <p v-if="teamNotice" class="success-message" role="status">{{ teamNotice }}</p>
+            <section v-if="!departments.length && roleKey !== 'PERSONNEL'" class="empty-state">
+              <h3>Ersteinrichtung: Team und Dienstpläne</h3>
+              <p>Lege eine Abteilung an. Danach kannst du Mitarbeitende, Krankenhausleitung, Oberärzte und Personaler mit eigenen Zugängen einrichten. Mitarbeitende können ohne Login angelegt werden.</p>
+            </section>
+            <section v-if="showMailOnboarding" class="settings-section">
+              <h3>E-Mail-Versand einrichten (optional)</h3>
+              <p class="muted">Mit SMTP können Einladungen und Links zum eigenen Passwort direkt an Mitarbeitende verschickt werden. Du kannst diesen Schritt überspringen und später als Admin unter Einstellungen → E-Mail-Versand erledigen.</p>
+              <div class="form-row">
+                <button class="primary" @click="skipMailOnboarding(); openAppSettings('mail')">E-Mail-Versand einrichten</button>
+                <button class="secondary" @click="skipMailOnboarding()">Überspringen</button>
+              </div>
+            </section>
+            <p v-if="licenseReadOnly" class="muted">Lizenzbedingt sind Verwaltungsänderungen derzeit gesperrt.</p>
+            <form v-if="canManage && !licenseReadOnly" class="inline-form" @submit.prevent="saveDepartment">
+              <input v-model="departmentName" maxlength="100" placeholder="Abteilungsname" required />
+              <button class="secondary">{{ editingDepartmentId ? 'Änderung speichern' : 'Abteilung anlegen' }}</button>
+              <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">Abbrechen</button>
+            </form>
+            <template v-if="canManage">
+              <div v-for="department in departments" :key="department.id" class="management-row">
+                <strong>{{ department.name }}</strong><div v-if="!licenseReadOnly"><button class="text-button" @click="editDepartment(department)">Bearbeiten</button><button class="text-button danger-text" @click="removeDepartment(department)">Löschen</button></div>
+              </div>
+            </template>
+            <h3>Mitarbeiter</h3>
+            <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
+            <div v-for="employee in allEmployees" :key="employee.id" class="management-row">
+              <div><strong>{{ employee.name }}</strong><small>{{ employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? 'Keine Abteilung' }}</small></div>
+              <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">Bearbeiten</button>
+            </div>
+            <h3>Konten & Rollen</h3>
+            <form v-if="!licenseReadOnly" class="stack user-form" @submit.prevent="saveUser">
+              <strong>{{ userId ? 'Konto bearbeiten' : 'Konto anlegen' }}</strong>
+              <label>Vorname<input v-model="userFirstName" maxlength="80" required /></label>
+              <label>Nachname<input v-model="userLastName" maxlength="80" required /></label>
+              <label>Benutzername<input v-model="userName" minlength="3" maxlength="64" required /></label>
+              <details class="optional-details"><summary>Weitere Angaben (optional)</summary>
+                <label>Geburtsdatum<input v-model="userBirthDate" type="date" /></label>
+                <label>Adresse<input v-model="userAddress" maxlength="300" autocomplete="street-address" /></label>
+                <label>Telefon<input v-model="userPhone" type="tel" maxlength="50" /></label>
+              </details>
+              <label>E-Mail für Passwort-Einladung<input v-model="userEmail" type="email" maxlength="254" :required="!userId && !userPassword" /></label>
+              <PasswordInput v-model="userPassword" :label="userId ? 'Neues Passwort (optional)' : 'Startpasswort (optional; leer = Einladungslink)'" optional />
+              <p v-if="userEmail && !userId" class="muted">Mit E-Mail wird ein Einladungslink gesendet; ein eingegebenes Startpasswort wird dabei nicht verwendet.</p>
+              <label>Systemrolle<select v-model="userRoleKey"><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? 'Kiosk (nur lesend, kein Inaktivitäts-Logout)' : option.key === 'EMPLOYEE' ? 'Mitarbeiter (Selbstbedienung)' : option.label }}</option></template></select></label>
+              <fieldset v-if="!['HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>Zugängliche Dienstpläne</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
+              <label v-if="userRoleKey === 'EMPLOYEE'">Verknüpfte Person<select v-model="userEmployeeId" required><option :value="null" disabled>Bitte wählen</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
+              <template v-if="userRoleKey !== 'PERSONNEL'">
+                <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Dienstplan ansehen</label>
+                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Dienste bearbeiten <span class="permission-note">nur für Oberärzte wirksam</span></label>
+                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Vorschläge freigeben <span class="permission-note">nur für Oberärzte wirksam</span></label>
+              </template>
+              <div class="form-row"><button class="primary">{{ userId ? 'Konto speichern' : 'Konto anlegen' }}</button><button v-if="userId" type="button" class="secondary" @click="resetUserForm">Abbrechen</button></div>
+            </form>
+            <div v-for="user in users" :key="user.id" class="management-row account-row">
+              <div><strong>{{ user.username }}</strong><small>{{ roleLabel(user.role_key) }} · {{ user.email || 'Keine E-Mail hinterlegt' }} · {{ user.invitation_status === 'pending' ? 'Einladung offen' : user.invitation_status === 'delivery_failed' ? 'Einladung nicht versendet' : user.invitation_status === 'revoked' ? 'Einladung widerrufen' : user.is_locked ? 'Gesperrt' : 'Aktiv' }} · {{ user.department_ids?.map((id) => departments.find((item) => item.id === id)?.name).filter(Boolean).join(', ') || 'Alle Abteilungen' }}</small></div>
+              <div><button class="text-button" @click="editUser(user)">Bearbeiten</button><button v-if="['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">Einladung erneut senden</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">Widerrufen</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? 'Entsperren' : 'Sperren' }}</button><button class="text-button danger-text" @click="removeUser(user)">Löschen</button></div>
+            </div>
+          </section>
+        </template>
+        <template v-else-if="showSettings">
+          <p class="eyebrow">APP-EINSTELLUNGEN</p><h2>Einstellungen</h2>
+          <nav class="settings-tabs" role="tablist">
+            <button v-for="tab in settingsTabs" :key="tab.key" role="tab" type="button" :aria-selected="settingsTab === tab.key" :class="{ active: settingsTab === tab.key }" @click="settingsTab = tab.key">{{ tab.label }}</button>
+          </nav>
+          <section v-show="settingsTab === 'appearance'" class="settings-section"><strong>Darstellung</strong><p class="muted">Wähle dein persönliches Farbschema. Die Einstellung wird in diesem Browser gespeichert.</p><div class="theme-options"><button :class="{ selected: theme === 'light' }" @click="applyTheme('light')">☼ Hell</button><button :class="{ selected: theme === 'dark' }" @click="applyTheme('dark')">☾ Dunkel</button></div></section>
+          <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'operations'" class="settings-section">
+            <h3>Betriebskonfiguration</h3>
+            <p class="muted">Einrichtungsart und Bundesland werden aus der Lizenz übernommen und im License Manager gepflegt. Der Feiertagskalender folgt dem Bundesland. Profilbezogene Ausnahmen werden nicht automatisch hergeleitet.</p>
+            <form class="stack" @submit.prevent="saveBusinessConfiguration">
+              <label>Bundesland<select v-model="businessConfiguration.federal_state" :disabled="businessConfiguration.federal_state_managed" required><option v-for="state in federalStates" :key="state" :value="state">{{ state }}</option></select></label>
+              <label>Einrichtungsart<select v-model="businessConfiguration.operational_profile" :disabled="businessConfiguration.operational_profile_managed" required><option v-for="profileOption in operationalProfiles" :key="profileOption.value" :value="profileOption.value">{{ profileOption.label }}</option></select></label>
+              <label class="permission-toggle"><input v-model="businessConfiguration.sunday_work_authorized" type="checkbox" /> Notwendige Sonn- und Feiertagsarbeit nach ArbZG §10 ist für unseren Betrieb geprüft</label>
+              <p class="muted">Betriebszeitzone: {{ businessConfiguration.timezone }}</p>
+              <div class="form-row"><button class="secondary">Betrieb speichern</button><span v-if="businessConfigurationMessage" class="muted">{{ businessConfigurationMessage }}</span></div>
+            </form>
+          </section>
+          <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'operations'" class="settings-section">
+            <h3>Arbeitszeitregeln</h3>
+            <p class="muted">Voreinstellungen nach deutschem ArbZG. Die Mindestruhezeit bleibt bei 11 Stunden; verkürzte Ruhezeiten sind gesperrt, solange der vorgeschriebene Ausgleich nicht überwacht werden kann. Die Durchschnittsgrenze bezieht sich auf geplante Dienste, nicht auf erfasste Ist-Arbeitszeit.</p>
+            <form class="stack" @submit.prevent="saveWorkRules">
+              <label>Mindestruhezeit zwischen Diensten (Stunden)<input v-model.number="workRules.rest_hours" type="number" min="11" max="24" required /></label>
+              <label>Höchstarbeitszeit pro Tag, netto (Stunden)<input v-model.number="workRules.max_daily_hours" type="number" min="1" max="10" required /></label>
+              <label>Max. Durchschnittsarbeitszeit pro Woche im 24-Wochen-Ausgleich (Stunden)<input v-model.number="workRules.max_weekly_hours" type="number" min="1" max="48" required /></label>
+              <div class="form-row"><button class="secondary">Regeln speichern</button><span v-if="workRulesMessage" class="muted">{{ workRulesMessage }}</span></div>
+            </form>
+          </section>
+          <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'mail'" class="settings-section">
+            <h3>E-Mail-Versand (SMTP)</h3>
+            <p class="muted">Konfiguriere den Mailserver deiner Klinik für Team-Einladungen. Das SMTP-Passwort wird verschlüsselt in der lokalen Datenbank gespeichert und nie wieder angezeigt. Ohne Konfiguration bleiben neu eingeladene Konten gesperrt.</p>
+            <p v-if="mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? 'Konfiguriert' : 'Noch nicht eingerichtet' }}</strong> · Passwort: <strong>{{ mailSettings.smtp_password_configured ? 'Gespeichert' : 'Nicht gespeichert' }}</strong></p>
+            <form class="stack" @submit.prevent="void saveMailSettings()">
+              <label>Öffentliche HTTPS-Adresse dieser Instanz<input v-model="mailSettings.public_url" type="url" placeholder="https://dienstplan.klinik.example" required /></label>
+              <div class="form-row">
+                <label>SMTP-Server<input v-model="mailSettings.smtp_host" maxlength="255" autocomplete="off" required /></label>
+                <label>Port<input v-model.number="mailSettings.smtp_port" type="number" min="1" max="65535" required /></label>
+              </div>
+              <label>SMTP-Benutzername (optional)<input v-model="mailSettings.smtp_username" maxlength="255" autocomplete="username" /></label>
+              <label>SMTP-Passwort<input v-model="mailPassword" type="password" maxlength="512" autocomplete="new-password" :disabled="clearMailPassword" :placeholder="mailSettings.smtp_password_configured ? 'Gespeichertes Passwort beibehalten' : 'Passwort eingeben, falls erforderlich'" /></label>
+              <label v-if="mailSettings.smtp_password_configured" class="permission-toggle"><input v-model="clearMailPassword" type="checkbox" /> Gespeichertes SMTP-Passwort löschen</label>
+              <label>Absenderadresse<input v-model="mailSettings.from_address" type="email" maxlength="255" required /></label>
+              <label class="permission-toggle"><input v-model="mailSettings.use_ssl" type="checkbox" /> Implizites TLS verwenden (üblicherweise Port 465)</label>
+              <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> STARTTLS verwenden (empfohlen)</label>
+              <div class="form-row"><button class="primary">E-Mail-Einstellungen speichern</button><span v-if="mailSettingsMessage" class="muted">{{ mailSettingsMessage }}</span></div>
+            </form>
+            <form class="stack" @submit.prevent="void testMailDelivery()">
+              <h4>Verbindung testen</h4>
+              <label>Test-E-Mail-Adresse<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
+              <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? 'Sende Testmail …' : 'Einstellungen speichern und Testmail senden' }}</button><span v-if="mailTestMessage" class="muted" role="status">{{ mailTestMessage }}</span></div>
+            </form>
+          </section>
+          <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'license'" class="license-settings">
+            <h3>Lizenz</h3>
+            <p v-if="licenseInfo?.institution_name" class="muted">Institution laut Lizenz: <strong>{{ licenseInfo.institution_name }}</strong></p>
+            <p class="muted">Status: <strong>{{ licenseInfo?.status ?? 'Ungeprüft' }}</strong><span v-if="licenseInfo?.max_users"> · Nutzerlimit: {{ licenseInfo.max_users }}</span><span v-if="licenseInfo?.license_expires_at"> · gültig bis {{ new Date(licenseInfo.license_expires_at).toLocaleDateString('de-DE') }}</span></p>
+            <p class="muted">Funktionen: {{ licenseInfo?.features?.join(', ') || 'nicht eingeschränkt' }}</p>
+            <form class="stack" @submit.prevent="replaceLicenseToken">
+              <label>Aktualisiertes Lizenz-Token<input v-model="licenseTokenInput" type="password" autocomplete="off" maxlength="4096" required /></label>
+              <button class="secondary" :disabled="licenseCheckBusy">{{ licenseCheckBusy ? 'Prüfe …' : 'Lizenz ersetzen und online aktivieren' }}</button>
+            </form>
+            <p class="muted">Das Token wird nicht angezeigt oder zurückgegeben. Der Lizenzserver verknüpft es idempotent mit dieser Installation.</p>
+          </section>
+          <BackupPanel v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'backup'" />
+          <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'archive'" class="settings-section">
+            <h3>Automatische Archivierung</h3>
+            <p class="muted">Optional: Abgeschlossene Zeiträume werden automatisch für alle Abteilungen unveränderlich archiviert und stehen im Archiv als PDF bereit. Ohne Aktivierung wird nur manuell archiviert. Automatische Sicherungskopien (Backups) stellst du im Reiter „Backup“ ein.</p>
+            <form class="stack" @submit.prevent="saveArchiveSettings">
+              <label class="permission-toggle"><input v-model="archiveSettings.auto_enabled" type="checkbox" /> Automatisch archivieren</label>
+              <label>Zeitraum<select v-model="archiveSettings.period" :disabled="!archiveSettings.auto_enabled"><option value="monthly">Monatlich (nach Monatsende)</option><option value="weekly">Wöchentlich (Montag bis Sonntag)</option></select></label>
+              <p v-if="archiveSettings.last_period_end" class="muted">Zuletzt abgedeckt bis: {{ dateLabel(archiveSettings.last_period_end) }}</p>
+              <div class="form-row"><button class="secondary">Speichern</button><span v-if="archiveSettingsMessage" class="muted">{{ archiveSettingsMessage }}</span></div>
+            </form>
+          </section>
+          <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'security'" class="settings-section">
+            <h3>Automatische Abmeldung</h3>
+            <p class="muted">Nach dieser Zeit ohne Aktivität werden alle Benutzer (auch der Administrator) automatisch abgemeldet. Kiosk-Konten sind davon ausgenommen. Standard: 5 Minuten.</p>
+            <form class="stack" @submit.prevent="saveIdleTimeout">
+              <label>Inaktivität bis zur Abmeldung (Minuten)<input v-model.number="idleTimeoutMinutes" type="number" min="1" max="120" required /></label>
+              <div class="form-row"><button class="secondary">Speichern</button><span v-if="idleTimeoutMessage" class="muted">{{ idleTimeoutMessage }}</span></div>
+            </form>
+          </section>
+          <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'audit'" class="audit-settings">
+            <h3>Audit-Protokoll</h3>
+            <p class="muted">Nachvollziehbare Änderungen und Anmeldeereignisse. Feldinhalte, Passwörter und Lizenz-Tokens werden nicht protokolliert.</p>
+            <label>Filter
+              <select v-model="auditCategory" @change="auditEvents = []; auditOffset = 0; void loadAuditEvents(true)">
+                <option value="">Alle Ereignisse</option>
+                <option value="logins">Anmeldungen &amp; Sperren</option>
+                <option value="accounts">Konten</option>
+                <option value="backups">Backups</option>
+              </select>
+            </label>
+            <div v-if="auditEvents.length" class="audit-list">
+              <article v-for="event in auditEvents" :key="event.id" class="audit-row">
+                <time :datetime="event.created_at">{{ new Date(event.created_at).toLocaleString('de-DE') }}</time>
+                <strong>{{ event.actor_username }}</strong>
+                <span>{{ event.action === 'created' ? 'erstellt' : event.action === 'updated' ? 'geändert' : event.action === 'deleted' ? 'gelöscht' : event.action === 'login' ? 'angemeldet' : event.action === 'locked' ? 'Konto gesperrt' : event.action === 'unlocked' ? 'Konto entsperrt' : event.action === 'restored' ? 'Backup wiederhergestellt' : 'Anmeldung fehlgeschlagen' }}</span>
+                <code>{{ event.entity_type }} · {{ event.entity_id }}</code>
+              </article>
+            </div>
+            <p v-else-if="!auditBusy" class="muted">Noch keine protokollierten Ereignisse.</p>
+            <button v-if="auditHasMore" class="secondary audit-more" :disabled="auditBusy" @click="void loadAuditEvents()">{{ auditBusy ? 'Lädt …' : 'Ältere Ereignisse laden' }}</button>
+            <span v-else-if="auditBusy" class="muted">Audit-Ereignisse werden geladen …</span>
+          </section>
+        </template>
+      </section>
+    </div>
+  </div>
+</template>
