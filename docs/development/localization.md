@@ -40,6 +40,10 @@ Meldungen bleiben unverändert sichtbar und erhalten bei Englisch eine
 und HTTP-Status; `errorMessage` übersetzt erst bei der Anzeige. Auch
 `TranslatedError` speichert Schlüssel und Parameter statt eines bereits
 übersetzten Textes. So bleiben angezeigte Fehler beim Sprachwechsel aktuell.
+Für Validierungsfehler mit dem Pydantic-Präfix `Value error, ` wird dieses
+nur bei bekannten Meldungen entfernt. Dynamische Backup- und
+Planungsmeldungen werden anhand ihrer festen Form erkannt; Feldnamen,
+Fehlerdetails, Schichtnamen und Datumswerte bleiben dabei erhalten.
 Die vom Server gelieferten Standardfunktionen werden nur in der Auswahlliste
 übersetzt; ihre gespeicherten Werte und frei eingegebenen Daten bleiben erhalten.
 

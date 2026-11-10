@@ -428,6 +428,7 @@ test('backup interface translates without changing the restore confirmation cont
     smtp_password_configured: true, from_address: 'sender@example.org', use_ssl: false, use_starttls: true,
   } }))
   let backupSettingsFail = false
+  let restoreFails = true
   await page.route('**/api/admin/backup/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/settings') && route.request().method() === 'PUT' && backupSettingsFail) {
@@ -436,7 +437,9 @@ test('backup interface translates without changing the restore confirmation cont
     if (path.endsWith('/settings')) return route.fulfill({ json: { schedule_enabled: false, frequency: 'weekly', weekday: 0, time_of_day: '12:00', recipient_count: 1, timezone: 'Europe/Berlin' } })
     if (path.endsWith('/recipients')) return route.fulfill({ json: [{ id: 1, name: 'Team A', public_key: 'CPPUB1:test' }] })
     if (path.endsWith('/targets') || path.endsWith('/runs')) return route.fulfill({ json: [] })
-    if (path.endsWith('/restore')) return route.fulfill({ json: { ok: true } })
+    if (path.endsWith('/restore')) return restoreFails
+      ? route.fulfill({ status: 422, json: { detail: 'Passwort der Schlüsseldatei ist falsch' } })
+      : route.fulfill({ json: { ok: true } })
     return route.fulfill({ status: 404, json: { detail: 'Unexpected backup request' } })
   })
   await page.goto('/')
@@ -523,6 +526,12 @@ test('backup interface translates without changing the restore confirmation cont
   await expect(restore).toBeDisabled()
   await page.getByLabel('Enter “WIEDERHERSTELLEN” to confirm').fill('WIEDERHERSTELLEN')
   await expect(restore).toBeEnabled()
+  await restore.click()
+  await expect(page.locator('.backup-settings [role="alert"]')).toHaveText('The key file password is incorrect')
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.locator('.backup-settings [role="alert"]')).toHaveText('Passwort der Schlüsseldatei ist falsch')
+  await page.getByLabel('Sprache').selectOption('en')
+  restoreFails = false
   const request = page.waitForRequest((req) => req.url().endsWith('/api/admin/backup/restore') && req.method() === 'POST')
   await restore.click()
   expect((await request).headers()['x-restore-confirm']).toBe('WIEDERHERSTELLEN')
@@ -590,6 +599,47 @@ test('API errors are retranslated when the language changes', async ({ page }) =
   await expect(page.getByText(detail)).toBeVisible()
   await page.getByLabel('Sprache').selectOption('en')
   await expect(page.getByText(/Unbekannter externer Fehler/)).toBeVisible()
+})
+
+test('validation and parameterized API errors retain details across language changes', async ({ page }) => {
+  await mockApi(page)
+  let detail = [{ type: 'value_error', msg: 'Value error, Planning permissions require schedule view access' }]
+  await page.route('**/api/auth/login', (route) => route.fulfill({ status: 422, json: { detail } }))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('planer')
+  await page.getByLabel('Passwort', { exact: true }).fill('incorrect')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.getByText('Planungsberechtigungen erfordern Zugriff auf die Dienstplanansicht')).toBeVisible()
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByText('Planning permissions require schedule view access')).toBeVisible()
+  detail = 'Das Feld „host_key_fingerprint“ ist erforderlich'
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByText('The field “host_key_fingerprint” is required')).toBeVisible()
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.getByText('Das Feld „host_key_fingerprint“ ist erforderlich')).toBeVisible()
+  detail = 'Frühdienst Team A on 2026-11-16 is already fully staffed'
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.getByText('Frühdienst Team A am 2026-11-16 ist bereits vollständig besetzt')).toBeVisible()
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByText('Frühdienst Team A on 2026-11-16 is already fully staffed')).toBeVisible()
+  for (const [serverDetail, expected] of [
+    ['Das Passwort muss mindestens 12 Zeichen lang sein', 'The password must be at least 12 characters long'],
+    ['Das Backup enthält die unbekannte Tabelle „events“ – wahrscheinlich stammt es aus einer neueren ClinicPulse-Version', 'The backup contains the unknown table “events”; it may be from a newer ClinicPulse version'],
+    ['Das Backup enthält unbekannte Spalten in „events“ – bitte zuerst ClinicPulse aktualisieren', 'The backup contains unknown columns in “events”; update ClinicPulse first'],
+    ['Host-Key stimmt nicht überein (Server meldet SHA256:abc)', 'Host key does not match (server reports SHA256:abc)'],
+    ['SFTP-Verbindung fehlgeschlagen: TimeoutError', 'SFTP connection failed: TimeoutError'],
+    ['SFTP-Fehler: OSError', 'SFTP error: OSError'],
+    ['WebDAV-Verbindung fehlgeschlagen: TimeoutError', 'WebDAV connection failed: TimeoutError'],
+    ['WebDAV-Server antwortete mit HTTP 503', 'WebDAV server responded with HTTP 503'],
+    ['S3-Fehler: AccessDenied', 'S3 error: AccessDenied'],
+  ]) {
+    detail = serverDetail
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(page.getByText(expected, { exact: true })).toBeVisible()
+  }
+  detail = [{ msg: 'Value error, External validation detail' }]
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByText(/Value error, External validation detail/)).toBeVisible()
 })
 
 test('offene Stelle kann im Tagesplan besetzt werden', async ({ page }) => {

@@ -100,6 +100,53 @@ const knownErrors: Record<string, TranslationKey> = {
   'Wiederherstellungsschlüssel fehlt oder ist ungültig': 'api.backupInvalidKey',
   'Bitte „WIEDERHERSTELLEN“ zur Bestätigung eingeben': 'api.backupConfirm',
   'Für automatische Backups wird mindestens ein Empfänger-Schlüssel benötigt (zuerst Wiederherstellungsschlüssel erzeugen)': 'api.backupRecipientRequired',
+  'Unbekannter Zieltyp': 'api.backupUnknownTarget',
+  'Unterordner darf nicht außerhalb des Backup-Verzeichnisses liegen': 'api.backupInvalidSubdir',
+  'Ungültiger Port': 'api.backupInvalidPort',
+  'Passwort oder privater Schlüssel erforderlich': 'api.backupCredentialsRequired',
+  'Host-Key-Fingerabdruck muss im Format SHA256:… angegeben werden': 'api.backupFingerprintFormat',
+  'Die WebDAV-URL muss mit https:// beginnen (verschlüsselte Übertragung ist Pflicht)': 'api.backupWebdavHttps',
+  'Der S3-Endpunkt muss mit https:// beginnen (verschlüsselte Übertragung ist Pflicht)': 'api.backupS3Https',
+  'Backup-Datei nicht gefunden': 'api.backupFileNotFound',
+  'Privater Schlüssel konnte nicht gelesen werden': 'api.backupPrivateKeyUnreadable',
+  'WebDAV-Antwort konnte nicht gelesen werden': 'api.backupWebdavUnreadable',
+  'Ungültiger öffentlicher Schlüssel (erwartet wird ein Wert, der mit CPPUB1: beginnt)': 'api.backupPublicKeyFormat',
+  'Ungültiger öffentlicher Schlüssel': 'api.backupPublicKeyInvalid',
+  'Das ist keine gültige Wiederherstellungsschlüssel-Datei': 'api.backupRecoveryFileInvalid',
+  'Passwort der Schlüsseldatei ist falsch': 'api.backupRecoveryPasswordInvalid',
+  'Die Schlüsseldatei ist beschädigt': 'api.backupRecoveryFileDamaged',
+  'Binärwerte werden im Backup nicht unterstützt': 'api.backupBinaryUnsupported',
+  'Es ist kein Empfänger-Schlüssel hinterlegt – ein Backup wird nie unverschlüsselt erstellt': 'api.backupNoRecipient',
+  'Die Datei ist kein ClinicPulse-Backup': 'api.backupNotClinicPulse',
+  'Die Backup-Datei ist beschädigt': 'api.backupDamaged',
+  'Dieses Backup wurde nicht für diese Instanz bzw. diesen Schlüssel verschlüsselt': 'api.backupWrongKey',
+  'Backup beschädigt oder manipuliert': 'api.backupTampered',
+  'Nicht unterstütztes Backup-Format': 'api.backupFormatUnsupported',
+  'Die Wiederherstellung ist fehlgeschlagen; es wurden keine Daten verändert': 'api.backupRestoreFailed',
+  'Name must not be empty': 'api.validationName',
+  'Birth date is not plausible': 'api.validationBirthDate',
+  'Username and email are required when creating an account': 'api.validationAccountDetails',
+  'A valid email address is required': 'api.validationEmail',
+  'Datetime values must include a timezone offset': 'api.validationTimezone',
+  'Shift end must be after shift start': 'api.validationShiftEnd',
+  'end_date must not be before start_date': 'api.validationDateOrder',
+  'Planning period is limited to 31 days': 'api.validationPlanningPeriod',
+  'License token must not be empty': 'api.validationLicenseToken',
+  'An email address is required when no password is supplied': 'api.validationEmailOrPassword',
+  'Planning permissions require schedule view access': 'api.validationPlanningPermissions',
+  'Kiosk accounts must be read-only and have schedule view access': 'api.validationKioskPermissions',
+  'At least one department is required for this role': 'api.validationRoleDepartment',
+  'Employee accounts must be linked to an employee': 'api.validationEmployeeLink',
+  'Employee accounts are read-only and have schedule view access': 'api.validationEmployeePermissions',
+  'Only employee accounts can be linked to an employee': 'api.validationEmployeeRole',
+  'Choose either a new SMTP password or clearing the saved password': 'api.validationSmtpPassword',
+  'Implicit TLS and STARTTLS cannot be enabled together': 'api.validationSmtpTls',
+  'The public instance URL must use HTTPS': 'api.validationPublicHttps',
+  'Profile image must be a PNG, JPEG, or WebP data URL': 'api.validationImageFormat',
+  'Profile image data is invalid': 'api.validationImageData',
+  'Profile image must be between 1 byte and 256 KB': 'api.validationImageSize',
+  'Profile image does not match its declared format': 'api.validationImageMismatch',
+  'Absence must span 1-366 days': 'api.validationAbsencePeriod',
   'ClinicPulse ist auf dem aktuellen Release-Stand.': 'updates.current',
   'Der optionale GitHub-Zugriffsschlüssel ist nicht lesbar.': 'updates.tokenUnreadable',
   'Kein öffentlich erreichbares GitHub-Release gefunden.': 'updates.noPublicRelease',
@@ -112,8 +159,31 @@ const knownErrors: Record<string, TranslationKey> = {
 
 export function apiErrorDetail(detail: unknown): string | null {
   if (typeof detail === 'string') {
-    const key = Object.hasOwn(knownErrors, detail) ? knownErrors[detail] : undefined
+    const normalized = detail.startsWith('Value error, ') ? detail.slice('Value error, '.length) : detail
+    const key = Object.hasOwn(knownErrors, normalized) ? knownErrors[normalized] : undefined
     if (key) return t(key)
+    const requiredField = /^Das Feld „([^“]+)“ ist erforderlich$/.exec(detail)
+    if (requiredField?.[1]) return t('api.backupFieldRequired', { field: requiredField[1] })
+    const passphraseLength = /^Das Passwort muss mindestens (\d+) Zeichen lang sein$/.exec(detail)
+    if (passphraseLength?.[1]) return t('api.backupPassphraseLength', { count: passphraseLength[1] })
+    const unknownTable = /^Das Backup enthält die unbekannte Tabelle „([^“]+)“ – wahrscheinlich stammt es aus einer neueren ClinicPulse-Version$/.exec(detail)
+    if (unknownTable?.[1]) return t('api.backupUnknownTable', { name: unknownTable[1] })
+    const unknownColumns = /^Das Backup enthält unbekannte Spalten in „([^“]+)“ – bitte zuerst ClinicPulse aktualisieren$/.exec(detail)
+    if (unknownColumns?.[1]) return t('api.backupUnknownColumns', { name: unknownColumns[1] })
+    const fullyStaffed = /^(.+) on (\d{4}-\d{2}-\d{2}) is already fully staffed$/.exec(detail)
+    if (fullyStaffed?.[1] && fullyStaffed[2]) return t('api.shiftFullyStaffed', { name: fullyStaffed[1], date: fullyStaffed[2] })
+    const fingerprint = /^Host-Key stimmt nicht überein \(Server meldet (.+)\)$/.exec(detail)
+    if (fingerprint?.[1]) return t('api.backupFingerprintMismatch', { fingerprint: fingerprint[1] })
+    const sftpConnection = /^SFTP-Verbindung fehlgeschlagen: (.+)$/.exec(detail)
+    if (sftpConnection?.[1]) return t('api.backupSftpConnection', { detail: sftpConnection[1] })
+    const sftpError = /^SFTP-Fehler: (.+)$/.exec(detail)
+    if (sftpError?.[1]) return t('api.backupSftpError', { detail: sftpError[1] })
+    const webdavConnection = /^WebDAV-Verbindung fehlgeschlagen: (.+)$/.exec(detail)
+    if (webdavConnection?.[1]) return t('api.backupWebdavConnection', { detail: webdavConnection[1] })
+    const webdavHttp = /^WebDAV-Server antwortete mit HTTP (\d+)$/.exec(detail)
+    if (webdavHttp?.[1]) return t('api.backupWebdavHttp', { status: webdavHttp[1] })
+    const s3Error = /^S3-Fehler: (.+)$/.exec(detail)
+    if (s3Error?.[1]) return t('api.backupS3Error', { detail: s3Error[1] })
     const updateHttpError = /^GitHub-Update-Abfrage fehlgeschlagen \(HTTP (\d+)\)\.$/.exec(detail)
     if (updateHttpError?.[1]) return t('updates.httpError', { status: updateHttpError[1] })
     const noChannelRelease = /^Kein veröffentlichtes Release für den (stable|nightly)-Kanal gefunden\.$/.exec(detail)
