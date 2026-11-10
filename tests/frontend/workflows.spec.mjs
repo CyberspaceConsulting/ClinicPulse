@@ -401,6 +401,10 @@ test('English planning preview and approval retain custom names', async ({ page 
   await expect(page.getByText('Unfilled: Frühdienst (Pflege)')).toBeVisible()
   await page.getByRole('button', { name: 'Approve schedule' }).click()
   await expect(page.getByText('1 shift was approved and scheduled.')).toBeVisible()
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.getByText('1 Dienst wurde genehmigt und eingetragen.')).toBeVisible()
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByText('1 shift was approved and scheduled.')).toBeVisible()
 })
 
 test('backup interface translates without changing the restore confirmation contract', async ({ page }) => {
@@ -612,6 +616,15 @@ test('validation and parameterized API errors retain details across language cha
   await expect(page.getByText('Planungsberechtigungen erfordern Zugriff auf die Dienstplanansicht')).toBeVisible()
   await page.getByLabel('Sprache').selectOption('en')
   await expect(page.getByText('Planning permissions require schedule view access')).toBeVisible()
+  detail = [
+    { type: 'string_too_short', msg: 'String should have at least 3 characters', ctx: { min_length: 3 } },
+    { type: 'greater_than_equal', msg: 'Input should be greater than or equal to 1', ctx: { ge: 1 } },
+  ]
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByText('Enter at least 3 characters; The value must be at least 1')).toBeVisible()
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.getByText('Mindestens 3 Zeichen eingeben; Der Wert muss mindestens 1 betragen')).toBeVisible()
+  await page.getByLabel('Sprache').selectOption('en')
   detail = 'Das Feld „host_key_fingerprint“ ist erforderlich'
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByText('The field “host_key_fingerprint” is required')).toBeVisible()
@@ -640,6 +653,23 @@ test('validation and parameterized API errors retain details across language cha
   detail = [{ msg: 'Value error, External validation detail' }]
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByText(/Value error, External validation detail/)).toBeVisible()
+  await page.getByLabel('Language').selectOption('de')
+  for (const [serverDetail, expected] of [
+    ['Minimum rest period of 11 hours between shifts would be violated', 'Die Mindestruhezeit von 11 Stunden zwischen Schichten würde unterschritten'],
+    ['Daily working time would exceed 10 hours (ArbZG §3)', 'Die tägliche Arbeitszeit würde 10 Stunden überschreiten (ArbZG §3)'],
+    ['Average working time would exceed 48 hours per week over the 24-week reference period (ArbZG §3)', 'Die durchschnittliche Arbeitszeit würde im 24-Wochen-Ausgleichszeitraum 48 Stunden pro Woche überschreiten (ArbZG §3)'],
+    ['At least 30 minutes of break are required for this shift length (ArbZG §4)', 'Für diese Schichtdauer sind mindestens 30 Minuten Pause erforderlich (ArbZG §4)'],
+    ['A distinct replacement rest day is required within a 14-day period including 2026-11-16 (ArbZG §11)', 'Ein eigener Ersatzruhetag ist innerhalb eines Zeitraums von 14 Tagen einschließlich 2026-11-16 erforderlich (ArbZG §11)'],
+    ['License is read-only: License is blocked', 'Die Lizenz erlaubt nur Lesezugriff: Die Lizenz ist gesperrt'],
+  ]) {
+    detail = serverDetail
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+    await expect(page.getByText(expected, { exact: true })).toBeVisible()
+  }
+  detail = 'Zu viele Anmeldeversuche. Bitte in 60 Sekunden erneut versuchen.'
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByText('Too many sign-in attempts. Please try again in 60 seconds.')).toBeVisible()
 })
 
 test('offene Stelle kann im Tagesplan besetzt werden', async ({ page }) => {

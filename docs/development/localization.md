@@ -44,6 +44,9 @@ Für Validierungsfehler mit dem Pydantic-Präfix `Value error, ` wird dieses
 nur bei bekannten Meldungen entfernt. Dynamische Backup- und
 Planungsmeldungen werden anhand ihrer festen Form erkannt; Feldnamen,
 Fehlerdetails, Schichtnamen und Datumswerte bleiben dabei erhalten.
+Übliche Pydantic-Validierungsfehler werden anhand ihres Typs und ihrer
+Grenzwerte übersetzt; unbekannte Meldungen bleiben mit ihren Originaldetails
+sichtbar.
 Die vom Server gelieferten Standardfunktionen werden nur in der Auswahlliste
 übersetzt; ihre gespeicherten Werte und frei eingegebenen Daten bleiben erhalten.
 

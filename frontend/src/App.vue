@@ -353,7 +353,7 @@ const planningMode = ref<'week' | 'month'>('week')
 const planningAnchor = ref(localDate(new Date()))
 const planningDays = ref<PlanningDay[] | null>(null)
 const planningBusy = ref(false)
-const planningNotice = ref('')
+const planningNotice = ref<{ key: TranslationKey; count: number } | null>(null)
 const departmentName = ref('')
 const editingDepartmentId = ref<number | null>(null)
 const userId = ref<number | null>(null)
@@ -498,7 +498,7 @@ watch([selectedDay, selectedPlanId], () => {
 
 watch([selectedPlanId, planningMode, planningAnchor], () => {
   planningDays.value = null
-  planningNotice.value = ''
+  planningNotice.value = null
 })
 
 const planningPeriod = computed(() => {
@@ -1502,7 +1502,7 @@ function openPlanning() {
 async function proposePlanning() {
   planningBusy.value = true
   planningDays.value = null
-  planningNotice.value = ''
+  planningNotice.value = null
   error.value = ''
   try {
     const result = await api<{ days: PlanningDay[] }>('/planning/preview', {
@@ -1536,7 +1536,7 @@ async function approvePlanning() {
         }))),
       }),
     })
-    planningNotice.value = t(result.created === 1 ? 'planning.approvedOne' : 'planning.approvedOther', { count: result.created })
+    planningNotice.value = { key: result.created === 1 ? 'planning.approvedOne' : 'planning.approvedOther', count: result.created }
     planningDays.value = null
     await loadData()
   } catch (err) {
@@ -2045,7 +2045,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div v-if="error" class="alert" role="alert"><span>{{ displayedError }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
-        <p v-if="planningNotice" class="planning-notice" role="status">{{ planningNotice }}</p>
+        <p v-if="planningNotice" class="planning-notice" role="status">{{ t(planningNotice.key, { count: planningNotice.count }) }}</p>
         <section class="planning-controls">
           <label>{{ t('planning.period') }}
             <select v-model="planningMode">

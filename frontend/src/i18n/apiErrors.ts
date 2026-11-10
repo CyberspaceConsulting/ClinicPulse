@@ -147,6 +147,19 @@ const knownErrors: Record<string, TranslationKey> = {
   'Profile image must be between 1 byte and 256 KB': 'api.validationImageSize',
   'Profile image does not match its declared format': 'api.validationImageMismatch',
   'Absence must span 1-366 days': 'api.validationAbsencePeriod',
+  'Business configuration is required before scheduling': 'api.ruleBusinessConfiguration',
+  'Work on Sundays or public holidays is disabled for this facility (ArbZG §§9–10)': 'api.ruleSundayWork',
+  'At least 15 Sundays per calendar year must remain free of work (ArbZG §11)': 'api.ruleFreeSundays',
+  'Shift does not include the legally required break (ArbZG §4)': 'api.ruleRequiredBreak',
+  'Scheduled break does not fit within the shift or starts after six hours (ArbZG §4)': 'api.ruleBreakTiming',
+  'A work period longer than six hours without a break would violate ArbZG §4': 'api.ruleSixHours',
+  'License has not been activated or checked': 'api.licenseNotActivated',
+  'Stored license status could not be verified': 'api.licenseStatusUnverified',
+  'License is blocked': 'api.licenseBlocked',
+  'License is overdue': 'api.licenseOverdue',
+  'License grace period has expired': 'api.licenseGraceExpired',
+  'License Manager has been unreachable for more than seven days': 'api.licenseManagerUnreachable',
+  'Kulanzzeitraum aktiv': 'api.licenseGraceActive',
   'ClinicPulse ist auf dem aktuellen Release-Stand.': 'updates.current',
   'Der optionale GitHub-Zugriffsschlüssel ist nicht lesbar.': 'updates.tokenUnreadable',
   'Kein öffentlich erreichbares GitHub-Release gefunden.': 'updates.noPublicRelease',
@@ -172,6 +185,23 @@ export function apiErrorDetail(detail: unknown): string | null {
     if (unknownColumns?.[1]) return t('api.backupUnknownColumns', { name: unknownColumns[1] })
     const fullyStaffed = /^(.+) on (\d{4}-\d{2}-\d{2}) is already fully staffed$/.exec(detail)
     if (fullyStaffed?.[1] && fullyStaffed[2]) return t('api.shiftFullyStaffed', { name: fullyStaffed[1], date: fullyStaffed[2] })
+    const requiredBreak = /^At least (\d+) minutes of break are required for this shift length \(ArbZG §4\)$/.exec(detail)
+    if (requiredBreak?.[1]) return t('api.ruleBreakMinutes', { count: requiredBreak[1] })
+    const restPeriod = /^Minimum rest period of ([\d.]+) hours between shifts would be violated$/.exec(detail)
+    if (restPeriod?.[1]) return t('api.ruleRestHours', { count: restPeriod[1] })
+    const dailyHours = /^Daily working time would exceed ([\d.]+) hours \(ArbZG §3\)$/.exec(detail)
+    if (dailyHours?.[1]) return t('api.ruleDailyHours', { count: dailyHours[1] })
+    const weeklyHours = /^Average working time would exceed ([\d.]+) hours per week over the 24-week reference period \(ArbZG §3\)$/.exec(detail)
+    if (weeklyHours?.[1]) return t('api.ruleWeeklyHours', { count: weeklyHours[1] })
+    const replacementRest = /^A distinct replacement rest day is required within a (\d+)-day period including (\d{4}-\d{2}-\d{2}) \(ArbZG §11\)$/.exec(detail)
+    if (replacementRest?.[1] && replacementRest[2]) return t('api.ruleReplacementRest', { count: replacementRest[1], date: replacementRest[2] })
+    const retry = /^Zu viele Anmeldeversuche\. Bitte in (\d+) Sekunden erneut versuchen\.$/.exec(detail)
+    if (retry?.[1]) return t('api.loginRetry', { count: retry[1] })
+    const licenseRestriction = /^(License is read-only|Diese Lizenz ist nicht aktiv): (.+)$/.exec(detail)
+    if (licenseRestriction?.[1] && licenseRestriction[2]) {
+      const reason = apiErrorDetail(licenseRestriction[2]) ?? licenseRestriction[2]
+      return t(licenseRestriction[1] === 'License is read-only' ? 'api.licenseReadOnlyReason' : 'api.licenseInactiveReason', { reason })
+    }
     const fingerprint = /^Host-Key stimmt nicht überein \(Server meldet (.+)\)$/.exec(detail)
     if (fingerprint?.[1]) return t('api.backupFingerprintMismatch', { fingerprint: fingerprint[1] })
     const sftpConnection = /^SFTP-Verbindung fehlgeschlagen: (.+)$/.exec(detail)
@@ -193,9 +223,27 @@ export function apiErrorDetail(detail: unknown): string | null {
   if (!Array.isArray(detail)) return null
   const messages = detail.flatMap((item: unknown) => {
     if (typeof item !== 'object' || item === null || !('msg' in item)) return []
-    return typeof item.msg === 'string' ? [item.msg] : []
+    if (typeof item.msg !== 'string') return []
+    const type = 'type' in item && typeof item.type === 'string' ? item.type : ''
+    const context: unknown = 'ctx' in item ? item.ctx : null
+    const limitKey = type === 'string_too_short' ? 'min_length'
+      : type === 'string_too_long' ? 'max_length'
+        : type === 'greater_than_equal' ? 'ge'
+          : type === 'less_than_equal' ? 'le' : null
+    if (limitKey && typeof context === 'object' && context !== null) {
+      const limit: unknown = Object.entries(context).find(([name]) => name === limitKey)?.[1]
+      if (typeof limit === 'number' && Number.isFinite(limit)) {
+        const key = type === 'string_too_short' ? 'api.validationMinLength'
+          : type === 'string_too_long' ? 'api.validationMaxLength'
+            : type === 'greater_than_equal' ? 'api.validationMinimum' : 'api.validationMaximum'
+        return [t(key, { count: limit })]
+      }
+    }
+    if (type === 'missing' && item.msg === 'Field required') return [t('api.validationRequired')]
+    if (type === 'int_parsing' && item.msg === 'Input should be a valid integer, unable to parse string as an integer') return [t('api.validationInteger')]
+    return [apiErrorDetail(item.msg) ?? item.msg]
   })
-  return messages.length ? [...new Set(messages)].map((message) => apiErrorDetail(message)).join('; ') : null
+  return messages.length ? [...new Set(messages)].join('; ') : null
 }
 
 export class ApiError extends Error {
