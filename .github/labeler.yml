@@ -37,6 +37,11 @@ dependencies:
           - 'frontend/package-lock.json'
           - 'frontend/yarn.lock'
 
+localization:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'frontend/src/i18n/**'
+
 tests:
   - changed-files:
       - any-glob-to-any-file:

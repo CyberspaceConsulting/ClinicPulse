@@ -542,6 +542,14 @@ function dateAssignments(date: Date) {
   return assignments.value.filter((item) => localDate(new Date(item.starts_at)) === day)
 }
 
+function shiftCountLabel(count: number) {
+  return t(count === 1 ? 'schedule.shiftsOne' : 'schedule.shiftsOther', { count })
+}
+
+function openCountLabel(count: number) {
+  return t(count === 1 ? 'schedule.openOne' : 'schedule.openOther', { count })
+}
+
 function timeLabel(value: string) {
   return new Date(value).toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit' })
 }
@@ -2108,17 +2116,17 @@ onBeforeUnmount(() => {
       <main v-else class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">PERSONALPLANUNG</p>
-            <h1>{{ selectedDay ? dateLabel(selectedDay) : 'Dienstplan' }}</h1>
-            <p class="muted">{{ selectedDay ? 'Besetzung nach Schicht, Funktion und offenen Stellen.' : 'Wochenüberblick mit Besetzungsstatus auf einen Blick.' }}</p>
+            <p class="eyebrow">{{ t('schedule.eyebrow') }}</p>
+            <h1>{{ selectedDay ? dateLabel(selectedDay) : t('page.schedule') }}</h1>
+            <p class="muted">{{ selectedDay ? t('schedule.dayDescription') : t('schedule.weekDescription') }}</p>
           </div>
           <div class="heading-actions">
-            <button v-if="selectedDay" class="secondary" @click="selectedDay = null; smartGap = null">‹ Wochenübersicht</button>
-            <button v-if="canEditPlan" class="primary" :disabled="!employees.length || !shiftTypes.length" @click="selectedDate = selectedDay ?? localDate(today); showAssignmentForm = true">＋ Dienst eintragen</button>
+            <button v-if="selectedDay" class="secondary" @click="selectedDay = null; smartGap = null">{{ t('schedule.backToWeek') }}</button>
+            <button v-if="canEditPlan" class="primary" :disabled="!employees.length || !shiftTypes.length" @click="selectedDate = selectedDay ?? localDate(today); showAssignmentForm = true">{{ t('schedule.addAssignment') }}</button>
           </div>
         </div>
 
-        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" aria-label="Meldung schließen">×</button></div>
+        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
         <section
           v-if="roleKey === 'ADMIN' && licenseInfo && !licenseInfo.suppress_warnings && (licenseInfo.status !== 'PAID' || licenseInfo.read_only || licenseInfo.last_error)"
           class="license-banner"
@@ -2136,107 +2144,107 @@ onBeforeUnmount(() => {
 
         <template v-if="canView">
         <section class="stats">
-          <article class="stat-card"><span class="stat-icon teal">▦</span><div><span class="stat-label">Geplante Dienste</span><strong>{{ assignments.length }}</strong></div><small>in dieser Woche</small></article>
-          <article class="stat-card"><span class="stat-icon blue">◷</span><div><span class="stat-label">Geplante Stunden</span><strong>{{ totalHours.toLocaleString('de-DE', { maximumFractionDigits: 0 }) }}</strong></div><small>in dieser Woche</small></article>
-          <article class="stat-card"><span class="stat-icon" :class="notifications.length ? 'amber' : 'teal'">!</span><div><span class="stat-label">Offene Stellen</span><strong>{{ notifications.reduce((sum, item) => sum + item.count, 0) }}</strong></div><small>in dieser Woche</small></article>
+          <article class="stat-card"><span class="stat-icon teal">▦</span><div><span class="stat-label">{{ t('schedule.plannedShifts') }}</span><strong>{{ assignments.length }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
+          <article class="stat-card"><span class="stat-icon blue">◷</span><div><span class="stat-label">{{ t('schedule.plannedHours') }}</span><strong>{{ totalHours.toLocaleString(locale, { maximumFractionDigits: 0 }) }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
+          <article class="stat-card"><span class="stat-icon" :class="notifications.length ? 'amber' : 'teal'">!</span><div><span class="stat-label">{{ t('schedule.openPositions') }}</span><strong>{{ notifications.reduce((sum, item) => sum + item.count, 0) }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
         </section>
 
         <section v-if="!selectedDay" class="today-panel panel">
           <header class="today-heading">
-            <div><p class="eyebrow">HEUTE</p><h2>{{ dateLabel(localDate(today)) }}</h2><p class="muted">{{ dateAssignments(today).length }} Dienste · {{ shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(today), shift.id).length), 0) }} offene Stellen</p></div>
-            <button class="secondary" @click="selectedDay = localDate(today)">Tagesdetails öffnen →</button>
+            <div><p class="eyebrow">{{ t('schedule.today').toLocaleUpperCase(locale) }}</p><h2>{{ dateLabel(localDate(today)) }}</h2><p class="muted">{{ shiftCountLabel(dateAssignments(today).length) }} · {{ openCountLabel(shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(today), shift.id).length), 0)) }}</p></div>
+            <button class="secondary" @click="selectedDay = localDate(today)">{{ t('schedule.openDay') }}</button>
           </header>
           <div v-if="shiftTypes.length" class="today-shifts">
             <article v-for="shift in shiftTypes" :key="shift.id" class="today-shift">
               <span class="shift-color" :style="{ background: shift.color }"></span>
-              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }}</small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || 'Noch niemand eingeteilt' }}</p></div>
-              <span v-if="shift.required_staff > assignmentsFor(localDate(today), shift.id).length" class="overview-gap">{{ shift.required_staff - assignmentsFor(localDate(today), shift.id).length }} offen</span>
-              <span v-else class="overview-filled">Besetzt</span>
+              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }}</small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || t('schedule.noAssignments') }}</p></div>
+              <span v-if="shift.required_staff > assignmentsFor(localDate(today), shift.id).length" class="overview-gap">{{ t('schedule.openCount', { count: shift.required_staff - assignmentsFor(localDate(today), shift.id).length }) }}</span>
+              <span v-else class="overview-filled">{{ t('schedule.filled') }}</span>
             </article>
           </div>
-          <p v-else class="muted today-empty">Noch keine Schichten für deine Abteilung eingerichtet.</p>
+          <p v-else class="muted today-empty">{{ t('schedule.noShifts') }}</p>
         </section>
 
         <section class="panel">
           <div class="planner-toolbar">
-            <div><h2>{{ selectedDay ? 'Tagesdetails' : 'Wochenübersicht' }}</h2><p class="muted">{{ selectedDay ? dateLabel(selectedDay) : weekLabel }}</p></div>
+            <div><h2>{{ selectedDay ? t('schedule.dayDetails') : t('schedule.weekOverview') }}</h2><p class="muted">{{ selectedDay ? dateLabel(selectedDay) : weekLabel }}</p></div>
             <div class="toolbar-actions">
               <template v-if="!selectedDay">
-                <div class="week-nav"><button aria-label="Vorherige Woche" @click="moveWeek(-1)">‹</button><button @click="weekOffset = 0; void loadData()">Heute</button><button aria-label="Nächste Woche" @click="moveWeek(1)">›</button></div>
-                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
-                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart</button>
+                <div class="week-nav"><button :aria-label="t('schedule.previousWeek')" @click="moveWeek(-1)">‹</button><button @click="weekOffset = 0; void loadData()">{{ t('schedule.today') }}</button><button :aria-label="t('schedule.nextWeek')" @click="moveWeek(1)">›</button></div>
+                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
+                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.addShiftType') }}</button>
               </template>
               <template v-else>
                 <button v-if="canEditPlan" class="secondary" :disabled="optimizationBusy" @click="void optimizeSelectedDay()">
-                  {{ optimizationBusy ? 'Berechne …' : '✧ Tag optimieren' }}
+                  {{ optimizationBusy ? t('planning.calculating') : t('schedule.optimize') }}
                 </button>
-                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
-                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart</button>
+                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
+                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.addShiftType') }}</button>
               </template>
             </div>
           </div>
 
           <div v-if="!employees.length || !shiftTypes.length" class="empty-state">
-            <div class="empty-icon">▦</div><h3>Starte mit deinem Dienstplan</h3>
-            <p>Lege zuerst Mitarbeitende und Schichtarten an, um Dienste einzutragen.</p>
+            <div class="empty-icon">▦</div><h3>{{ t('schedule.emptyTitle') }}</h3>
+            <p>{{ t('schedule.emptyDescription') }}</p>
             <div class="empty-actions">
-              <button v-if="canManageTeam" class="secondary" @click="void openManagement()">Teamverwaltung öffnen</button>
-              <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart anlegen</button>
+              <button v-if="canManageTeam" class="secondary" @click="void openManagement()">{{ t('schedule.openManagement') }}</button>
+              <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.createShiftType') }}</button>
             </div>
           </div>
 
           <div v-else-if="!selectedDay" class="week-overview">
             <button v-for="day in days" :key="day.toISOString()" class="overview-day" :class="{ 'today-column': localDate(day) === localDate(today) }" @click="selectedDay = localDate(day)">
-              <span class="overview-weekday">{{ day.toLocaleDateString('de-DE', { weekday: 'long' }) }}</span>
-              <strong class="overview-date">{{ day.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' }) }}</strong>
-              <span class="overview-shifts">{{ dateAssignments(day).length }} {{ dateAssignments(day).length === 1 ? 'Dienst' : 'Dienste' }}</span>
+              <span class="overview-weekday">{{ day.toLocaleDateString(locale, { weekday: 'long' }) }}</span>
+              <strong class="overview-date">{{ day.toLocaleDateString(locale, { day: '2-digit', month: 'short' }) }}</strong>
+              <span class="overview-shifts">{{ shiftCountLabel(dateAssignments(day).length) }}</span>
               <span v-if="shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0)" class="overview-gap">
-                {{ shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0) }} offen
+                {{ t('schedule.openCount', { count: shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0) }) }}
               </span>
-              <span v-else class="overview-filled">Besetzung vollständig</span>
-              <span class="overview-link">Tagesdetails ansehen →</span>
+              <span v-else class="overview-filled">{{ t('schedule.fullyStaffed') }}</span>
+              <span class="overview-link">{{ t('schedule.viewDay') }}</span>
             </button>
           </div>
 
           <div v-else class="day-detail">
             <section v-if="optimizationPreview" class="optimization-panel smart-panel" aria-live="polite">
               <header class="smart-heading">
-                <strong>Optimierungsvorschlag</strong>
-                <span>CP-SAT · ArbZG-regelgeprüfter Entwurf · Änderungen erst nach deiner Übernahme</span>
-                <button class="text-button" @click="optimizationPreview = null">Schließen</button>
+                <strong>{{ t('schedule.optimizationTitle') }}</strong>
+                <span>{{ t('schedule.optimizationDescription') }}</span>
+                <button class="text-button" @click="optimizationPreview = null">{{ t('schedule.close') }}</button>
               </header>
               <p v-if="optimizationPreview.status === 'UNKNOWN'" class="muted">
-                In der verfügbaren Rechenzeit konnte kein Vorschlag erstellt werden. Bitte Zeitraum oder Umfang prüfen und erneut versuchen.
+                {{ t('schedule.optimizationUnknown') }}
               </p>
               <template v-else>
                 <article v-for="suggestion in optimizationPreview.suggestions" :key="`${suggestion.shift_type_id}-${suggestion.employee_id}`" class="smart-candidate">
                   <span class="candidate-avatar"><img v-if="employeePhoto(suggestion.employee_id)" :src="employeePhoto(suggestion.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(suggestion.employee_name) }}</template></span>
                   <div>
                     <strong>{{ suggestion.employee_name }} · {{ suggestion.shift_name }}</strong>
-                    <small>{{ suggestion.employee_role }} · {{ suggestion.role_match ? 'Rolle passt' : 'Rollenabweichung' }}</small>
+                    <small>{{ suggestion.employee_role }} · {{ suggestion.role_match ? t('schedule.roleMatch') : t('schedule.roleMismatch') }}</small>
                   </div>
-                  <button v-if="canEditPlan" class="primary approve-button" @click="applyOptimizationSuggestion(suggestion)">Übernehmen</button>
+                  <button v-if="canEditPlan" class="primary approve-button" @click="applyOptimizationSuggestion(suggestion)">{{ t('schedule.accept') }}</button>
                 </article>
                 <p v-if="!optimizationPreview.suggestions.length && !optimizationPreview.unfilled_slots.length" class="muted">
-                  Für diesen Tag sind keine offenen Stellen mehr zu besetzen.
+                  {{ t('schedule.noOpenSlots') }}
                 </p>
                 <p v-if="optimizationPreview.unfilled_slots.length" class="muted">
-                  {{ optimizationPreview.unfilled_slots.length }} Stelle{{ optimizationPreview.unfilled_slots.length === 1 ? '' : 'n' }} bleiben unbesetzt, weil keine regelkonforme Besetzung gefunden wurde.
+                  {{ t(optimizationPreview.unfilled_slots.length === 1 ? 'schedule.unfilledOne' : 'schedule.unfilledOther', { count: optimizationPreview.unfilled_slots.length }) }}
                 </p>
               </template>
             </section>
             <div v-for="shift in shiftTypes" :key="shift.id" class="shift-section">
               <header class="shift-section-heading">
                 <div class="shift-color" :style="{ background: shift.color }"></div>
-                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }} · {{ shift.required_staff }} benötigt</p></div>
+                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }} · {{ t('schedule.required', { count: shift.required_staff }) }}</p></div>
                 <span class="coverage-count">{{ assignmentsFor(selectedDay, shift.id).length }}/{{ shift.required_staff }}</span>
-                <button v-if="(canEditPlan || (canApprove && !licenseReadOnly))" class="secondary smart-button" @click="suggestFor(selectedDay, shift)">✧ Smart-Auswahl</button>
+                <button v-if="(canEditPlan || (canApprove && !licenseReadOnly))" class="secondary smart-button" @click="suggestFor(selectedDay, shift)">{{ t('schedule.smartSelection') }}</button>
               </header>
               <div class="position-slots">
                 <article v-for="(assignment, index) in assignmentsFor(selectedDay, shift.id)" :key="assignment.id" class="position-slot filled-slot">
                   <span class="slot-index">{{ index + 1 }}</span>
                   <div class="slot-person"><span class="candidate-avatar"><img v-if="employeePhoto(assignment.employee_id)" :src="employeePhoto(assignment.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(assignment.employee_name) }}</template></span><div class="slot-employee"><strong>{{ assignment.employee_name }}</strong><small>{{ shift.position }} · {{ timeLabel(assignment.starts_at) }}–{{ timeLabel(assignment.ends_at) }}</small></div></div>
-                  <button v-if="canEditPlan" class="remove-assignment" :aria-label="`${assignment.employee_name}: Dienst entfernen`" @click="removeAssignment(assignment.id)">×</button>
+                  <button v-if="canEditPlan" class="remove-assignment" :aria-label="t('schedule.removeAssignment', { name: assignment.employee_name })" @click="removeAssignment(assignment.id)">×</button>
                 </article>
                 <article
                   v-for="slot in Math.max(0, shift.required_staff - assignmentsFor(selectedDay, shift.id).length)"
@@ -2248,26 +2256,26 @@ onBeforeUnmount(() => {
                   @click="canEditPlan && (selectedDate = selectedDay!); canEditPlan && (selectedShift = String(shift.id)); canEditPlan && (showAssignmentForm = true)"
                 >
                   <span class="slot-index">{{ assignmentsFor(selectedDay, shift.id).length + slot }}</span>
-                  <div class="slot-employee"><strong>Offene Stelle</strong><small>{{ shift.position }} · {{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}</small></div>
-                  <span class="drag-hint">Mitarbeitende hier ablegen oder auswählen</span>
+                  <div class="slot-employee"><strong>{{ t('schedule.openPosition') }}</strong><small>{{ shift.position }} · {{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}</small></div>
+                  <span class="drag-hint">{{ t('schedule.dropOrSelect') }}</span>
                 </article>
                 <div v-if="smartGap?.date === selectedDay && smartGap.shift.id === shift.id" class="smart-panel">
-                  <div class="smart-heading"><strong>Smart-Auswahl</strong><span>Heuristischer Vorschlag nach Rollenpassung und Wochenbelastung</span></div>
+                  <div class="smart-heading"><strong>{{ t('schedule.smartTitle') }}</strong><span>{{ t('schedule.smartDescription') }}</span></div>
                   <article v-if="smartCandidates[0]" class="smart-candidate">
                     <span class="candidate-avatar"><img v-if="employeePhoto(smartCandidates[0].employee_id)" :src="employeePhoto(smartCandidates[0].employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(smartCandidates[0].employee_name) }}</template></span>
-                    <div><strong>{{ smartCandidates[0].employee_name }}</strong><small>{{ smartCandidates[0].role }} · {{ smartCandidates[0].role_match ? 'Rolle passt' : 'andere Rolle' }} · {{ smartCandidates[0].planned_assignments }} geplante Dienste</small></div>
-                    <button v-if="canApprove && !licenseReadOnly" class="primary approve-button" @click="approveCandidate(smartCandidates[0])">Freigeben</button>
-                    <span v-else class="approval-needed">{{ licenseReadOnly ? 'Lizenzstatus erlaubt derzeit keine Änderungen' : 'Freigabe durch berechtigten Oberarzt erforderlich' }}</span>
+                    <div><strong>{{ smartCandidates[0].employee_name }}</strong><small>{{ smartCandidates[0].role }} · {{ smartCandidates[0].role_match ? t('schedule.roleMatch') : t('schedule.otherRole') }} · {{ t(smartCandidates[0].planned_assignments === 1 ? 'schedule.plannedOne' : 'schedule.plannedOther', { count: smartCandidates[0].planned_assignments }) }}</small></div>
+                    <button v-if="canApprove && !licenseReadOnly" class="primary approve-button" @click="approveCandidate(smartCandidates[0])">{{ t('schedule.approve') }}</button>
+                    <span v-else class="approval-needed">{{ licenseReadOnly ? t('schedule.licenseBlocked') : t('schedule.approvalRequired') }}</span>
                   </article>
-                  <p v-else class="muted">Keine verfügbare Person für diesen Zeitraum gefunden.</p>
-                  <button v-if="smartCandidates.length > 1" class="text-button" @click="smartCandidates.shift()">Anderen Vorschlag ansehen</button>
+                  <p v-else class="muted">{{ t('schedule.noCandidate') }}</p>
+                  <button v-if="smartCandidates.length > 1" class="text-button" @click="smartCandidates.shift()">{{ t('schedule.otherCandidate') }}</button>
                 </div>
               </div>
             </div>
-            <aside v-if="canEditPlan" class="team-roster"><strong>Team · Ziehen zum Eintragen</strong><div><button v-for="employee in employees" :key="employee.id" class="roster-person" draggable="true" @dragstart="dragEmployee($event, employee)"><span class="candidate-avatar"><img v-if="employeePhoto(employee.id)" :src="employeePhoto(employee.id) ?? undefined" alt="" /><template v-else>{{ initialsOf(employee.name) }}</template></span><span><b>{{ employee.name }}</b><small>{{ employee.role }}</small></span><span class="drag-grip">⠿</span></button></div></aside>
-            <p v-if="!shiftTypes.length" class="empty-state">Für diesen Tag sind keine Schichtarten eingerichtet.</p>
+            <aside v-if="canEditPlan" class="team-roster"><strong>{{ t('schedule.roster') }}</strong><div><button v-for="employee in employees" :key="employee.id" class="roster-person" draggable="true" @dragstart="dragEmployee($event, employee)"><span class="candidate-avatar"><img v-if="employeePhoto(employee.id)" :src="employeePhoto(employee.id) ?? undefined" alt="" /><template v-else>{{ initialsOf(employee.name) }}</template></span><span><b>{{ employee.name }}</b><small>{{ employee.role }}</small></span><span class="drag-grip">⠿</span></button></div></aside>
+            <p v-if="!shiftTypes.length" class="empty-state">{{ t('schedule.noDayShiftTypes') }}</p>
           </div>
-          <div v-if="busy" class="loading">Dienstplan wird aktualisiert …</div>
+          <div v-if="busy" class="loading">{{ t('schedule.loading') }}</div>
         </section>
 
         <footer class="page-footer">

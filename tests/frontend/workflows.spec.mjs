@@ -121,6 +121,26 @@ test('English login and navigation use the stored locale', async ({ page }) => {
   await expect(page).toHaveTitle('ClinicPulse – Schedule')
 })
 
+test('schedule overview and day details switch languages without changing custom names', async ({ page }) => {
+  await mockApi(page)
+  await login(page)
+  await expect(page.locator('.overview-day').first()).toContainText('0 Dienste')
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Week overview' })).toBeVisible()
+  await expect(page.locator('.overview-day').first()).toContainText('0 shifts')
+  await expect(page.locator('.overview-day').first().locator('.overview-weekday')).toHaveText('Monday')
+  await expect(page.locator('.today-panel')).toContainText('Frühdienst')
+  await page.getByRole('button', { name: 'Open day details' }).click()
+  await expect(page.getByRole('heading', { name: 'Day details' })).toBeVisible()
+  await expect(page.getByText('Open position', { exact: true })).toBeVisible()
+  await expect(page.locator('.team-roster')).toContainText('Alex Beispiel')
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.getByRole('heading', { name: 'Tagesdetails' })).toBeVisible()
+  await expect(page.getByText('Offene Stelle', { exact: true })).toBeVisible()
+  await expect(page.locator('.team-roster')).toContainText('Alex Beispiel')
+})
+
 test('English absence request keeps user data and translates labels and status', async ({ page }) => {
   await mockApi(page, 'EMPLOYEE')
   await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
@@ -150,6 +170,20 @@ test('known API errors are translated and unknown details remain visible', async
   await page.route('**/api/auth/login', (route) => route.fulfill({ status: 503, json: { detail: 'Externer Dienst: technische Details' } }))
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByText('Server message: Externer Dienst: technische Details')).toBeVisible()
+})
+
+test('schedule API conflict is translated into German', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/assignments', async (route) => {
+    if (route.request().method() === 'POST') return route.fulfill({ status: 409, json: { detail: 'Employee is absent during this shift' } })
+    return route.fallback()
+  })
+  await login(page)
+  await page.getByRole('button', { name: 'Tagesdetails öffnen' }).click()
+  await page.getByText('Offene Stelle', { exact: true }).click()
+  await page.getByRole('button', { name: 'Dienst speichern' }).click()
+  await expect(page.locator('.toast.toast-error')).toContainText('Die Person ist während dieses Dienstes abwesend')
+  await expect(page.getByRole('dialog')).toBeVisible()
 })
 
 test('English planning preview and approval retain custom names', async ({ page }) => {
@@ -186,7 +220,7 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('tab', { name: 'Backup' }).click()
   await expect(page.getByRole('heading', { name: 'Data backup' })).toBeVisible()
-  await expect(page.getByText('Monday', { exact: true })).toBeAttached()
+  await expect(page.locator('.backup-settings option').getByText('Monday', { exact: true })).toBeAttached()
   await expect(page.getByText('Team A', { exact: true })).toBeVisible()
   const restore = page.getByRole('button', { name: 'Restore from file' })
   await page.getByLabel('Recovery key (.cpkey)').setInputFiles({ name: 'test.cpkey', mimeType: 'text/plain', buffer: Buffer.from('test-key') })
