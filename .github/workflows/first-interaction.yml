@@ -78,10 +78,7 @@ jobs:
 
             <br>
 
-            - **Tests run offline.** Stub HTTP with fixtures or `monkeypatch`. Never call Spotify, YouTube or lrclib from a test.
             - **The API is a contract.** The web app and the Android client depend on the current endpoint paths and response shapes. Add new endpoints or fields instead of renaming or removing existing ones.
-            - **No Spotify credentials.** `spotdl`, `spotipy` and the Spotify Web API were removed on purpose. Metadata comes from the public embed endpoints.
-            - **Don't hand-edit `requirements.txt`.** Change `pyproject.toml`, then run `uv lock && make export`.
             - **Don't silence the linter** with `# noqa` or wider ignore rules. Fix the code instead.
             - **UI text goes in the locale files** (`frontend/src/i18n/locales/en.js`), never hard-coded in components.
             - **Don't bump the version.** The maintainer does that at release time.
@@ -96,12 +93,10 @@ jobs:
 
             ### 💬 Need help?
 
-            - Questions about the code or the direction of a change: ask right here, or open a thread in [Discussions](https://github.com/henriquesebastiao/downtify/discussions).
-            - Bigger changes go more smoothly when they start as an [issue](https://github.com/henriquesebastiao/downtify/issues), so we can agree on the scope first.
-            - Want to translate the app or the documentation? See [Internationalization](https://downtify.henriquesebastiao.com/features/internationalization/).
-            - Found a security issue? Please don't post it publicly. Email **contato@henriquesebastiao.com** instead.
+            - Questions about the code or the direction of a change: ask right here, or open a thread in [Discussions](https://github.com/CyberspaceConsulting/ClinicPulse/discussions).
+            - Bigger changes go more smoothly when they start as an [issue](https://github.com/CyberspaceConsulting/ClinicPulse/issues), so we can agree on the scope first.
+            - Found a security issue? Please don't post it publicly. Email **info@cyberspaceconsulting.de* instead.
 
-            Reviews are a conversation, so expect a round or two of feedback. That's normal, not a sign something is wrong. By contributing, you agree that your work is licensed under the project's [AGPL-3.0](https://github.com/henriquesebastiao/downtify/blob/main/LICENSE)
-            license.
+            Reviews are a conversation, so expect a round or two of feedback. That's normal, not a sign something is wrong.
 
             Thanks again, and welcome aboard! 🎶
