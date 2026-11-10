@@ -227,7 +227,7 @@ const institutionName = ref<string | null>(null)
 const error = ref('')
 const confirmDialog = ref<{ message: string; confirmLabel: string; resolve: (value: boolean) => void } | null>(null)
 
-function askConfirmation(message: string, confirmLabel = 'Löschen') {
+function askConfirmation(message: string, confirmLabel = t('management.delete')) {
   return new Promise<boolean>((resolve) => {
     confirmDialog.value = { message, confirmLabel, resolve }
   })
@@ -438,12 +438,11 @@ const notifications = computed(() => days.value.flatMap((day) => {
       date,
       shift,
       count: open,
-      text: `${open} unbesetzte ${shift.position}-Stelle${open === 1 ? '' : 'n'} · ${shift.name}`,
     }] : []
   })
 }))
 const notificationDays = ref(14)
-const notificationHistory = ref<{ id: string; date: string; text: string }[]>([])
+const notificationHistory = ref<{ id: string; date: string; count: number; position: string; shiftName: string }[]>([])
 const notificationsLoading = ref(false)
 const pageTitle = computed(() => {
   if (!setupChecked.value) return t('page.starting')
@@ -1424,7 +1423,7 @@ async function submitAssignment() {
 }
 
 async function removeAssignment(id: number) {
-  if (!await askConfirmation('Diesen Dienst aus dem Plan entfernen?', 'Entfernen')) return
+  if (!await askConfirmation(t('management.removeShiftConfirm'), t('management.removeShift'))) return
   try {
     await api(`/assignments/${id}`, { method: 'DELETE' })
     await loadData()
@@ -1682,7 +1681,7 @@ async function toggleUserLock(user: AccountUser) {
   }
 
   async function revokeInvitation(user: AccountUser) {
-        if (!await askConfirmation(`Einladung für „${user.username}“ widerrufen? Das Konto bleibt gesperrt.`, 'Einladung widerrufen')) return
+        if (!await askConfirmation(t('management.revokeConfirm', { name: user.username }), t('management.revokeInvitation'))) return
         try {
           await api(`/users/${user.id}/invitation`, { method: 'DELETE' })
           teamNotice.value = `Einladung für ${user.username} widerrufen.`
@@ -1728,7 +1727,7 @@ async function toggleUserLock(user: AccountUser) {
   }
 
 async function removeUser(user: AccountUser) {
-    if (!await askConfirmation(`Konto „${user.username}“ löschen?`)) return
+    if (!await askConfirmation(t('management.deleteAccountConfirm', { name: user.username }))) return
     try {
       await api(`/users/${user.id}`, { method: 'DELETE' })
       await openManagement()
@@ -1757,7 +1756,7 @@ function editDepartment(department: Department) {
   }
 
 async function removeDepartment(department: Department) {
-    if (!await askConfirmation(`Abteilung „${department.name}“ löschen?`)) return
+    if (!await askConfirmation(t('management.deleteDepartmentConfirm', { name: department.name }))) return
     try {
       await api(`/departments/${department.id}`, { method: 'DELETE' })
       await openManagement()
@@ -1842,7 +1841,7 @@ async function loadNotificationHistory() {
       api<Assignment[]>(`/assignments?from=${from}&to=${to}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
     ])
     const shiftIds = new Set(shifts.map((shift) => shift.id))
-    const items: { id: string; date: string; text: string }[] = []
+    const items: typeof notificationHistory.value = []
     for (let offset = 0; offset <= notificationDays.value; offset++) {
       const day = new Date(today)
       day.setDate(day.getDate() - offset)
@@ -1850,12 +1849,12 @@ async function loadNotificationHistory() {
       for (const shift of shifts) {
         const filled = rangeAssignments.filter((item) => shiftIds.has(item.shift_type_id) && item.shift_type_id === shift.id && localDate(new Date(item.starts_at)) === date).length
         const open = Math.max(0, shift.required_staff - filled)
-        if (open) items.push({ id: `${date}-${shift.id}`, date, text: `${open} unbesetzte ${shift.position}-Stelle${open === 1 ? '' : 'n'} · ${shift.name}` })
+        if (open) items.push({ id: `${date}-${shift.id}`, date, count: open, position: shift.position, shiftName: shift.name })
       }
     }
     notificationHistory.value = items
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Meldungen konnten nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('notifications.loadFailed')
   } finally {
     notificationsLoading.value = false
   }
@@ -2101,22 +2100,22 @@ onBeforeUnmount(() => {
       <main v-else-if="showNotifications" class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">MELDUNGEN</p>
-            <h1>Meldungen</h1>
-            <p class="muted">Offene Besetzungslücken der letzten Tage.</p>
+            <p class="eyebrow">{{ t('notifications.eyebrow') }}</p>
+            <h1>{{ t('page.notifications') }}</h1>
+            <p class="muted">{{ t('notifications.description') }}</p>
           </div>
-          <label class="notification-range">Zeitraum
+          <label class="notification-range">{{ t('notifications.period') }}
             <select v-model.number="notificationDays" @change="void loadNotificationHistory()">
-              <option :value="7">Letzte 7 Tage</option><option :value="14">Letzte 14 Tage</option><option :value="30">Letzte 30 Tage</option><option :value="90">Letzte 90 Tage</option>
+              <option v-for="days in [7, 14, 30, 90]" :key="days" :value="days">{{ t('notifications.lastDays', { count: days }) }}</option>
             </select>
           </label>
         </div>
         <section class="notification-page">
-          <p v-if="notificationsLoading" class="notification-empty">Lade Meldungen …</p>
+          <p v-if="notificationsLoading" class="notification-empty">{{ t('notifications.loading') }}</p>
           <button v-for="item in notificationHistory" :key="item.id" class="notification-item" @click="openNotification(item)">
-            <span class="notification-warning">!</span><span><strong>{{ item.text }}</strong><small>{{ dateLabel(item.date) }}</small></span>
+            <span class="notification-warning">!</span><span><strong>{{ t(item.count === 1 ? 'notifications.gapOne' : 'notifications.gapOther', { count: item.count, position: item.position, shift: item.shiftName }) }}</strong><small>{{ dateLabel(item.date) }}</small></span>
           </button>
-          <p v-if="!notificationsLoading && !notificationHistory.length" class="notification-empty">Keine Meldungen im gewählten Zeitraum.</p>
+          <p v-if="!notificationsLoading && !notificationHistory.length" class="notification-empty">{{ t('notifications.empty') }}</p>
         </section>
       </main>
       <main v-else class="content">
@@ -2320,9 +2319,9 @@ onBeforeUnmount(() => {
       <span>{{ error }}</span><button type="button" aria-label="Meldung schließen" @click="error = ''">×</button>
     </div>
     <div v-if="confirmDialog" class="modal-backdrop confirm-backdrop" @click.self="answerConfirmation(false)" @keydown.esc="answerConfirmation(false)">
-      <section class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-label="Bestätigung">
+      <section class="modal confirm-modal" role="alertdialog" aria-modal="true" :aria-label="t('management.confirmation')">
         <p>{{ confirmDialog.message }}</p>
-        <div class="form-row"><button class="secondary" autofocus @click="answerConfirmation(false)">Abbrechen</button><button class="primary danger-action" @click="answerConfirmation(true)">{{ confirmDialog.confirmLabel }}</button></div>
+        <div class="form-row"><button class="secondary" autofocus @click="answerConfirmation(false)">{{ t('management.cancel') }}</button><button class="primary danger-action" @click="answerConfirmation(true)">{{ confirmDialog.confirmLabel }}</button></div>
       </section>
     </div>
     <div v-if="showEmployeeForm || showShiftForm || showAssignmentForm || showSettings || showManagement || showProfile || showArchive" class="modal-backdrop" @click.self="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">

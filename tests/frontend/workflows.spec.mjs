@@ -121,6 +121,27 @@ test('English login and navigation use the stored locale', async ({ page }) => {
   await expect(page).toHaveTitle('ClinicPulse – Schedule')
 })
 
+test('notification history switches language without losing shift data or selected period', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/shift-types', (route) => route.fulfill({ json: [
+    shift, { ...shift, id: 2, name: 'Spätdienst', position: 'OP', required_staff: 2 },
+  ] }))
+  await login(page)
+  await page.getByRole('button', { name: 'Meldungen öffnen' }).click()
+  await expect(page.getByRole('heading', { name: 'Meldungen' })).toBeVisible()
+  await expect(page.locator('.notification-item').first()).toContainText('1 unbesetzte Pflege-Stelle · Frühdienst')
+  await expect(page.locator('.notification-item').nth(1)).toContainText('2 unbesetzte OP-Stellen · Spätdienst')
+  await page.getByLabel('Zeitraum').selectOption('7')
+  await expect(page.locator('.notification-item')).toHaveCount(16)
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible()
+  await expect(page.getByLabel('Period')).toHaveValue('7')
+  await expect(page.locator('.notification-item').first()).toContainText('1 unfilled Pflege position · Frühdienst')
+  await expect(page.locator('.notification-item').nth(1)).toContainText('2 unfilled OP positions · Spätdienst')
+  await page.locator('.notification-item').first().click()
+  await expect(page.getByRole('heading', { name: 'Day details' })).toBeVisible()
+})
+
 test('schedule overview and day details switch languages without changing custom names', async ({ page }) => {
   await mockApi(page)
   await login(page)
@@ -191,6 +212,25 @@ test('team management displays translated labels and preserves account and depar
   await dialog.getByLabel('System role').selectOption('EMPLOYEE')
   await expect(dialog.getByLabel('Linked person')).toContainText('Alex Beispiel')
   await expect(dialog.getByLabel('First name')).toHaveValue('Unverändert')
+  let deleteRequests = 0
+  await page.route('**/api/users/2', (route) => {
+    if (route.request().method() === 'DELETE') {
+      deleteRequests++
+      return route.fulfill({ status: 204 })
+    }
+    return route.fallback()
+  })
+  await dialog.locator('.account-row').getByRole('button', { name: 'Delete' }).click()
+  const confirmation = page.getByRole('alertdialog', { name: 'Confirmation' })
+  await expect(confirmation).toContainText('Delete account “test-user”?')
+  await confirmation.getByRole('button', { name: 'Cancel' }).click()
+  await expect(confirmation).toBeHidden()
+  expect(deleteRequests).toBe(0)
+  await dialog.locator('.account-row').getByRole('button', { name: 'Delete' }).click()
+  const deleteResponse = page.waitForResponse((response) => response.url().endsWith('/api/users/2') && response.request().method() === 'DELETE')
+  await confirmation.getByRole('button', { name: 'Delete' }).click()
+  await deleteResponse
+  expect(deleteRequests).toBe(1)
 })
 
 test('English profile editing keeps user data and submits unchanged API values', async ({ page }) => {
