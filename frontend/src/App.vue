@@ -2,6 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BackupPanel from './BackupPanel.vue'
 import PasswordInput from './PasswordInput.vue'
+import LanguageSelector from './LanguageSelector.vue'
+import { locale, t, type TranslationKey } from './i18n'
+import { ApiError, TranslatedError, apiErrorDetail, errorMessage } from './i18n/apiErrors'
 
 type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
 type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
@@ -193,8 +196,8 @@ const setupPasswordConfirm = ref('')
 const invitationToken = ref(new URLSearchParams(window.location.hash.slice(1)).get('invite') ?? '')
 const invitationPassword = ref('')
 const invitationPasswordConfirm = ref('')
-const invitationMessage = ref('')
-const teamNotice = ref('')
+const invitationMessage = ref(false)
+const teamNotice = ref<{ key: TranslationKey; values?: Record<string, string | number> } | null>(null)
 const onboardingMailSkipped = ref(localStorage.getItem('clinicpulse-onboarding-mail-skipped') === 'true')
 const showMailOnboarding = computed(() =>
   roleKey.value === 'ADMIN' && departments.value.length === 0 && !onboardingMailSkipped.value,
@@ -211,9 +214,9 @@ const mailSettings = ref<MailSettings>({
 })
 const mailPassword = ref('')
 const clearMailPassword = ref(false)
-const mailSettingsMessage = ref('')
+const mailSettingsMessage = ref(false)
 const mailTestRecipient = ref('')
-const mailTestMessage = ref('')
+const mailTestRecipientSent = ref('')
 const mailTestBusy = ref(false)
 const mailSettingsLoaded = ref(false)
 const setupLicenseToken = ref('')
@@ -221,10 +224,11 @@ const setupSundayWorkAuthorized = ref(false)
 const setupChecked = ref(false)
 const setupRequired = ref(false)
 const institutionName = ref<string | null>(null)
-const error = ref('')
+const error = ref<string | Error>('')
+const displayedError = computed(() => errorMessage(error.value))
 const confirmDialog = ref<{ message: string; confirmLabel: string; resolve: (value: boolean) => void } | null>(null)
 
-function askConfirmation(message: string, confirmLabel = 'Löschen') {
+function askConfirmation(message: string, confirmLabel = t('management.delete')) {
   return new Promise<boolean>((resolve) => {
     confirmDialog.value = { message, confirmLabel, resolve }
   })
@@ -257,16 +261,16 @@ const showSettings = ref(false)
 const settingsTab = ref('appearance')
 const settingsTabs = computed(() => roleKey.value === 'ADMIN'
   ? [
-      { key: 'appearance', label: 'Darstellung' },
-      { key: 'operations', label: 'Betrieb & Arbeitszeit' },
-      { key: 'mail', label: 'E-Mail-Versand' },
-      { key: 'license', label: 'Lizenz' },
-      { key: 'backup', label: 'Backup' },
-      { key: 'archive', label: 'Archivierung' },
-      { key: 'security', label: 'Sicherheit' },
-      { key: 'audit', label: 'Audit-Protokoll' },
+      { key: 'appearance', label: t('settings.appearance') },
+      { key: 'operations', label: t('settings.operations') },
+      { key: 'mail', label: t('settings.mail') },
+      { key: 'license', label: t('settings.license') },
+      { key: 'backup', label: t('settings.backup') },
+      { key: 'archive', label: t('settings.archive') },
+      { key: 'security', label: t('settings.security') },
+      { key: 'audit', label: t('settings.audit') },
     ]
-  : [{ key: 'appearance', label: 'Darstellung' }])
+  : [{ key: 'appearance', label: t('settings.appearance') }])
 const showManagement = ref(false)
 const sidebarCollapsed = ref(localStorage.getItem('clinicpulse-sidebar-collapsed') === '1')
 function toggleSidebar() {
@@ -300,6 +304,19 @@ const roleCatalog = ref<{ access_roles: { key: string; label: string }[]; functi
   functions: ['Pflegefachkraft', 'Arzt', 'Assistenzarzt', 'Pflegeassistenz', 'Hebamme', 'Medizinische Fachangestellte'],
 })
 const defaultEmployeeRole = computed(() => roleCatalog.value.functions[0] ?? 'Individuell')
+const catalogFunctionKeys: Record<string, TranslationKey> = {
+  Pflegefachkraft: 'function.nurse', Arzt: 'function.physician', Assistenzarzt: 'function.resident',
+  Pflegeassistenz: 'function.nursingAssistant', Hebamme: 'function.midwife', 'Medizinische Fachangestellte': 'function.medicalAssistant',
+  Notfallsanitäter: 'function.paramedic', Rettungssanitäter: 'function.emergencyTechnician',
+  Rettungsassistent: 'function.rescueAssistant', Rettungshelfer: 'function.rescueHelper', Notarzt: 'function.emergencyPhysician',
+  Disponent: 'function.dispatcher', Schichtführer: 'function.shiftLeader', Auszubildender: 'function.trainee',
+  Pflegehelfer: 'function.careHelper', Betreuungskraft: 'function.careWorker', Hauswirtschaft: 'function.housekeeping',
+  Mitarbeiter: 'function.employee', Teamleitung: 'function.teamLeader',
+}
+function catalogFunctionLabel(value: string) {
+  const key = Object.hasOwn(catalogFunctionKeys, value) ? catalogFunctionKeys[value] : undefined
+  return key ? t(key) : value
+}
 const employeeDepartmentId = ref('')
 const employeeCreateAccount = ref(false)
 const employeeLoginUsername = ref('')
@@ -310,14 +327,14 @@ const shiftPosition = ref('Pflegefachkraft')
 const shiftBreak = ref<number | null>(null)
 const shiftBreakStart = ref<number | null>(null)
 const workRules = ref({ rest_hours: 11, max_daily_hours: 10, max_weekly_hours: 48 })
-const workRulesMessage = ref('')
+const workRulesMessage = ref(false)
 const businessConfiguration = ref<BusinessConfiguration>({
   federal_state: '',
   operational_profile: 'hospital',
   timezone: 'Europe/Berlin',
   sunday_work_authorized: false,
 })
-const businessConfigurationMessage = ref('')
+const businessConfigurationMessage = ref(false)
 const requiredStaff = ref(1)
 const shiftStart = ref('07:00')
 const shiftEnd = ref('15:00')
@@ -336,7 +353,7 @@ const planningMode = ref<'week' | 'month'>('week')
 const planningAnchor = ref(localDate(new Date()))
 const planningDays = ref<PlanningDay[] | null>(null)
 const planningBusy = ref(false)
-const planningNotice = ref('')
+const planningNotice = ref<{ key: TranslationKey; count: number } | null>(null)
 const departmentName = ref('')
 const editingDepartmentId = ref<number | null>(null)
 const userId = ref<number | null>(null)
@@ -371,8 +388,8 @@ const archiveEnd = ref('')
 const archiveDepartmentId = ref('')
 const archiveNote = ref('')
 const archiveSettings = ref<{ auto_enabled: boolean; period: string; last_period_end: string | null }>({ auto_enabled: false, period: 'monthly', last_period_end: null })
-const archiveSettingsMessage = ref('')
-const idleTimeoutMessage = ref('')
+const archiveSettingsMessage = ref(false)
+const idleTimeoutMessage = ref(false)
 const canViewArchive = computed(() => ['OBERARZT', 'CHEFARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value))
 const absences = ref<Absence[]>([])
 const absenceKind = ref<Absence['kind']>('vacation')
@@ -399,11 +416,11 @@ const federalStates = [
   'Saarland', 'Sachsen', 'Sachsen-Anhalt', 'Schleswig-Holstein', 'Thüringen',
 ]
 const operationalProfiles = [
-  { value: 'hospital', label: 'Krankenhaus' },
-  { value: 'rescue_service', label: 'Rettungsdienst' },
-  { value: 'ils', label: 'Integrierte Leitstelle (ILS)' },
-  { value: 'care_facility', label: 'Pflegeeinrichtung' },
-  { value: 'other', label: 'Sonstiger Betrieb' },
+  { value: 'hospital', label: 'operations.hospital' },
+  { value: 'rescue_service', label: 'operations.rescue' },
+  { value: 'ils', label: 'operations.dispatch' },
+  { value: 'care_facility', label: 'operations.care' },
+  { value: 'other', label: 'operations.other' },
 ] as const
 
 const weekStart = computed(() => {
@@ -420,7 +437,7 @@ const days = computed(() => Array.from({ length: 7 }, (_, index) => {
 const weekLabel = computed(() => {
   const start = days.value[0]
   const end = days.value[6]
-  return `${start.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })} – ${end.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })}`
+  return `${start.toLocaleDateString(locale.value, { day: '2-digit', month: 'short' })} – ${end.toLocaleDateString(locale.value, { day: '2-digit', month: 'short', year: 'numeric' })}`
 })
 const totalHours = computed(() => assignments.value.reduce((total, assignment) => {
   return total + (new Date(assignment.ends_at).getTime() - new Date(assignment.starts_at).getTime()) / 3_600_000
@@ -435,33 +452,32 @@ const notifications = computed(() => days.value.flatMap((day) => {
       date,
       shift,
       count: open,
-      text: `${open} unbesetzte ${shift.position}-Stelle${open === 1 ? '' : 'n'} · ${shift.name}`,
     }] : []
   })
 }))
 const notificationDays = ref(14)
-const notificationHistory = ref<{ id: string; date: string; text: string }[]>([])
+const notificationHistory = ref<{ id: string; date: string; count: number; position: string; shiftName: string }[]>([])
 const notificationsLoading = ref(false)
 const pageTitle = computed(() => {
-  if (!setupChecked.value) return 'Starting …'
-  if (setupRequired.value && !authenticated.value) return 'Ersteinrichtung'
-  if (!authenticated.value) return 'Anmeldung'
-  if (showPlanning.value) return 'Dienstplanung'
-  if (showAbsences.value) return 'Abwesenheiten'
-  if (showArchive.value) return 'Archiv'
-  if (showManagement.value) return 'Verwaltung'
-  if (showSettings.value) return 'Einstellungen'
-  if (showProfile.value) return 'Profil'
-  if (showNotifications.value) return 'Meldungen'
+  if (!setupChecked.value) return t('page.starting')
+  if (setupRequired.value && !authenticated.value) return t('page.setup')
+  if (!authenticated.value) return t('page.login')
+  if (showPlanning.value) return t('page.planning')
+  if (showAbsences.value) return t('page.absences')
+  if (showArchive.value) return t('page.archive')
+  if (showManagement.value) return t('page.management')
+  if (showSettings.value) return t('page.settings')
+  if (showProfile.value) return t('page.profile')
+  if (showNotifications.value) return t('page.notifications')
   if (selectedDay.value) return dateLabel(selectedDay.value)
-  return 'Dienstplan'
+  return t('page.schedule')
 })
 const repositoryUrl = 'https://github.com/CyberspaceConsulting/ClinicPulse'
 const documentationUrl = 'https://cyberspaceconsulting.github.io/ClinicPulse/'
 const selectedPlanName = computed(() =>
   selectedPlanId.value === null
-    ? 'Alle Dienstpläne'
-    : departments.value.find((department) => department.id === selectedPlanId.value)?.name ?? 'Dienstplan',
+    ? t('nav.allSchedules')
+    : departments.value.find((department) => department.id === selectedPlanId.value)?.name ?? t('page.schedule'),
 )
 const licenseReadOnly = computed(() => licenseInfo.value?.read_only ?? true)
 const canEditPlan = computed(() => roleKey.value === 'OBERARZT' && canEdit.value && !licenseReadOnly.value)
@@ -482,7 +498,7 @@ watch([selectedDay, selectedPlanId], () => {
 
 watch([selectedPlanId, planningMode, planningAnchor], () => {
   planningDays.value = null
-  planningNotice.value = ''
+  planningNotice.value = null
 })
 
 const planningPeriod = computed(() => {
@@ -539,25 +555,22 @@ function dateAssignments(date: Date) {
   return assignments.value.filter((item) => localDate(new Date(item.starts_at)) === day)
 }
 
+function shiftCountLabel(count: number) {
+  return t(count === 1 ? 'schedule.shiftsOne' : 'schedule.shiftsOther', { count })
+}
+
+function openCountLabel(count: number) {
+  return t(count === 1 ? 'schedule.openOne' : 'schedule.openOther', { count })
+}
+
 function timeLabel(value: string) {
-  return new Date(value).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+  return new Date(value).toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit' })
 }
 
 function dateLabel(value: string) {
-  return new Date(`${value}T12:00:00`).toLocaleDateString('de-DE', {
+  return new Date(`${value}T12:00:00`).toLocaleDateString(locale.value, {
     weekday: 'long', day: 'numeric', month: 'long',
   })
-}
-
-function formatApiErrorDetail(detail: unknown): string | null {
-  if (typeof detail === 'string') return detail
-  if (!Array.isArray(detail)) return null
-
-  const messages = detail.flatMap((item: unknown) => {
-    if (typeof item !== 'object' || item === null || !('msg' in item)) return []
-    return typeof item.msg === 'string' ? [item.msg] : []
-  })
-  return messages.length ? [...new Set(messages)].join('; ') : null
 }
 
 let apiAbortController = new AbortController()
@@ -581,10 +594,8 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
-    const detail = typeof data === 'object' && data !== null && 'detail' in data
-      ? formatApiErrorDetail(data.detail)
-      : null
-    throw new Error(detail ?? `Anfrage fehlgeschlagen (${response.status})`)
+    const detail = typeof data === 'object' && data !== null && 'detail' in data ? data.detail : null
+    throw new ApiError(detail, response.status)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -624,19 +635,19 @@ async function checkSetup(restoreSession = true) {
         storeSession(await api<SessionInfo>('/auth/session'))
         await loadData()
         if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
-          teamNotice.value = 'Willkommen bei ClinicPulse. Lege zuerst eine Abteilung an und richte danach dein Team und die Zugänge ein. Du kannst diesen Schritt schließen und später links unter Teamverwaltung fortsetzen.'
+          teamNotice.value = { key: 'management.welcomeLater' }
           await openManagement()
         }
         void checkForUpdates()
         void refreshLicenseStatus()
       } catch (err) {
-        if (!(err instanceof Error) || !err.message.includes('(401)')) {
-          error.value = err instanceof Error ? err.message : 'Sitzung konnte nicht geprüft werden'
+        if (!(err instanceof ApiError) || err.status !== 401) {
+          error.value = err instanceof Error ? err : new TranslatedError('errors.sessionCheck')
         }
       }
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Installationsstatus konnte nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.installationStatus')
   } finally {
     setupChecked.value = true
   }
@@ -685,15 +696,15 @@ async function loadData() {
     if (!employeeDepartmentId.value && departments.value.length) employeeDepartmentId.value = String(departments.value[0].id)
     if (!userDepartmentIds.value.length && departments.value.length) userDepartmentIds.value = [departments.value[0].id]
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Daten konnten nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.loadData')
   } finally {
     busy.value = false
   }
 
 }
 
-const kindLabels = { vacation: 'Urlaub', sick: 'Krank', other: 'Sonstiges' } as const
-const statusLabels = { pending: 'Offen', approved: 'Genehmigt', rejected: 'Abgelehnt' } as const
+const kindLabels = computed(() => ({ vacation: t('absence.vacation'), sick: t('absence.sick'), other: t('absence.other') }))
+const statusLabels = computed(() => ({ pending: t('absence.pending'), approved: t('absence.approved'), rejected: t('absence.rejected') }))
 const canRequestAbsence = computed(() => roleKey.value === 'EMPLOYEE' && !licenseReadOnly.value)
 const canRecordAbsence = computed(() => canEditPlan.value)
 
@@ -701,7 +712,7 @@ async function loadAbsences() {
   try {
     absences.value = await api<Absence[]>('/absences')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abwesenheiten konnten nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('absence.loadFailed')
   }
 }
 
@@ -709,12 +720,12 @@ async function loadArchives() {
   try {
     planArchives.value = await api<PlanArchiveSummary[]>('/archives')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archiv konnte nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('archive.loadFailed')
   }
 }
 
 async function saveIdleTimeout() {
-  idleTimeoutMessage.value = ''
+  idleTimeoutMessage.value = false
   try {
     const result = await api<{ idle_timeout_minutes: number }>('/admin/security-settings', {
       method: 'PUT',
@@ -722,9 +733,9 @@ async function saveIdleTimeout() {
     })
     idleTimeoutMinutes.value = result.idle_timeout_minutes
     scheduleIdleLogout()
-    idleTimeoutMessage.value = 'Gespeichert'
+    idleTimeoutMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Sicherheitseinstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveSecurity')
   }
 }
 
@@ -732,20 +743,20 @@ async function loadArchiveSettings() {
   try {
     archiveSettings.value = await api('/admin/archive-settings')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archiv-Einstellungen konnten nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('archive.settingsLoadFailed')
   }
 }
 
 async function saveArchiveSettings() {
-  archiveSettingsMessage.value = ''
+  archiveSettingsMessage.value = false
   try {
     archiveSettings.value = await api('/admin/archive-settings', {
       method: 'PUT',
       body: JSON.stringify({ auto_enabled: archiveSettings.value.auto_enabled, period: archiveSettings.value.period }),
     })
-    archiveSettingsMessage.value = 'Gespeichert'
+    archiveSettingsMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archiv-Einstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('archive.settingsSaveFailed')
   }
 }
 
@@ -775,7 +786,7 @@ async function createArchive() {
     archiveNote.value = ''
     await loadArchives()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archivierung fehlgeschlagen'
+    error.value = err instanceof Error ? err : new TranslatedError('archive.createFailed')
   }
 }
 
@@ -806,7 +817,7 @@ async function submitAbsence() {
     absenceNote.value = ''
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abwesenheit konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('absence.saveFailed')
   }
 }
 
@@ -816,7 +827,7 @@ async function decideAbsence(absence: Absence, decision: 'approved' | 'rejected'
     await api(`/absences/${absence.id}/decision`, { method: 'POST', body: JSON.stringify({ decision }) })
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Entscheidung konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('absence.decisionFailed')
   }
 }
 
@@ -826,7 +837,7 @@ async function removeAbsence(absence: Absence) {
     await api(`/absences/${absence.id}`, { method: 'DELETE' })
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abwesenheit konnte nicht gelöscht werden'
+    error.value = err instanceof Error ? err : new TranslatedError('absence.deleteFailed')
   }
 }
 
@@ -838,7 +849,7 @@ async function checkForUpdates(refresh = false) {
     updateChannel.value = updateInfo.value.channel
     appVersion.value = updateInfo.value.current_version
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Update-Status konnte nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.updateStatus')
   } finally {
     updateCheckBusy.value = false
   }
@@ -850,7 +861,7 @@ async function refreshLicenseStatus() {
     licenseInfo.value = await api<LicenseInfo>('/license/status')
   } catch (err) {
     if (roleKey.value === 'ADMIN') {
-      error.value = err instanceof Error ? err.message : 'Lizenzstatus konnte nicht geladen werden'
+      error.value = err instanceof Error ? err : new TranslatedError('errors.licenseStatus')
     }
   }
 }
@@ -867,10 +878,20 @@ async function loadAuditEvents(reset = false) {
     auditOffset.value = offset + result.items.length
     auditHasMore.value = result.items.length === result.limit
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Audit-Protokoll konnte nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('audit.loadFailed')
   } finally {
     auditBusy.value = false
   }
+}
+
+function auditActionLabel(action: string) {
+  const keys: Record<string, TranslationKey> = {
+    created: 'audit.created', updated: 'audit.updated', deleted: 'audit.deleted',
+    login: 'audit.login', locked: 'audit.locked', unlocked: 'audit.unlocked',
+    restored: 'audit.restored', login_failed: 'audit.loginFailed', invitation_accepted: 'audit.invitationAccepted',
+  }
+  const key = Object.hasOwn(keys, action) ? keys[action] : undefined
+  return key ? t(key) : action
 }
 
 async function loadMailSettings() {
@@ -878,12 +899,12 @@ async function loadMailSettings() {
     mailSettings.value = await api<MailSettings>('/admin/mail-settings')
     mailSettingsLoaded.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'E-Mail-Einstellungen konnten nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('mail.loadFailed')
   }
 }
 
 async function saveMailSettings(): Promise<boolean> {
-  mailSettingsMessage.value = ''
+  mailSettingsMessage.value = false
   try {
     const saved = await api<MailSettings>('/admin/mail-settings', {
       method: 'PUT',
@@ -902,26 +923,27 @@ async function saveMailSettings(): Promise<boolean> {
     mailSettings.value = saved
     mailPassword.value = ''
     clearMailPassword.value = false
-    mailSettingsMessage.value = 'E-Mail-Einstellungen gespeichert.'
+    mailSettingsMessage.value = true
     return true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'E-Mail-Einstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('mail.saveFailed')
     return false
   }
 }
 
 async function testMailDelivery() {
-  mailTestMessage.value = ''
+  mailTestRecipientSent.value = ''
   mailTestBusy.value = true
+  const recipient = mailTestRecipient.value.trim()
   try {
     if (!await saveMailSettings()) return
     await api('/admin/mail-settings/test', {
       method: 'POST',
-      body: JSON.stringify({ recipient: mailTestRecipient.value.trim() }),
+      body: JSON.stringify({ recipient }),
     })
-    mailTestMessage.value = `Testmail an ${mailTestRecipient.value.trim()} wurde versendet.`
+    mailTestRecipientSent.value = recipient
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Testmail konnte nicht versendet werden'
+    error.value = err instanceof Error ? err : new TranslatedError('mail.testFailed')
   } finally {
     mailTestBusy.value = false
   }
@@ -957,7 +979,7 @@ async function checkLicenseNow() {
   try {
     licenseInfo.value = await api<LicenseInfo>('/admin/license/check', { method: 'POST' })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Lizenzprüfung fehlgeschlagen'
+    error.value = err instanceof Error ? err : new TranslatedError('license.checkFailed')
   } finally {
     licenseCheckBusy.value = false
   }
@@ -973,7 +995,7 @@ async function replaceLicenseToken() {
     })
     licenseTokenInput.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Lizenz-Token konnte nicht ersetzt werden'
+    error.value = err instanceof Error ? err : new TranslatedError('license.replaceFailed')
   } finally {
     licenseCheckBusy.value = false
   }
@@ -982,10 +1004,10 @@ async function replaceLicenseToken() {
 const clockNow = ref(Date.now())
 let clockTicker: ReturnType<typeof setInterval> | undefined
 const idleRemainingLabel = computed(() => {
-  if (roleKey.value === 'KIOSK') return 'Kein automatisches Abmelden'
+  if (roleKey.value === 'KIOSK') return t('auth.noAutomaticLogout')
   const seconds = Math.max(0, Math.ceil((idleTimeoutMs() - (clockNow.value - idleActivityAt.value)) / 1000))
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-  return `Abmeldung in ${clock} ohne Aktivität`
+  return t('auth.logoutCountdown', { clock })
 })
 const idleWarning = computed(() => roleKey.value !== 'KIOSK' && idleTimeoutMs() - (clockNow.value - idleActivityAt.value) <= 60000)
 const idleActivityAt = ref(Date.now())
@@ -1005,13 +1027,13 @@ function scheduleIdleLogout() {
   const remaining = idleTimeoutMs() - (Date.now() - lastActivityAt)
   if (remaining <= 0) {
     void logout().then(() => {
-      error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+      error.value = new TranslatedError('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
     })
     return
   }
   idleLogoutTimer = setTimeout(async () => {
     await logout()
-    error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+    error.value = new TranslatedError('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
   }, remaining)
 }
 
@@ -1036,7 +1058,7 @@ function checkIdleDeadline() {
     && Date.now() - lastActivityAt >= idleTimeoutMs()
   ) {
     void logout().then(() => {
-      error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+      error.value = new TranslatedError('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
     })
     return
   }
@@ -1078,7 +1100,7 @@ async function openProfile() {
     profilePhone.value = ownProfile.phone ?? ''
     teamProfiles.value = colleagues
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Profil konnte nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('profile.loadFailed')
   }
 }
 
@@ -1087,7 +1109,7 @@ function selectProfileImage(event: Event) {
   const file = input.files?.[0]
   if (!file) return
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 256_000) {
-    error.value = 'Bitte ein PNG-, JPEG- oder WebP-Bild bis maximal 256 KB auswählen.'
+    error.value = new TranslatedError('profile.invalidImage')
     input.value = ''
     return
   }
@@ -1096,7 +1118,7 @@ function selectProfileImage(event: Event) {
     if (typeof reader.result === 'string') profileImageData.value = reader.result
   })
   reader.addEventListener('error', () => {
-    error.value = 'Profilbild konnte nicht gelesen werden.'
+    error.value = new TranslatedError('profile.readImageFailed')
   })
   reader.readAsDataURL(file)
 }
@@ -1119,7 +1141,7 @@ async function saveProfile() {
     })
     teamProfiles.value = await api<TeamProfile[]>('/profile/department')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Profil konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('profile.saveFailed')
   }
 }
 
@@ -1133,7 +1155,7 @@ async function changeUpdateChannel(event: Event) {
     updateChannel.value = result.channel
     await checkForUpdates(true)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Update-Kanal konnte nicht geändert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.updateChannel')
   }
 }
 
@@ -1141,7 +1163,7 @@ async function loadWorkRules() {
   try {
     workRules.value = await api('/admin/work-rules')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Arbeitszeitregeln konnten nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('operations.rulesLoadFailed')
   }
 }
 
@@ -1149,31 +1171,31 @@ async function loadBusinessConfiguration() {
   try {
     businessConfiguration.value = await api<BusinessConfiguration>('/admin/business-configuration')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Betriebskonfiguration konnte nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('operations.loadFailed')
   }
 }
 
 async function saveBusinessConfiguration() {
-  businessConfigurationMessage.value = ''
+  businessConfigurationMessage.value = false
   try {
     businessConfiguration.value = await api<BusinessConfiguration>('/admin/business-configuration', {
       method: 'PUT',
       body: JSON.stringify(businessConfiguration.value),
     })
-    businessConfigurationMessage.value = 'Gespeichert'
+    businessConfigurationMessage.value = true
     void loadRoleCatalog()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Betriebskonfiguration konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('operations.saveFailed')
   }
 }
 
 async function saveWorkRules() {
-  workRulesMessage.value = ''
+  workRulesMessage.value = false
   try {
     workRules.value = await api('/admin/work-rules', { method: 'PUT', body: JSON.stringify(workRules.value) })
-    workRulesMessage.value = 'Gespeichert'
+    workRulesMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Arbeitszeitregeln konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('operations.rulesSaveFailed')
   }
 }
 
@@ -1196,7 +1218,7 @@ async function login() {
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.login')
   } finally {
     busy.value = false
   }
@@ -1204,7 +1226,7 @@ async function login() {
 
 async function acceptInvitation() {
   if (invitationPassword.value !== invitationPasswordConfirm.value) {
-    error.value = 'Die beiden Passwörter stimmen nicht überein.'
+    error.value = new TranslatedError('auth.passwordMismatch')
     return
   }
   busy.value = true
@@ -1217,10 +1239,10 @@ async function acceptInvitation() {
     invitationToken.value = ''
     invitationPassword.value = ''
     invitationPasswordConfirm.value = ''
-    invitationMessage.value = 'Dein Passwort wurde gesetzt. Du kannst dich jetzt anmelden.'
+    invitationMessage.value = true
     window.history.replaceState({}, '', window.location.pathname + window.location.search)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Einladung konnte nicht angenommen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.acceptInvitation')
   } finally {
     busy.value = false
   }
@@ -1228,7 +1250,7 @@ async function acceptInvitation() {
 
 async function completeSetup() {
   if (setupPassword.value !== setupPasswordConfirm.value) {
-    error.value = 'Die beiden Passwörter stimmen nicht überein.'
+    error.value = new TranslatedError('auth.passwordMismatch')
     return
   }
   busy.value = true
@@ -1252,13 +1274,13 @@ async function completeSetup() {
     setupLicenseToken.value = ''
     await loadData()
     if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
-      teamNotice.value = 'Willkommen bei ClinicPulse. Lege zuerst eine Abteilung an und richte danach dein Team und die Zugänge ein.'
+      teamNotice.value = { key: 'management.welcome' }
       await openManagement()
     }
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Einrichtung fehlgeschlagen'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.setup')
   } finally {
     busy.value = false
   }
@@ -1271,7 +1293,7 @@ async function logout() {
   try {
     await api('/auth/logout', { method: 'POST' })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abmeldung beim Server fehlgeschlagen'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.logout')
   }
   authenticated.value = false
   username.value = ''
@@ -1323,16 +1345,16 @@ async function submitEmployee() {
     employeeEmail.value = ''
     showEmployeeForm.value = false
     if (result.invitation_status === 'pending') {
-      teamNotice.value = 'Mitarbeiter angelegt und Einladung per E-Mail versendet.'
+      teamNotice.value = { key: 'management.employeeInvited' }
     } else if (result.invitation_status === 'delivery_failed') {
-      teamNotice.value = 'Mitarbeiter angelegt, aber die Einladung konnte nicht gesendet werden. Das Konto bleibt gesperrt; SMTP prüfen und Einladung erneut senden.'
+      teamNotice.value = { key: 'management.employeeInvitationFailed' }
     } else {
-      teamNotice.value = 'Mitarbeiter angelegt.'
+      teamNotice.value = { key: 'management.employeeCreated' }
     }
     if (authenticated.value && canView.value) await loadData()
     if (canManageTeam.value) await openManagement()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Mitarbeitende konnten nicht angelegt werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.createEmployee')
   }
 }
 
@@ -1383,7 +1405,7 @@ async function submitShift() {
     showShiftForm.value = false
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Schicht konnte nicht angelegt werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.createShift')
   }
 }
 
@@ -1412,24 +1434,24 @@ async function addAssignment(employeeId: number, date: string, shift: ShiftType)
 async function submitAssignment() {
   const shift = shiftTypes.value.find((item) => item.id === Number(selectedShift.value))
   if (!shift) {
-    error.value = 'Bitte zuerst eine Schichtart anlegen.'
+    error.value = new TranslatedError('schedule.shiftTypeRequired')
     return
   }
   try {
     await addAssignment(Number(selectedEmployee.value), selectedDate.value, shift)
     showAssignmentForm.value = false
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht geplant werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.planShift')
   }
 }
 
 async function removeAssignment(id: number) {
-  if (!await askConfirmation('Diesen Dienst aus dem Plan entfernen?', 'Entfernen')) return
+  if (!await askConfirmation(t('management.removeShiftConfirm'), t('management.removeShift'))) return
   try {
     await api(`/assignments/${id}`, { method: 'DELETE' })
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht entfernt werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.removeShift')
   }
 }
 
@@ -1445,7 +1467,7 @@ async function suggestFor(date: string, shift: ShiftType) {
     const result = await api<{ candidates: Candidate[] }>(`/smart-selection?${params}`)
     smartCandidates.value = result.candidates
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Smart-Auswahl konnte nicht erstellt werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.smartSelection')
     smartGap.value = null
   }
 }
@@ -1466,7 +1488,7 @@ async function approveCandidate(candidate: Candidate) {
     smartCandidates.value = []
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Vorschlag konnte nicht übernommen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.applySuggestion')
   }
 }
 
@@ -1480,7 +1502,7 @@ function openPlanning() {
 async function proposePlanning() {
   planningBusy.value = true
   planningDays.value = null
-  planningNotice.value = ''
+  planningNotice.value = null
   error.value = ''
   try {
     const result = await api<{ days: PlanningDay[] }>('/planning/preview', {
@@ -1493,7 +1515,7 @@ async function proposePlanning() {
     })
     planningDays.value = result.days
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienstplan konnte nicht berechnet werden'
+    error.value = err instanceof Error ? err : new TranslatedError('planning.calculateFailed')
   } finally {
     planningBusy.value = false
   }
@@ -1514,11 +1536,11 @@ async function approvePlanning() {
         }))),
       }),
     })
-    planningNotice.value = `${result.created} Dienste wurden genehmigt und eingetragen.`
+    planningNotice.value = { key: result.created === 1 ? 'planning.approvedOne' : 'planning.approvedOther', count: result.created }
     planningDays.value = null
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienstplan konnte nicht genehmigt werden'
+    error.value = err instanceof Error ? err : new TranslatedError('planning.approveFailed')
   } finally {
     planningBusy.value = false
   }
@@ -1538,7 +1560,7 @@ async function optimizeSelectedDay() {
       }),
     })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Optimierung konnte nicht berechnet werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.calculateOptimization')
   } finally {
     optimizationBusy.value = false
   }
@@ -1563,7 +1585,7 @@ async function applyOptimizationSuggestion(suggestion: OptimizationSuggestion) {
     }
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Optimierungsvorschlag konnte nicht übernommen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.applyOptimization')
   }
 }
 
@@ -1578,7 +1600,7 @@ async function dropEmployee(event: DragEvent, date: string, shift: ShiftType) {
   try {
     await addAssignment(employeeId, date, shift)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht zugewiesen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.assignShift')
   }
 }
 
@@ -1597,7 +1619,7 @@ async function saveSettings() {
     newPassword.value = ''
     showProfile.value = false
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Einstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveSettings')
   }
 }
 
@@ -1617,7 +1639,7 @@ async function openManagement() {
       if (!employeeDepartmentId.value && organization.length) employeeDepartmentId.value = String(organization[0].id)
       if (roleKey.value === 'PERSONNEL' && userId.value === null) resetUserForm()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Verwaltungsdaten konnten nicht geladen werden'
+      error.value = err instanceof Error ? err : new TranslatedError('errors.loadManagement')
     }
   }
 
@@ -1665,7 +1687,7 @@ async function toggleUserLock(user: AccountUser) {
       })
       users.value = users.value.map((item) => (item.id === updated.id ? updated : item))
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Konto konnte nicht geändert werden'
+      error.value = err instanceof Error ? err : new TranslatedError('errors.changeAccount')
     }
   }
 
@@ -1674,21 +1696,21 @@ async function toggleUserLock(user: AccountUser) {
         const updated = await api<AccountUser>(`/users/${user.id}/invitation`, { method: 'POST' })
         users.value = users.value.map((item) => item.id === updated.id ? updated : item)
         teamNotice.value = updated.invitation_status === 'pending'
-          ? `Einladung an ${updated.email} erneut versendet.`
-          : 'Einladung konnte nicht versendet werden. SMTP-Konfiguration prüfen.'
+          ? { key: 'management.invitationResent', values: { email: String(updated.email) } }
+          : { key: 'management.invitationResendFailed' }
       } catch (err) {
-        error.value = err instanceof Error ? err.message : 'Einladung konnte nicht versendet werden'
+        error.value = err instanceof Error ? err : new TranslatedError('errors.sendInvitation')
       }
   }
 
   async function revokeInvitation(user: AccountUser) {
-        if (!await askConfirmation(`Einladung für „${user.username}“ widerrufen? Das Konto bleibt gesperrt.`, 'Einladung widerrufen')) return
+        if (!await askConfirmation(t('management.revokeConfirm', { name: user.username }), t('management.revokeInvitation'))) return
         try {
           await api(`/users/${user.id}/invitation`, { method: 'DELETE' })
-          teamNotice.value = `Einladung für ${user.username} widerrufen.`
+          teamNotice.value = { key: 'management.invitationRevokedNotice', values: { name: user.username } }
           await openManagement()
         } catch (err) {
-          error.value = err instanceof Error ? err.message : 'Einladung konnte nicht widerrufen werden'
+          error.value = err instanceof Error ? err : new TranslatedError('errors.revokeInvitation')
         }
   }
 
@@ -1716,24 +1738,24 @@ async function toggleUserLock(user: AccountUser) {
         body: JSON.stringify(payload),
       })
       if (saved.invitation_status === 'pending') {
-        teamNotice.value = `Zugang erstellt. Einladung an ${saved.email} versendet.`
+        teamNotice.value = { key: 'management.accountInvited', values: { email: String(saved.email) } }
       } else if (saved.invitation_status === 'delivery_failed') {
-        teamNotice.value = 'Zugang erstellt, aber die Einladung konnte nicht gesendet werden. Das Konto bleibt gesperrt; SMTP prüfen und Einladung erneut senden.'
+        teamNotice.value = { key: 'management.accountInvitationFailed' }
       }
       resetUserForm()
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Benutzerkonto konnte nicht gespeichert werden'
+      error.value = err instanceof Error ? err : new TranslatedError('errors.saveAccount')
     }
   }
 
 async function removeUser(user: AccountUser) {
-    if (!await askConfirmation(`Konto „${user.username}“ löschen?`)) return
+    if (!await askConfirmation(t('management.deleteAccountConfirm', { name: user.username }))) return
     try {
       await api(`/users/${user.id}`, { method: 'DELETE' })
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Benutzerkonto konnte nicht gelöscht werden'
+      error.value = err instanceof Error ? err : new TranslatedError('errors.deleteAccount')
     }
   }
 
@@ -1747,7 +1769,7 @@ async function saveDepartment() {
       editingDepartmentId.value = null
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Abteilung konnte nicht gespeichert werden'
+      error.value = err instanceof Error ? err : new TranslatedError('errors.saveDepartment')
     }
   }
 
@@ -1757,12 +1779,12 @@ function editDepartment(department: Department) {
   }
 
 async function removeDepartment(department: Department) {
-    if (!await askConfirmation(`Abteilung „${department.name}“ löschen?`)) return
+    if (!await askConfirmation(t('management.deleteDepartmentConfirm', { name: department.name }))) return
     try {
       await api(`/departments/${department.id}`, { method: 'DELETE' })
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Abteilung konnte nicht gelöscht werden'
+      error.value = err instanceof Error ? err : new TranslatedError('errors.deleteDepartment')
     }
   }
 
@@ -1784,16 +1806,22 @@ function employeePhoto(employeeId: number | null | undefined) {
 
 function roleLabel(key: string) {
   const catalogLabel = roleCatalog.value.access_roles.find((role) => role.key === key)?.label
-  if (catalogLabel) return catalogLabel
-    return ({
-      ADMIN: 'Administrator',
-      HOSPITAL_MANAGEMENT: 'Krankenhausleitung',
-      PERSONNEL: 'Personaler',
-      OBERARZT: 'Oberarzt',
-      CHEFARZT: 'Chefarzt',
-      KIOSK: 'Kiosk',
-      EMPLOYEE: 'Mitarbeiter',
-    } as Record<string, string>)[key] ?? key
+  const managementLabels: Record<string, TranslationKey> = {
+    Krankenhausleitung: 'role.hospitalManagement',
+    Wachleitung: 'role.stationManagement',
+    Leitstellenleitung: 'role.dispatchManagement',
+    Einrichtungsleitung: 'role.facilityManagement',
+    Leitung: 'role.management',
+  }
+  if (key === 'HOSPITAL_MANAGEMENT') {
+    const labelKey = catalogLabel ? managementLabels[catalogLabel] : 'role.hospitalManagement'
+    return labelKey ? t(labelKey) : catalogLabel ?? key
+  }
+  const roles: Record<string, TranslationKey> = {
+    ADMIN: 'role.admin', PERSONNEL: 'role.personnel', OBERARZT: 'role.seniorPhysician',
+    CHEFARZT: 'role.chiefPhysician', KIOSK: 'role.kiosk', EMPLOYEE: 'role.employee',
+  }
+  return roles[key] ? t(roles[key]) : catalogLabel ?? key
 }
 
 function moveWeek(amount: number) {
@@ -1836,7 +1864,7 @@ async function loadNotificationHistory() {
       api<Assignment[]>(`/assignments?from=${from}&to=${to}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
     ])
     const shiftIds = new Set(shifts.map((shift) => shift.id))
-    const items: { id: string; date: string; text: string }[] = []
+    const items: typeof notificationHistory.value = []
     for (let offset = 0; offset <= notificationDays.value; offset++) {
       const day = new Date(today)
       day.setDate(day.getDate() - offset)
@@ -1844,12 +1872,12 @@ async function loadNotificationHistory() {
       for (const shift of shifts) {
         const filled = rangeAssignments.filter((item) => shiftIds.has(item.shift_type_id) && item.shift_type_id === shift.id && localDate(new Date(item.starts_at)) === date).length
         const open = Math.max(0, shift.required_staff - filled)
-        if (open) items.push({ id: `${date}-${shift.id}`, date, text: `${open} unbesetzte ${shift.position}-Stelle${open === 1 ? '' : 'n'} · ${shift.name}` })
+        if (open) items.push({ id: `${date}-${shift.id}`, date, count: open, position: shift.position, shiftName: shift.name })
       }
     }
     notificationHistory.value = items
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Meldungen konnten nicht geladen werden'
+    error.value = err instanceof Error ? err : new TranslatedError('notifications.loadFailed')
   } finally {
     notificationsLoading.value = false
   }
@@ -1887,241 +1915,246 @@ onBeforeUnmount(() => {
 
 <template>
   <main v-if="!setupChecked" class="login-shell">
-    <section class="login-card"><div class="brand-mark">C</div><h1>ClinicPulse startet …</h1><p class="muted">Installationsstatus wird geprüft.</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version 0.1.0</footer></section>
+    <section class="login-card"><LanguageSelector /><div class="brand-mark">C</div><h1>{{ t('auth.starting') }}</h1><p class="muted">{{ t('auth.checkingSetup') }}</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version 0.1.0</footer></section>
   </main>
 
   <main v-else-if="setupRequired && !authenticated" class="login-shell">
     <section class="login-card setup-card">
+      <LanguageSelector />
       <div class="brand-mark">C</div>
-      <p class="eyebrow">CLINICPULSE · ERSTEINRICHTUNG</p>
-      <h1>Dein Admin-Zugang</h1>
-      <p class="muted">Erstelle deinen Zugang. Passwort und Signaturschlüssel werden sicher serverseitig in der Datenbank gespeichert.</p>
+      <p class="eyebrow">{{ t('auth.setupEyebrow') }}</p>
+      <h1>{{ t('auth.setupTitle') }}</h1>
+      <p class="muted">{{ t('auth.setupDescription') }}</p>
       <form class="stack" @submit.prevent="completeSetup">
-        <label>Admin-Benutzername<input v-model="setupUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
-        <PasswordInput v-model="setupPassword" label="Passwort (mindestens 8 Zeichen)" required />
-        <label>Passwort wiederholen<input v-model="setupPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
-        <label>Lizenz-Token aus dem Licensing-Tool<input v-model="setupLicenseToken" type="password" autocomplete="off" maxlength="4096" required /></label>
-        <label class="permission-toggle"><input v-model="setupSundayWorkAuthorized" type="checkbox" /> Unser Betrieb nimmt notwendige Sonn- und Feiertagsarbeit nach ArbZG §10 in Anspruch</label>
-        <p class="muted">Nur aktivieren, wenn die rechtlichen Voraussetzungen für deinen Betrieb geprüft sind. Sonst werden Dienste an Sonn- und gesetzlichen Feiertagen blockiert.</p>
-        <p class="muted">Die Lizenzsignatur wird geprüft. Das Token wird anschließend serverseitig gespeichert.</p>
-        <button class="primary full" :disabled="busy">{{ busy ? 'Einrichtung …' : 'Admin-Zugang erstellen' }}</button>
+        <label>{{ t('auth.adminUsername') }}<input v-model="setupUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
+        <PasswordInput v-model="setupPassword" :label="t('auth.passwordMinimum')" required />
+        <label>{{ t('auth.repeatPassword') }}<input v-model="setupPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
+        <label>{{ t('auth.licenseToken') }}<input v-model="setupLicenseToken" type="password" autocomplete="off" maxlength="4096" required /></label>
+        <label class="permission-toggle"><input v-model="setupSundayWorkAuthorized" type="checkbox" /> {{ t('auth.sundayAuthorization') }}</label>
+        <p class="muted">{{ t('auth.sundayWarning') }}</p>
+        <p class="muted">{{ t('auth.licenseDescription') }}</p>
+        <button class="primary full" :disabled="busy">{{ busy ? t('auth.settingUp') : t('auth.createAdmin') }}</button>
       </form>
-      <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
+      <p v-if="error" class="error-message">{{ displayedError }}</p>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
   <main v-else-if="invitationToken && !authenticated" class="login-shell">
     <section class="login-card setup-card">
+      <LanguageSelector />
       <div class="brand-mark">C</div>
-      <p class="eyebrow">CLINICPULSE · EINLADUNG</p>
-      <h1>Eigenes Passwort festlegen</h1>
-      <p class="muted">Lege ein Passwort mit mindestens 8 Zeichen fest. Der Einladungslink kann nur einmal verwendet werden.</p>
+      <p class="eyebrow">{{ t('auth.invitationEyebrow') }}</p>
+      <h1>{{ t('auth.invitationTitle') }}</h1>
+      <p class="muted">{{ t('auth.invitationDescription') }}</p>
       <form class="stack" @submit.prevent="acceptInvitation">
-        <PasswordInput v-model="invitationPassword" label="Neues Passwort" required />
-        <label>Passwort wiederholen<input v-model="invitationPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
-        <button class="primary full" :disabled="busy">{{ busy ? 'Passwort wird gespeichert …' : 'Passwort festlegen' }}</button>
+        <PasswordInput v-model="invitationPassword" :label="t('auth.newPassword')" required />
+        <label>{{ t('auth.repeatPassword') }}<input v-model="invitationPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
+        <button class="primary full" :disabled="busy">{{ busy ? t('auth.savingPassword') : t('auth.setPassword') }}</button>
       </form>
-      <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
+      <p v-if="error" class="error-message">{{ displayedError }}</p>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
   <main v-else-if="!authenticated" class="login-shell">
     <section class="login-card">
+      <LanguageSelector />
       <div class="brand-mark">C</div>
-      <p class="eyebrow">CLINICPULSE · DIENSTPLANUNG</p>
-      <p v-if="institutionName" class="institution-label">Lizenz für <strong>{{ institutionName }}</strong></p>
-      <h1>Willkommen zurück</h1>
-      <p class="muted">Melde dich an, um den Dienstplan zu verwalten.</p>
-      <p v-if="invitationMessage" class="success-message" role="status">{{ invitationMessage }}</p>
+      <p class="eyebrow">{{ t('auth.loginEyebrow') }}</p>
+      <p v-if="institutionName" class="institution-label">{{ t('auth.licensedTo') }} <strong>{{ institutionName }}</strong></p>
+      <h1>{{ t('auth.welcome') }}</h1>
+      <p class="muted">{{ t('auth.loginDescription') }}</p>
+      <p v-if="invitationMessage" class="success-message" role="status">{{ t('auth.invitationAccepted') }}</p>
       <form class="stack" @submit.prevent="login">
-        <label>Benutzername<input v-model="loginUsername" autocomplete="username" required /></label>
-        <label>Passwort<input v-model="password" type="password" autocomplete="current-password" required /></label>
-        <label class="permission-toggle"><input v-model="staySignedIn" type="checkbox" /> Angemeldet bleiben (30 Tage)</label>
-        <p class="muted">Für Administrationskonten ist diese Option gesperrt.</p>
-        <button class="primary full" :disabled="busy">{{ busy ? 'Anmeldung …' : 'Anmelden' }}</button>
+        <label>{{ t('auth.username') }}<input v-model="loginUsername" autocomplete="username" required /></label>
+        <label>{{ t('auth.password') }}<input v-model="password" type="password" autocomplete="current-password" required /></label>
+        <label class="permission-toggle"><input v-model="staySignedIn" type="checkbox" /> {{ t('auth.rememberMe') }}</label>
+        <p class="muted">{{ t('auth.adminRememberWarning') }}</p>
+        <button class="primary full" :disabled="busy">{{ busy ? t('auth.signingIn') : t('auth.signIn') }}</button>
       </form>
-      <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
+      <p v-if="error" class="error-message">{{ displayedError }}</p>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
   <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
     <aside class="sidebar">
       <a class="brand" href="#"><span class="brand-mark small">C</span><span class="brand-text">Clinic<span class="brand-light">Pulse</span></span></a>
-      <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'" :title="sidebarCollapsed ? 'Ausklappen' : 'Einklappen'" @click="toggleSidebar">{{ sidebarCollapsed ? '»' : '«' }}</button>
+      <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')" :title="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')" @click="toggleSidebar">{{ sidebarCollapsed ? '»' : '«' }}</button>
       <div v-if="roleKey !== 'PERSONNEL'" class="plan-nav-list">
-        <p class="nav-caption">DIENSTPLÄNE</p>
-        <button v-if="canManage" class="nav-item plan-nav-item" title="Alle Dienstpläne" :class="{ active: selectedPlanId === null }" @click="selectPlan(null)"><span>▦</span> Alle Dienstpläne</button>
+        <p class="nav-caption">{{ t('nav.schedules') }}</p>
+        <button v-if="canManage" class="nav-item plan-nav-item" :title="t('nav.allSchedules')" :class="{ active: selectedPlanId === null }" @click="selectPlan(null)"><span>▦</span> {{ t('nav.allSchedules') }}</button>
         <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
       </div>
-      <p class="nav-caption nav-caption-spaced">ARBEITSBEREICH</p>
-      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" title="Dienstplan" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null"><span>▦</span> Dienstplan</button>
-      <button v-if="canEditPlan" class="nav-item" title="Dienstplanung" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> Dienstplanung</button>
-      <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" class="nav-item" title="Abwesenheiten" @click="void openAbsences()"><span>☾</span> Abwesenheiten</button>
-      <button v-if="canViewArchive" class="nav-item" title="Archiv" @click="void openArchive()"><span>▤</span> Archiv</button>
-      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" title="Meldungen" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> Meldungen <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
-      <button v-if="canManageTeam" class="nav-item" title="Teamverwaltung" :class="{ active: showManagement }" @click="void openManagement()"><span>♙</span> Teamverwaltung</button>
+      <p class="nav-caption nav-caption-spaced">{{ t('nav.workspace') }}</p>
+      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
+      <button v-if="canEditPlan" class="nav-item" :title="t('page.planning')" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> {{ t('page.planning') }}</button>
+      <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
+      <button v-if="canViewArchive" class="nav-item" :title="t('page.archive')" @click="void openArchive()"><span>▤</span> {{ t('page.archive') }}</button>
+      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.notifications')" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> {{ t('page.notifications') }} <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
+      <button v-if="canManageTeam" class="nav-item" :title="t('nav.teamManagement')" :class="{ active: showManagement }" @click="void openManagement()"><span>♙</span> {{ t('nav.teamManagement') }}</button>
       <div class="sidebar-bottom">
-        <button class="profile profile-button" title="Mein Profil" @click="void openProfile()">
+        <button class="profile profile-button" :title="t('nav.myProfile')" @click="void openProfile()">
           <img v-if="profile?.profile_image_data" class="avatar profile-avatar" :src="profile.profile_image_data" alt="" />
           <div v-else class="avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
-          <span class="profile-text"><strong>{{ username }}</strong><small>{{ roleLabel(roleKey) }} · Mein Profil</small></span>
+          <span class="profile-text"><strong>{{ username }}</strong><small>{{ roleLabel(roleKey) }} · {{ t('nav.myProfile') }}</small></span>
         </button>
         <p class="idle-hint" :class="{ warning: idleWarning }" role="status" :title="idleRemainingLabel">⏱ {{ idleRemainingLabel }}</p>
-        <button class="logout" :title="'Abmelden'" @click="logout"><span class="logout-icon">⏻</span><span class="logout-text">Abmelden</span></button>
+        <button class="logout" :title="t('nav.signOut')" @click="logout"><span class="logout-icon">⏻</span><span class="logout-text">{{ t('nav.signOut') }}</span></button>
       </div>
     </aside>
 
     <section class="workspace">
-      <nav class="mobile-navigation" aria-label="Mobile Navigation">
-        <button v-if="roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null">Dienstplan</button>
-        <button v-if="canEditPlan" @click="openPlanning()">Dienstplanung</button>
-        <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" @click="void openAbsences()">Abwesenheiten</button>
-        <button v-if="canViewArchive" @click="void openArchive()">Archiv</button>
-        <button v-if="roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">Meldungen</button>
-        <button v-if="canManageTeam" @click="void openManagement()">Teamverwaltung</button>
-        <button @click="logout()">Abmelden</button>
+      <nav class="mobile-navigation" :aria-label="t('nav.mobileNavigation')">
+        <button v-if="roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null">{{ t('page.schedule') }}</button>
+        <button v-if="canEditPlan" @click="openPlanning()">{{ t('page.planning') }}</button>
+        <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" @click="void openAbsences()">{{ t('page.absences') }}</button>
+        <button v-if="canViewArchive" @click="void openArchive()">{{ t('page.archive') }}</button>
+        <button v-if="roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">{{ t('page.notifications') }}</button>
+        <button v-if="canManageTeam" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
+        <button @click="logout()">{{ t('nav.signOut') }}</button>
       </nav>
       <header class="topbar">
-        <div class="breadcrumb">Arbeitsbereich <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? 'Tagesansicht' : 'Wochenübersicht' }}</div>
+        <div class="breadcrumb">{{ t('nav.workspaceLabel') }} <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? t('nav.dayView') : t('nav.weekView') }}</div>
         <div class="topbar-right">
-          <select class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" aria-label="Dienstplan auswählen" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
-            <option v-if="canManage" value="all">Alle Dienstpläne</option>
+          <LanguageSelector compact />
+          <select class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
+            <option v-if="canManage" value="all">{{ t('nav.allSchedules') }}</option>
             <option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option>
           </select>
-          <span class="status-dot"></span> Lokal verbunden
+          <span class="status-dot"></span> {{ t('nav.connected') }}
           <div class="notification-wrap">
-            <button class="icon-button notification-button" aria-label="Meldungen öffnen" @click="openNotificationsPage()">♧<span v-if="notifications.length" class="notification-count">{{ notifications.length }}</span></button>
+            <button class="icon-button notification-button" :aria-label="t('nav.openNotifications')" @click="openNotificationsPage()">♧<span v-if="notifications.length" class="notification-count">{{ notifications.length }}</span></button>
           </div>
-          <button v-if="canManageTeam" class="secondary management-button" @click="void openManagement()">Teamverwaltung</button>
-          <button class="icon-button" aria-label="Einstellungen" @click="openAppSettings()">⚙</button>
-          <button class="profile-avatar-button" aria-label="Eigenes Profil öffnen" @click="void openProfile()">
+          <button v-if="canManageTeam" class="secondary management-button" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
+          <button class="icon-button" :aria-label="t('page.settings')" @click="openAppSettings()">⚙</button>
+          <button class="profile-avatar-button" :aria-label="t('nav.openProfile')" @click="void openProfile()">
             <img v-if="profile?.profile_image_data" class="avatar profile-avatar" :src="profile.profile_image_data" alt="" />
             <span v-else class="avatar">{{ username.slice(0, 1).toUpperCase() }}</span>
           </button>
         </div>
       </header>
+      <p v-if="locale === 'en'" class="language-banner" role="status">{{ t('language.incomplete') }}</p>
       <main v-if="showPlanning" class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">DIENSTPLANUNG</p>
-            <h1>Dienstplan vorschlagen</h1>
-            <p class="muted">Bereits eingetragene Dienste bleiben unverändert. Der Vorschlag füllt nur offene Stellen und wird erst nach deiner Genehmigung gespeichert.</p>
+            <p class="eyebrow">{{ t('planning.eyebrow') }}</p>
+            <h1>{{ t('planning.title') }}</h1>
+            <p class="muted">{{ t('planning.description') }}</p>
           </div>
         </div>
-        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" aria-label="Meldung schließen">×</button></div>
-        <p v-if="planningNotice" class="planning-notice" role="status">{{ planningNotice }}</p>
+        <div v-if="error" class="alert" role="alert"><span>{{ displayedError }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
+        <p v-if="planningNotice" class="planning-notice" role="status">{{ t(planningNotice.key, { count: planningNotice.count }) }}</p>
         <section class="planning-controls">
-          <label>Zeitraum
+          <label>{{ t('planning.period') }}
             <select v-model="planningMode">
-              <option value="week">Woche</option>
-              <option value="month">Monat</option>
+              <option value="week">{{ t('planning.week') }}</option>
+              <option value="month">{{ t('planning.month') }}</option>
             </select>
           </label>
-          <label>Datum im Zeitraum
+          <label>{{ t('planning.date') }}
             <input v-model="planningAnchor" type="date" />
           </label>
-          <p class="muted">{{ planningPeriod.start.split('-').reverse().join('.') }} – {{ planningPeriod.end.split('-').reverse().join('.') }} · {{ selectedPlanName }}</p>
+          <p class="muted">{{ new Date(`${planningPeriod.start}T12:00:00`).toLocaleDateString(locale) }} – {{ new Date(`${planningPeriod.end}T12:00:00`).toLocaleDateString(locale) }} · {{ selectedPlanName }}</p>
           <button class="primary" :disabled="planningBusy || !shiftTypes.length" @click="void proposePlanning()">
-            {{ planningBusy ? 'Berechne …' : '✧ Dienstplan vorschlagen' }}
+            {{ planningBusy ? t('planning.calculating') : t('planning.propose') }}
           </button>
         </section>
         <section v-if="planningDays" class="optimization-panel smart-panel" aria-live="polite">
           <header class="smart-heading">
-            <strong>{{ planningSuggestionCount }} neue Dienste vorgeschlagen · {{ planningUnfilledCount }} Stellen unbesetzt</strong>
-            <span>Jeder Dienst wird beim Genehmigen erneut gegen Arbeitszeitgesetz und Abwesenheiten geprüft.</span>
-            <button class="primary approve-button" :disabled="planningBusy || !planningSuggestionCount" @click="void approvePlanning()">Plan genehmigen</button>
+            <strong>{{ t('planning.summary', { suggestions: t(planningSuggestionCount === 1 ? 'planning.suggestionOne' : 'planning.suggestionOther', { count: planningSuggestionCount }), unfilled: t(planningUnfilledCount === 1 ? 'planning.unfilledOne' : 'planning.unfilledOther', { count: planningUnfilledCount }) }) }}</strong>
+            <span>{{ t('planning.review') }}</span>
+            <button class="primary approve-button" :disabled="planningBusy || !planningSuggestionCount" @click="void approvePlanning()">{{ t('planning.approve') }}</button>
           </header>
           <p v-if="planningLoad.length" class="muted">
-            Verteilung: <span v-for="([name, count], index) in planningLoad" :key="name">{{ index ? ' · ' : '' }}{{ name }} {{ count }}</span>
+            {{ t('planning.distribution') }} <span v-for="([name, count], index) in planningLoad" :key="name">{{ index ? ' · ' : '' }}{{ name }} {{ count }}</span>
           </p>
           <article v-for="day in planningDays.filter((entry) => entry.suggestions.length || entry.unfilled_slots.length)" :key="day.target_date" class="planning-day">
             <h3>{{ dateLabel(day.target_date) }}</h3>
             <p v-for="suggestion in day.suggestions" :key="`${suggestion.shift_type_id}-${suggestion.employee_id}`" class="planning-line">
               <strong>{{ suggestion.employee_name }}</strong> · {{ suggestion.shift_name }}
-              <small>{{ timeLabel(suggestion.starts_at) }}–{{ timeLabel(suggestion.ends_at) }}{{ suggestion.role_match ? '' : ' · Rollenabweichung' }}</small>
+              <small>{{ timeLabel(suggestion.starts_at) }}–{{ timeLabel(suggestion.ends_at) }}{{ suggestion.role_match ? '' : t('planning.roleMismatch') }}</small>
             </p>
             <p v-for="(slot, index) in day.unfilled_slots" :key="`gap-${slot.shift_type_id}-${index}`" class="planning-line planning-gap">
-              Unbesetzt: {{ slot.shift_name }} ({{ slot.position }})
+              {{ t('planning.unfilled', { shift: slot.shift_name, position: slot.position }) }}
             </p>
           </article>
-          <p v-if="!planningSuggestionCount && !planningUnfilledCount" class="muted">Im gewählten Zeitraum sind keine offenen Stellen vorhanden.</p>
+          <p v-if="!planningSuggestionCount && !planningUnfilledCount" class="muted">{{ t('planning.empty') }}</p>
         </section>
       </main>
       <main v-else-if="showAbsences" class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">PERSONAL</p>
-            <h1>Abwesenheiten</h1>
-            <p class="muted">Urlaub, Krankheit und sonstige Abwesenheiten im Überblick.</p>
+            <p class="eyebrow">{{ t('absence.personnel') }}</p>
+            <h1>{{ t('page.absences') }}</h1>
+            <p class="muted">{{ t('absence.description') }}</p>
           </div>
         </div>
         <div class="absence-layout">
           <section v-if="canRequestAbsence || canRecordAbsence" class="panel absence-panel">
           <form class="stack absence-form" @submit.prevent="submitAbsence">
-              <label v-if="!canRequestAbsence">Mitarbeitende<select v-model="absenceEmployeeId" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
-              <label>Art<select v-model="absenceKind"><option value="vacation">Urlaub</option><option value="sick">Krank</option><option value="other">Sonstiges</option></select></label>
-              <div class="form-row"><label>Von<input v-model="absenceStart" type="date" required /></label><label>Bis<input v-model="absenceEnd" type="date" :min="absenceStart" required /></label></div>
-              <label>Notiz (optional)<input v-model="absenceNote" maxlength="500" /></label>
-              <p v-if="absenceKind === 'sick'" class="muted">Krankmeldungen müssen nicht genehmigt werden.</p>
-            <button class="primary full">{{ canRequestAbsence && absenceKind !== 'sick' ? 'Antrag stellen' : absenceKind === 'sick' && canRequestAbsence ? 'Krank melden' : 'Abwesenheit eintragen' }}</button>
+              <label v-if="!canRequestAbsence">{{ t('absence.employee') }}<select v-model="absenceEmployeeId" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
+              <label>{{ t('absence.kind') }}<select v-model="absenceKind"><option value="vacation">{{ t('absence.vacation') }}</option><option value="sick">{{ t('absence.sick') }}</option><option value="other">{{ t('absence.other') }}</option></select></label>
+              <div class="form-row"><label>{{ t('absence.from') }}<input v-model="absenceStart" type="date" required /></label><label>{{ t('absence.to') }}<input v-model="absenceEnd" type="date" :min="absenceStart" required /></label></div>
+              <label>{{ t('absence.optionalNote') }}<input v-model="absenceNote" maxlength="500" /></label>
+              <p v-if="absenceKind === 'sick'" class="muted">{{ t('absence.sickNotice') }}</p>
+            <button class="primary full">{{ canRequestAbsence && absenceKind !== 'sick' ? t('absence.submit') : absenceKind === 'sick' && canRequestAbsence ? t('absence.reportSick') : t('absence.record') }}</button>
             </form>
           </section>
           <section class="panel absence-panel absence-list">
           <div v-for="absence in absences" :key="absence.id" class="management-row absence-row">
             <div>
               <strong>{{ absence.employee_name }} · {{ kindLabels[absence.kind] }}</strong>
-              <small>{{ dateLabel(absence.start_date) }} – {{ dateLabel(absence.end_date) }} · {{ absence.kind === 'sick' ? 'Keine Genehmigung nötig' : statusLabels[absence.status] }}</small>
-              <small v-if="absence.requested_by">{{ absence.kind === 'sick' ? 'Gemeldet' : 'Beantragt' }} von {{ absence.requested_by }}<span v-if="absence.created_at"> am {{ new Date(absence.created_at).toLocaleString('de-DE') }}</span></small>
-              <small v-if="absence.kind !== 'sick' && absence.decided_by">{{ absence.status === 'rejected' ? 'Abgelehnt' : 'Genehmigt' }} von {{ absence.decided_by }}<span v-if="absence.decided_at"> am {{ new Date(absence.decided_at).toLocaleString('de-DE') }}</span></small>
-              <small v-if="absence.note">Notiz: {{ absence.note }}</small>
+              <small>{{ dateLabel(absence.start_date) }} – {{ dateLabel(absence.end_date) }} · {{ absence.kind === 'sick' ? t('absence.noApproval') : statusLabels[absence.status] }}</small>
+              <small v-if="absence.requested_by">{{ t(absence.kind === 'sick' ? 'absence.reportedBy' : 'absence.requestedBy', { name: absence.requested_by }) }}<span v-if="absence.created_at">{{ t('absence.onDate', { date: new Date(absence.created_at).toLocaleString(locale) }) }}</span></small>
+              <small v-if="absence.kind !== 'sick' && absence.decided_by">{{ t(absence.status === 'rejected' ? 'absence.rejectedBy' : 'absence.approvedBy', { name: absence.decided_by }) }}<span v-if="absence.decided_at">{{ t('absence.onDate', { date: new Date(absence.decided_at).toLocaleString(locale) }) }}</span></small>
+              <small v-if="absence.note">{{ t('absence.note', { note: absence.note }) }}</small>
             </div>
             <div v-if="!licenseReadOnly">
-              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && roleKey === 'OBERARZT' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">Genehmigen</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">Ablehnen</button></template>
-              <button v-if="(roleKey === 'EMPLOYEE' && absence.status === 'pending') || canRecordAbsence" class="text-button danger-text" @click="removeAbsence(absence)">{{ roleKey === 'EMPLOYEE' ? 'Zurückziehen' : 'Löschen' }}</button>
+              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && roleKey === 'OBERARZT' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">{{ t('absence.approve') }}</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">{{ t('absence.reject') }}</button></template>
+              <button v-if="(roleKey === 'EMPLOYEE' && absence.status === 'pending') || canRecordAbsence" class="text-button danger-text" @click="removeAbsence(absence)">{{ roleKey === 'EMPLOYEE' ? t('absence.withdraw') : t('absence.delete') }}</button>
             </div>
           </div>
-          <p v-if="!absences.length" class="notification-empty">Keine Abwesenheiten</p>
+          <p v-if="!absences.length" class="notification-empty">{{ t('absence.empty') }}</p>
           </section>
         </div>
       </main>
       <main v-else-if="showNotifications" class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">MELDUNGEN</p>
-            <h1>Meldungen</h1>
-            <p class="muted">Offene Besetzungslücken der letzten Tage.</p>
+            <p class="eyebrow">{{ t('notifications.eyebrow') }}</p>
+            <h1>{{ t('page.notifications') }}</h1>
+            <p class="muted">{{ t('notifications.description') }}</p>
           </div>
-          <label class="notification-range">Zeitraum
+          <label class="notification-range">{{ t('notifications.period') }}
             <select v-model.number="notificationDays" @change="void loadNotificationHistory()">
-              <option :value="7">Letzte 7 Tage</option><option :value="14">Letzte 14 Tage</option><option :value="30">Letzte 30 Tage</option><option :value="90">Letzte 90 Tage</option>
+              <option v-for="days in [7, 14, 30, 90]" :key="days" :value="days">{{ t('notifications.lastDays', { count: days }) }}</option>
             </select>
           </label>
         </div>
         <section class="notification-page">
-          <p v-if="notificationsLoading" class="notification-empty">Lade Meldungen …</p>
+          <p v-if="notificationsLoading" class="notification-empty">{{ t('notifications.loading') }}</p>
           <button v-for="item in notificationHistory" :key="item.id" class="notification-item" @click="openNotification(item)">
-            <span class="notification-warning">!</span><span><strong>{{ item.text }}</strong><small>{{ dateLabel(item.date) }}</small></span>
+            <span class="notification-warning">!</span><span><strong>{{ t(item.count === 1 ? 'notifications.gapOne' : 'notifications.gapOther', { count: item.count, position: item.position, shift: item.shiftName }) }}</strong><small>{{ dateLabel(item.date) }}</small></span>
           </button>
-          <p v-if="!notificationsLoading && !notificationHistory.length" class="notification-empty">Keine Meldungen im gewählten Zeitraum.</p>
+          <p v-if="!notificationsLoading && !notificationHistory.length" class="notification-empty">{{ t('notifications.empty') }}</p>
         </section>
       </main>
       <main v-else class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">PERSONALPLANUNG</p>
-            <h1>{{ selectedDay ? dateLabel(selectedDay) : 'Dienstplan' }}</h1>
-            <p class="muted">{{ selectedDay ? 'Besetzung nach Schicht, Funktion und offenen Stellen.' : 'Wochenüberblick mit Besetzungsstatus auf einen Blick.' }}</p>
+            <p class="eyebrow">{{ t('schedule.eyebrow') }}</p>
+            <h1>{{ selectedDay ? dateLabel(selectedDay) : t('page.schedule') }}</h1>
+            <p class="muted">{{ selectedDay ? t('schedule.dayDescription') : t('schedule.weekDescription') }}</p>
           </div>
           <div class="heading-actions">
-            <button v-if="selectedDay" class="secondary" @click="selectedDay = null; smartGap = null">‹ Wochenübersicht</button>
-            <button v-if="canEditPlan" class="primary" :disabled="!employees.length || !shiftTypes.length" @click="selectedDate = selectedDay ?? localDate(today); showAssignmentForm = true">＋ Dienst eintragen</button>
+            <button v-if="selectedDay" class="secondary" @click="selectedDay = null; smartGap = null">{{ t('schedule.backToWeek') }}</button>
+            <button v-if="canEditPlan" class="primary" :disabled="!employees.length || !shiftTypes.length" @click="selectedDate = selectedDay ?? localDate(today); showAssignmentForm = true">{{ t('schedule.addAssignment') }}</button>
           </div>
         </div>
 
-        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" aria-label="Meldung schließen">×</button></div>
+        <div v-if="error" class="alert" role="alert"><span>{{ displayedError }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
         <section
           v-if="roleKey === 'ADMIN' && licenseInfo && !licenseInfo.suppress_warnings && (licenseInfo.status !== 'PAID' || licenseInfo.read_only || licenseInfo.last_error)"
           class="license-banner"
@@ -2129,117 +2162,117 @@ onBeforeUnmount(() => {
           role="status"
         >
           <div>
-            <strong v-if="licenseInfo.read_only || licenseInfo.status === 'BLOCKED'">Lizenz eingeschränkt · Dienstplan im Lesemodus</strong>
-            <strong v-else-if="licenseInfo.status === 'GRACE_PERIOD'">Lizenzverlängerung erforderlich</strong>
-            <strong v-else>Lizenzserver derzeit nicht erreichbar</strong>
-            <p>{{ licenseInfo.message ?? licenseInfo.last_error ?? `Lizenzstatus: ${licenseInfo.status}` }}<span v-if="licenseInfo.grace_until"> · Kulanz bis {{ new Date(licenseInfo.grace_until).toLocaleString('de-DE') }}</span></p>
+            <strong v-if="licenseInfo.read_only || licenseInfo.status === 'BLOCKED'">{{ t('license.restricted') }}</strong>
+            <strong v-else-if="licenseInfo.status === 'GRACE_PERIOD'">{{ t('license.renew') }}</strong>
+            <strong v-else>{{ t('license.unavailable') }}</strong>
+            <p>{{ apiErrorDetail(licenseInfo.message ?? licenseInfo.last_error) ?? t('license.status', { status: licenseInfo.status }) }}<span v-if="licenseInfo.grace_until">{{ t('license.graceUntil', { date: new Date(licenseInfo.grace_until).toLocaleString(locale) }) }}</span></p>
           </div>
-          <button class="secondary" :disabled="licenseCheckBusy" @click="void checkLicenseNow()">{{ licenseCheckBusy ? 'Prüfe …' : 'Jetzt prüfen' }}</button>
+          <button class="secondary" :disabled="licenseCheckBusy" @click="void checkLicenseNow()">{{ licenseCheckBusy ? t('license.checking') : t('license.checkNow') }}</button>
         </section>
 
         <template v-if="canView">
         <section class="stats">
-          <article class="stat-card"><span class="stat-icon teal">▦</span><div><span class="stat-label">Geplante Dienste</span><strong>{{ assignments.length }}</strong></div><small>in dieser Woche</small></article>
-          <article class="stat-card"><span class="stat-icon blue">◷</span><div><span class="stat-label">Geplante Stunden</span><strong>{{ totalHours.toLocaleString('de-DE', { maximumFractionDigits: 0 }) }}</strong></div><small>in dieser Woche</small></article>
-          <article class="stat-card"><span class="stat-icon" :class="notifications.length ? 'amber' : 'teal'">!</span><div><span class="stat-label">Offene Stellen</span><strong>{{ notifications.reduce((sum, item) => sum + item.count, 0) }}</strong></div><small>in dieser Woche</small></article>
+          <article class="stat-card"><span class="stat-icon teal">▦</span><div><span class="stat-label">{{ t('schedule.plannedShifts') }}</span><strong>{{ assignments.length }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
+          <article class="stat-card"><span class="stat-icon blue">◷</span><div><span class="stat-label">{{ t('schedule.plannedHours') }}</span><strong>{{ totalHours.toLocaleString(locale, { maximumFractionDigits: 0 }) }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
+          <article class="stat-card"><span class="stat-icon" :class="notifications.length ? 'amber' : 'teal'">!</span><div><span class="stat-label">{{ t('schedule.openPositions') }}</span><strong>{{ notifications.reduce((sum, item) => sum + item.count, 0) }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
         </section>
 
         <section v-if="!selectedDay" class="today-panel panel">
           <header class="today-heading">
-            <div><p class="eyebrow">HEUTE</p><h2>{{ dateLabel(localDate(today)) }}</h2><p class="muted">{{ dateAssignments(today).length }} Dienste · {{ shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(today), shift.id).length), 0) }} offene Stellen</p></div>
-            <button class="secondary" @click="selectedDay = localDate(today)">Tagesdetails öffnen →</button>
+            <div><p class="eyebrow">{{ t('schedule.today').toLocaleUpperCase(locale) }}</p><h2>{{ dateLabel(localDate(today)) }}</h2><p class="muted">{{ shiftCountLabel(dateAssignments(today).length) }} · {{ openCountLabel(shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(today), shift.id).length), 0)) }}</p></div>
+            <button class="secondary" @click="selectedDay = localDate(today)">{{ t('schedule.openDay') }}</button>
           </header>
           <div v-if="shiftTypes.length" class="today-shifts">
             <article v-for="shift in shiftTypes" :key="shift.id" class="today-shift">
               <span class="shift-color" :style="{ background: shift.color }"></span>
-              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }}</small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || 'Noch niemand eingeteilt' }}</p></div>
-              <span v-if="shift.required_staff > assignmentsFor(localDate(today), shift.id).length" class="overview-gap">{{ shift.required_staff - assignmentsFor(localDate(today), shift.id).length }} offen</span>
-              <span v-else class="overview-filled">Besetzt</span>
+              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }}</small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || t('schedule.noAssignments') }}</p></div>
+              <span v-if="shift.required_staff > assignmentsFor(localDate(today), shift.id).length" class="overview-gap">{{ t('schedule.openCount', { count: shift.required_staff - assignmentsFor(localDate(today), shift.id).length }) }}</span>
+              <span v-else class="overview-filled">{{ t('schedule.filled') }}</span>
             </article>
           </div>
-          <p v-else class="muted today-empty">Noch keine Schichten für deine Abteilung eingerichtet.</p>
+          <p v-else class="muted today-empty">{{ t('schedule.noShifts') }}</p>
         </section>
 
         <section class="panel">
           <div class="planner-toolbar">
-            <div><h2>{{ selectedDay ? 'Tagesdetails' : 'Wochenübersicht' }}</h2><p class="muted">{{ selectedDay ? dateLabel(selectedDay) : weekLabel }}</p></div>
+            <div><h2>{{ selectedDay ? t('schedule.dayDetails') : t('schedule.weekOverview') }}</h2><p class="muted">{{ selectedDay ? dateLabel(selectedDay) : weekLabel }}</p></div>
             <div class="toolbar-actions">
               <template v-if="!selectedDay">
-                <div class="week-nav"><button aria-label="Vorherige Woche" @click="moveWeek(-1)">‹</button><button @click="weekOffset = 0; void loadData()">Heute</button><button aria-label="Nächste Woche" @click="moveWeek(1)">›</button></div>
-                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
-                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart</button>
+                <div class="week-nav"><button :aria-label="t('schedule.previousWeek')" @click="moveWeek(-1)">‹</button><button @click="weekOffset = 0; void loadData()">{{ t('schedule.today') }}</button><button :aria-label="t('schedule.nextWeek')" @click="moveWeek(1)">›</button></div>
+                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
+                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.addShiftType') }}</button>
               </template>
               <template v-else>
                 <button v-if="canEditPlan" class="secondary" :disabled="optimizationBusy" @click="void optimizeSelectedDay()">
-                  {{ optimizationBusy ? 'Berechne …' : '✧ Tag optimieren' }}
+                  {{ optimizationBusy ? t('planning.calculating') : t('schedule.optimize') }}
                 </button>
-                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
-                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart</button>
+                <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
+                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.addShiftType') }}</button>
               </template>
             </div>
           </div>
 
           <div v-if="!employees.length || !shiftTypes.length" class="empty-state">
-            <div class="empty-icon">▦</div><h3>Starte mit deinem Dienstplan</h3>
-            <p>Lege zuerst Mitarbeitende und Schichtarten an, um Dienste einzutragen.</p>
+            <div class="empty-icon">▦</div><h3>{{ t('schedule.emptyTitle') }}</h3>
+            <p>{{ t('schedule.emptyDescription') }}</p>
             <div class="empty-actions">
-              <button v-if="canManageTeam" class="secondary" @click="void openManagement()">Teamverwaltung öffnen</button>
-              <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">＋ Schichtart anlegen</button>
+              <button v-if="canManageTeam" class="secondary" @click="void openManagement()">{{ t('schedule.openManagement') }}</button>
+              <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.createShiftType') }}</button>
             </div>
           </div>
 
           <div v-else-if="!selectedDay" class="week-overview">
             <button v-for="day in days" :key="day.toISOString()" class="overview-day" :class="{ 'today-column': localDate(day) === localDate(today) }" @click="selectedDay = localDate(day)">
-              <span class="overview-weekday">{{ day.toLocaleDateString('de-DE', { weekday: 'long' }) }}</span>
-              <strong class="overview-date">{{ day.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' }) }}</strong>
-              <span class="overview-shifts">{{ dateAssignments(day).length }} {{ dateAssignments(day).length === 1 ? 'Dienst' : 'Dienste' }}</span>
+              <span class="overview-weekday">{{ day.toLocaleDateString(locale, { weekday: 'long' }) }}</span>
+              <strong class="overview-date">{{ day.toLocaleDateString(locale, { day: '2-digit', month: 'short' }) }}</strong>
+              <span class="overview-shifts">{{ shiftCountLabel(dateAssignments(day).length) }}</span>
               <span v-if="shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0)" class="overview-gap">
-                {{ shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0) }} offen
+                {{ t('schedule.openCount', { count: shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0) }) }}
               </span>
-              <span v-else class="overview-filled">Besetzung vollständig</span>
-              <span class="overview-link">Tagesdetails ansehen →</span>
+              <span v-else class="overview-filled">{{ t('schedule.fullyStaffed') }}</span>
+              <span class="overview-link">{{ t('schedule.viewDay') }}</span>
             </button>
           </div>
 
           <div v-else class="day-detail">
             <section v-if="optimizationPreview" class="optimization-panel smart-panel" aria-live="polite">
               <header class="smart-heading">
-                <strong>Optimierungsvorschlag</strong>
-                <span>CP-SAT · ArbZG-regelgeprüfter Entwurf · Änderungen erst nach deiner Übernahme</span>
-                <button class="text-button" @click="optimizationPreview = null">Schließen</button>
+                <strong>{{ t('schedule.optimizationTitle') }}</strong>
+                <span>{{ t('schedule.optimizationDescription') }}</span>
+                <button class="text-button" @click="optimizationPreview = null">{{ t('schedule.close') }}</button>
               </header>
               <p v-if="optimizationPreview.status === 'UNKNOWN'" class="muted">
-                In der verfügbaren Rechenzeit konnte kein Vorschlag erstellt werden. Bitte Zeitraum oder Umfang prüfen und erneut versuchen.
+                {{ t('schedule.optimizationUnknown') }}
               </p>
               <template v-else>
                 <article v-for="suggestion in optimizationPreview.suggestions" :key="`${suggestion.shift_type_id}-${suggestion.employee_id}`" class="smart-candidate">
                   <span class="candidate-avatar"><img v-if="employeePhoto(suggestion.employee_id)" :src="employeePhoto(suggestion.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(suggestion.employee_name) }}</template></span>
                   <div>
                     <strong>{{ suggestion.employee_name }} · {{ suggestion.shift_name }}</strong>
-                    <small>{{ suggestion.employee_role }} · {{ suggestion.role_match ? 'Rolle passt' : 'Rollenabweichung' }}</small>
+                    <small>{{ suggestion.employee_role }} · {{ suggestion.role_match ? t('schedule.roleMatch') : t('schedule.roleMismatch') }}</small>
                   </div>
-                  <button v-if="canEditPlan" class="primary approve-button" @click="applyOptimizationSuggestion(suggestion)">Übernehmen</button>
+                  <button v-if="canEditPlan" class="primary approve-button" @click="applyOptimizationSuggestion(suggestion)">{{ t('schedule.accept') }}</button>
                 </article>
                 <p v-if="!optimizationPreview.suggestions.length && !optimizationPreview.unfilled_slots.length" class="muted">
-                  Für diesen Tag sind keine offenen Stellen mehr zu besetzen.
+                  {{ t('schedule.noOpenSlots') }}
                 </p>
                 <p v-if="optimizationPreview.unfilled_slots.length" class="muted">
-                  {{ optimizationPreview.unfilled_slots.length }} Stelle{{ optimizationPreview.unfilled_slots.length === 1 ? '' : 'n' }} bleiben unbesetzt, weil keine regelkonforme Besetzung gefunden wurde.
+                  {{ t(optimizationPreview.unfilled_slots.length === 1 ? 'schedule.unfilledOne' : 'schedule.unfilledOther', { count: optimizationPreview.unfilled_slots.length }) }}
                 </p>
               </template>
             </section>
             <div v-for="shift in shiftTypes" :key="shift.id" class="shift-section">
               <header class="shift-section-heading">
                 <div class="shift-color" :style="{ background: shift.color }"></div>
-                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }} · {{ shift.required_staff }} benötigt</p></div>
+                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }} · {{ t('schedule.required', { count: shift.required_staff }) }}</p></div>
                 <span class="coverage-count">{{ assignmentsFor(selectedDay, shift.id).length }}/{{ shift.required_staff }}</span>
-                <button v-if="(canEditPlan || (canApprove && !licenseReadOnly))" class="secondary smart-button" @click="suggestFor(selectedDay, shift)">✧ Smart-Auswahl</button>
+                <button v-if="(canEditPlan || (canApprove && !licenseReadOnly))" class="secondary smart-button" @click="suggestFor(selectedDay, shift)">{{ t('schedule.smartSelection') }}</button>
               </header>
               <div class="position-slots">
                 <article v-for="(assignment, index) in assignmentsFor(selectedDay, shift.id)" :key="assignment.id" class="position-slot filled-slot">
                   <span class="slot-index">{{ index + 1 }}</span>
                   <div class="slot-person"><span class="candidate-avatar"><img v-if="employeePhoto(assignment.employee_id)" :src="employeePhoto(assignment.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(assignment.employee_name) }}</template></span><div class="slot-employee"><strong>{{ assignment.employee_name }}</strong><small>{{ shift.position }} · {{ timeLabel(assignment.starts_at) }}–{{ timeLabel(assignment.ends_at) }}</small></div></div>
-                  <button v-if="canEditPlan" class="remove-assignment" :aria-label="`${assignment.employee_name}: Dienst entfernen`" @click="removeAssignment(assignment.id)">×</button>
+                  <button v-if="canEditPlan" class="remove-assignment" :aria-label="t('schedule.removeAssignment', { name: assignment.employee_name })" @click="removeAssignment(assignment.id)">×</button>
                 </article>
                 <article
                   v-for="slot in Math.max(0, shift.required_staff - assignmentsFor(selectedDay, shift.id).length)"
@@ -2251,41 +2284,41 @@ onBeforeUnmount(() => {
                   @click="canEditPlan && (selectedDate = selectedDay!); canEditPlan && (selectedShift = String(shift.id)); canEditPlan && (showAssignmentForm = true)"
                 >
                   <span class="slot-index">{{ assignmentsFor(selectedDay, shift.id).length + slot }}</span>
-                  <div class="slot-employee"><strong>Offene Stelle</strong><small>{{ shift.position }} · {{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}</small></div>
-                  <span class="drag-hint">Mitarbeitende hier ablegen oder auswählen</span>
+                  <div class="slot-employee"><strong>{{ t('schedule.openPosition') }}</strong><small>{{ shift.position }} · {{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}</small></div>
+                  <span class="drag-hint">{{ t('schedule.dropOrSelect') }}</span>
                 </article>
                 <div v-if="smartGap?.date === selectedDay && smartGap.shift.id === shift.id" class="smart-panel">
-                  <div class="smart-heading"><strong>Smart-Auswahl</strong><span>Heuristischer Vorschlag nach Rollenpassung und Wochenbelastung</span></div>
+                  <div class="smart-heading"><strong>{{ t('schedule.smartTitle') }}</strong><span>{{ t('schedule.smartDescription') }}</span></div>
                   <article v-if="smartCandidates[0]" class="smart-candidate">
                     <span class="candidate-avatar"><img v-if="employeePhoto(smartCandidates[0].employee_id)" :src="employeePhoto(smartCandidates[0].employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(smartCandidates[0].employee_name) }}</template></span>
-                    <div><strong>{{ smartCandidates[0].employee_name }}</strong><small>{{ smartCandidates[0].role }} · {{ smartCandidates[0].role_match ? 'Rolle passt' : 'andere Rolle' }} · {{ smartCandidates[0].planned_assignments }} geplante Dienste</small></div>
-                    <button v-if="canApprove && !licenseReadOnly" class="primary approve-button" @click="approveCandidate(smartCandidates[0])">Freigeben</button>
-                    <span v-else class="approval-needed">{{ licenseReadOnly ? 'Lizenzstatus erlaubt derzeit keine Änderungen' : 'Freigabe durch berechtigten Oberarzt erforderlich' }}</span>
+                    <div><strong>{{ smartCandidates[0].employee_name }}</strong><small>{{ smartCandidates[0].role }} · {{ smartCandidates[0].role_match ? t('schedule.roleMatch') : t('schedule.otherRole') }} · {{ t(smartCandidates[0].planned_assignments === 1 ? 'schedule.plannedOne' : 'schedule.plannedOther', { count: smartCandidates[0].planned_assignments }) }}</small></div>
+                    <button v-if="canApprove && !licenseReadOnly" class="primary approve-button" @click="approveCandidate(smartCandidates[0])">{{ t('schedule.approve') }}</button>
+                    <span v-else class="approval-needed">{{ licenseReadOnly ? t('schedule.licenseBlocked') : t('schedule.approvalRequired') }}</span>
                   </article>
-                  <p v-else class="muted">Keine verfügbare Person für diesen Zeitraum gefunden.</p>
-                  <button v-if="smartCandidates.length > 1" class="text-button" @click="smartCandidates.shift()">Anderen Vorschlag ansehen</button>
+                  <p v-else class="muted">{{ t('schedule.noCandidate') }}</p>
+                  <button v-if="smartCandidates.length > 1" class="text-button" @click="smartCandidates.shift()">{{ t('schedule.otherCandidate') }}</button>
                 </div>
               </div>
             </div>
-            <aside v-if="canEditPlan" class="team-roster"><strong>Team · Ziehen zum Eintragen</strong><div><button v-for="employee in employees" :key="employee.id" class="roster-person" draggable="true" @dragstart="dragEmployee($event, employee)"><span class="candidate-avatar"><img v-if="employeePhoto(employee.id)" :src="employeePhoto(employee.id) ?? undefined" alt="" /><template v-else>{{ initialsOf(employee.name) }}</template></span><span><b>{{ employee.name }}</b><small>{{ employee.role }}</small></span><span class="drag-grip">⠿</span></button></div></aside>
-            <p v-if="!shiftTypes.length" class="empty-state">Für diesen Tag sind keine Schichtarten eingerichtet.</p>
+            <aside v-if="canEditPlan" class="team-roster"><strong>{{ t('schedule.roster') }}</strong><div><button v-for="employee in employees" :key="employee.id" class="roster-person" draggable="true" @dragstart="dragEmployee($event, employee)"><span class="candidate-avatar"><img v-if="employeePhoto(employee.id)" :src="employeePhoto(employee.id) ?? undefined" alt="" /><template v-else>{{ initialsOf(employee.name) }}</template></span><span><b>{{ employee.name }}</b><small>{{ employee.role }}</small></span><span class="drag-grip">⠿</span></button></div></aside>
+            <p v-if="!shiftTypes.length" class="empty-state">{{ t('schedule.noDayShiftTypes') }}</p>
           </div>
-          <div v-if="busy" class="loading">Dienstplan wird aktualisiert …</div>
+          <div v-if="busy" class="loading">{{ t('schedule.loading') }}</div>
         </section>
 
         <footer class="page-footer">
           <span>ClinicPulse · Version {{ displayVersion }}</span>
           <span>·</span>
-          <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">GitHub-Repository</a>
+          <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a>
           <span>·</span>
-          <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a>
+          <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a>
           <template v-if="roleKey === 'ADMIN'">
             <span>·</span>
             <button class="footer-update-button" :disabled="updateCheckBusy" @click="void checkForUpdates(true)">
-              {{ updateCheckBusy ? 'Prüfe Updates …' : 'Update prüfen' }}
+              {{ updateCheckBusy ? t('updates.checking') : t('updates.check') }}
             </button>
-            <label class="update-channel-control">Kanal
-              <select v-model="updateChannel" aria-label="Update-Kanal" @change="changeUpdateChannel">
+            <label class="update-channel-control">{{ t('updates.channel') }}
+              <select v-model="updateChannel" :aria-label="t('updates.channelLabel')" @change="changeUpdateChannel">
                 <option value="stable">Stable</option>
                 <option value="nightly">Nightly</option>
               </select>
@@ -2294,75 +2327,75 @@ onBeforeUnmount(() => {
             <span v-if="updateInfo" class="update-channel-label">{{ updateInfo.channel }}</span>
             <span v-if="updateInfo" class="update-status" :class="`update-${updateInfo.status}`" role="status">
               <template v-if="updateInfo.update_available">
-                <a :href="updateInfo.release_url ?? repositoryUrl" target="_blank" rel="noopener noreferrer">Update {{ updateInfo.latest_version }} verfügbar</a>
+                <a :href="updateInfo.release_url ?? repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('updates.available', { version: updateInfo.latest_version ?? '' }) }}</a>
               </template>
-              <template v-else>{{ updateInfo.message }}</template>
+              <template v-else>{{ apiErrorDetail(updateInfo.message) }}</template>
             </span>
           </template>
         </footer>
         </template>
-        <section v-else class="panel restricted-panel"><h2>Kein Zugriff auf Dienstpläne</h2><p>Dein Konto hat aktuell keine Berechtigung zum Ansehen der Pläne. Bitte wende dich an die Krankenhausleitung.</p></section>
+        <section v-else class="panel restricted-panel"><h2>{{ t('schedule.noAccess') }}</h2><p>{{ t('schedule.noAccessDescription') }}</p></section>
       </main>
     </section>
 
     <div v-if="authenticated && error" class="toast toast-error" role="alert">
-      <span>{{ error }}</span><button type="button" aria-label="Meldung schließen" @click="error = ''">×</button>
+      <span>{{ displayedError }}</span><button type="button" :aria-label="t('planning.closeAlert')" @click="error = ''">×</button>
     </div>
     <div v-if="confirmDialog" class="modal-backdrop confirm-backdrop" @click.self="answerConfirmation(false)" @keydown.esc="answerConfirmation(false)">
-      <section class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-label="Bestätigung">
+      <section class="modal confirm-modal" role="alertdialog" aria-modal="true" :aria-label="t('management.confirmation')">
         <p>{{ confirmDialog.message }}</p>
-        <div class="form-row"><button class="secondary" autofocus @click="answerConfirmation(false)">Abbrechen</button><button class="primary danger-action" @click="answerConfirmation(true)">{{ confirmDialog.confirmLabel }}</button></div>
+        <div class="form-row"><button class="secondary" autofocus @click="answerConfirmation(false)">{{ t('management.cancel') }}</button><button class="primary danger-action" @click="answerConfirmation(true)">{{ confirmDialog.confirmLabel }}</button></div>
       </section>
     </div>
     <div v-if="showEmployeeForm || showShiftForm || showAssignmentForm || showSettings || showManagement || showProfile || showArchive" class="modal-backdrop" @click.self="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">
       <section class="modal" :class="{ 'modal-wide': showSettings && !showProfile && !showEmployeeForm && !showShiftForm && !showAssignmentForm && !showManagement }" role="dialog" aria-modal="true">
-        <button class="modal-close" aria-label="Schließen" @click="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">×</button>
+        <button class="modal-close" :aria-label="t('form.close')" @click="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">×</button>
         <template v-if="showArchive">
-          <p class="eyebrow">NACHWEIS</p><h2>Dienstplan-Archiv</h2>
-          <p class="muted">Archivierte Stände sind unveränderlich und zeigen, wer wann welchen Dienst hatte – auch nach späteren Änderungen am Plan.</p>
+          <p class="eyebrow">{{ t('archive.eyebrow') }}</p><h2>{{ t('archive.title') }}</h2>
+          <p class="muted">{{ t('archive.description') }}</p>
           <form v-if="canEditPlan" class="stack" @submit.prevent="createArchive">
-            <label>Abteilung<select v-model="archiveDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
-            <div class="form-row"><label>Von<input v-model="archiveStart" type="date" required /></label><label>Bis<input v-model="archiveEnd" type="date" :min="archiveStart" required /></label></div>
-            <label>Notiz (optional)<input v-model="archiveNote" maxlength="200" /></label>
-            <button class="primary full">Zeitraum archivieren</button>
+            <label>{{ t('form.department') }}<select v-model="archiveDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <div class="form-row"><label>{{ t('absence.from') }}<input v-model="archiveStart" type="date" required /></label><label>{{ t('absence.to') }}<input v-model="archiveEnd" type="date" :min="archiveStart" required /></label></div>
+            <label>{{ t('absence.optionalNote') }}<input v-model="archiveNote" maxlength="200" /></label>
+            <button class="primary full">{{ t('archive.create') }}</button>
           </form>
           <div v-for="archive in planArchives" :key="archive.id" class="management-row">
-            <div><strong>{{ archive.department_name }} · {{ dateLabel(archive.start_date) }} – {{ dateLabel(archive.end_date) }}</strong><small>{{ archive.entry_count }} Dienste · archiviert {{ new Date(archive.created_at).toLocaleString('de-DE') }} von {{ archive.created_by }}<span v-if="archive.note"> · {{ archive.note }}</span></small></div>
+            <div><strong>{{ archive.department_name }} · {{ dateLabel(archive.start_date) }} – {{ dateLabel(archive.end_date) }}</strong><small>{{ t(archive.entry_count === 1 ? 'archive.entryOne' : 'archive.entryOther', { count: archive.entry_count, date: new Date(archive.created_at).toLocaleString(locale), user: archive.created_by }) }}<span v-if="archive.note"> · {{ archive.note }}</span></small></div>
             <div><a class="text-button" :href="`/api/archives/${archive.id}/pdf`" download>PDF</a></div>
           </div>
-          <p v-if="!planArchives.length" class="notification-empty">Noch nichts archiviert</p>
+          <p v-if="!planArchives.length" class="notification-empty">{{ t('archive.empty') }}</p>
         </template>
         <template v-else-if="showProfile">
-          <p class="eyebrow">BENUTZERKONTO</p><h2>Mein Profil</h2>
+          <p class="eyebrow">{{ t('profile.eyebrow') }}</p><h2>{{ t('profile.title') }}</h2>
           <div class="profile-editor">
-            <img v-if="profileImageData" class="profile-editor-image" :src="profileImageData" alt="Profilbild-Vorschau" />
+            <img v-if="profileImageData" class="profile-editor-image" :src="profileImageData" :alt="t('profile.imagePreview')" />
             <div v-else class="profile-editor-placeholder">{{ username.slice(0, 1).toUpperCase() }}</div>
             <strong>{{ username }}</strong><span class="muted">{{ roleLabel(roleKey) }}</span>
           </div>
           <form class="stack" @submit.prevent="saveProfile">
             <template v-if="roleKey !== 'ADMIN'">
-              <label>Vorname<input v-model="profileFirstName" maxlength="80" required /></label>
-              <label>Nachname<input v-model="profileLastName" maxlength="80" required /></label>
-              <label>Geburtsdatum<input v-model="profileBirthDate" type="date" /></label>
-              <label>Adresse<input v-model="profileAddress" maxlength="300" autocomplete="street-address" /></label>
-              <label>Telefon<input v-model="profilePhone" type="tel" maxlength="50" /></label>
+              <label>{{ t('form.firstName') }}<input v-model="profileFirstName" maxlength="80" required /></label>
+              <label>{{ t('form.lastName') }}<input v-model="profileLastName" maxlength="80" required /></label>
+              <label>{{ t('management.birthDate') }}<input v-model="profileBirthDate" type="date" /></label>
+              <label>{{ t('management.address') }}<input v-model="profileAddress" maxlength="300" autocomplete="street-address" /></label>
+              <label>{{ t('management.phone') }}<input v-model="profilePhone" type="tel" maxlength="50" /></label>
             </template>
-            <label>Profilbild (PNG, JPEG oder WebP, maximal 256 KB)<input type="file" accept="image/png,image/jpeg,image/webp" @change="selectProfileImage" /></label>
-            <button v-if="profileImageData" type="button" class="text-button danger-text" @click="profileImageData = null">Profilbild entfernen</button>
-            <label>Profilbild-Sichtbarkeit<select v-model="profilePhotoVisibility" :disabled="roleKey === 'ADMIN' || departmentId === null"><option value="private">Nur für mich</option><option value="department">Für meine Abteilung</option></select></label>
-            <p class="muted">Abteilungsprofile werden nur angemeldeten Benutzern derselben Abteilung angezeigt. Dein Bild wird nicht für externe Dienste freigegeben.</p>
-            <button class="primary full">Profil speichern</button>
+            <label>{{ t('profile.image') }}<input type="file" accept="image/png,image/jpeg,image/webp" @change="selectProfileImage" /></label>
+            <button v-if="profileImageData" type="button" class="text-button danger-text" @click="profileImageData = null">{{ t('profile.removeImage') }}</button>
+            <label>{{ t('profile.visibility') }}<select v-model="profilePhotoVisibility" :disabled="roleKey === 'ADMIN' || departmentId === null"><option value="private">{{ t('profile.private') }}</option><option value="department">{{ t('profile.department') }}</option></select></label>
+            <p class="muted">{{ t('profile.visibilityDescription') }}</p>
+            <button class="primary full">{{ t('profile.save') }}</button>
           </form>
           <form class="stack account-settings-form" @submit.prevent="saveSettings">
-            <strong>Benutzerkonto-Einstellungen</strong>
-            <label>Benutzername<input v-model="changedUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
-            <PasswordInput v-model="newPassword" label="Neues Passwort" optional />
-            <label>Aktuelles Passwort zur Bestätigung<input v-model="currentPassword" type="password" autocomplete="current-password" required /></label>
-            <button class="secondary full">Kontodaten und Passwort speichern</button>
-            <p class="settings-note">Beim Speichern werden bisherige Sitzungs-Token ungültig. Dein Browser erhält automatisch ein neues Token.</p>
+            <strong>{{ t('profile.accountSettings') }}</strong>
+            <label>{{ t('auth.username') }}<input v-model="changedUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
+            <PasswordInput v-model="newPassword" :label="t('auth.newPassword')" optional />
+            <label>{{ t('profile.currentPassword') }}<input v-model="currentPassword" type="password" autocomplete="current-password" required /></label>
+            <button class="secondary full">{{ t('profile.saveAccount') }}</button>
+            <p class="settings-note">{{ t('profile.tokenNotice') }}</p>
           </form>
           <section v-if="teamProfiles.length" class="team-profiles">
-            <h3>Geteilte Profile aus deiner Abteilung</h3>
+            <h3>{{ t('profile.teamProfiles') }}</h3>
             <article v-for="teammate in teamProfiles" :key="teammate.username" class="team-profile-card">
               <img v-if="teammate.profile_image_data" :src="teammate.profile_image_data" alt="" />
               <span v-else class="avatar">{{ teammate.username.slice(0, 1).toUpperCase() }}</span>
@@ -2371,209 +2404,209 @@ onBeforeUnmount(() => {
           </section>
         </template>
         <template v-else-if="showEmployeeForm">
-          <p class="eyebrow">TEAMVERWALTUNG</p><h2>{{ employeeId ? 'Mitarbeiter bearbeiten' : 'Mitarbeiter erstellen' }}</h2>
+          <p class="eyebrow">{{ t('form.teamManagement') }}</p><h2>{{ employeeId ? t('form.editEmployee') : t('form.createEmployee') }}</h2>
           <form class="stack" @submit.prevent="submitEmployee">
-            <label>Vorname<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
-            <label>Nachname<input v-model="employeeLastName" maxlength="80" required /></label>
-            <label>Dienstplanfunktion<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ fn }}</option><option value="Individuell">Individuell</option></select></label>
-            <label v-if="employeeRole === 'Individuell'">Eigene Funktion<input v-model="employeeCustomRole" maxlength="80" required /></label>
-            <label>Abteilung<select v-model="employeeDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
-            <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> ClinicPulse-Zugang einrichten</label>
+            <label>{{ t('form.firstName') }}<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
+            <label>{{ t('form.lastName') }}<input v-model="employeeLastName" maxlength="80" required /></label>
+            <label>{{ t('form.scheduleRole') }}<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ catalogFunctionLabel(fn) }}</option><option value="Individuell">{{ t('form.custom') }}</option></select></label>
+            <label v-if="employeeRole === 'Individuell'">{{ t('form.customRole') }}<input v-model="employeeCustomRole" maxlength="80" required /></label>
+            <label>{{ t('form.department') }}<select v-model="employeeDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> {{ t('form.createAccess') }}</label>
             <template v-if="employeeCreateAccount && !employeeId">
-              <label>Benutzername<input v-model="employeeLoginUsername" minlength="3" maxlength="64" required /></label>
-              <label>E-Mail für die Einladung<input v-model="employeeEmail" type="email" maxlength="254" autocomplete="email" required /></label>
-              <p class="muted">Es wird kein Startpasswort benötigt. Die Person erhält einen einmaligen Link und setzt ihr eigenes Passwort.</p>
+              <label>{{ t('auth.username') }}<input v-model="employeeLoginUsername" minlength="3" maxlength="64" required /></label>
+              <label>{{ t('form.invitationEmail') }}<input v-model="employeeEmail" type="email" maxlength="254" autocomplete="email" required /></label>
+              <p class="muted">{{ t('form.invitationExplanation') }}</p>
             </template>
-            <button class="primary full">{{ employeeId ? 'Änderungen speichern' : 'Mitarbeiter erstellen' }}</button>
+            <button class="primary full">{{ employeeId ? t('form.saveChanges') : t('form.createEmployee') }}</button>
           </form>
         </template>
         <template v-else-if="showShiftForm">
-          <p class="eyebrow">SCHICHTVERWALTUNG</p><h2>Schichtart anlegen</h2>
+          <p class="eyebrow">{{ t('form.shiftManagement') }}</p><h2>{{ t('form.createShiftType') }}</h2>
           <form class="stack" @submit.prevent="submitShift">
-            <label>Bezeichnung<input v-model="shiftName" maxlength="80" placeholder="z. B. Frühdienst" required autofocus /></label>
-            <label>Benötigte Position<input v-model="shiftPosition" maxlength="80" placeholder="z. B. Pflegefachkraft" required /></label>
-            <label>Benötigte Mitarbeitende<input v-model.number="requiredStaff" type="number" min="1" max="100" required /></label>
-            <div class="form-row"><label>Beginn<input v-model="shiftStart" type="time" required /></label><label>Ende<input v-model="shiftEnd" type="time" required /></label></div>
-            <label>Pause in Minuten (leer = gesetzliches Minimum)<input v-model.number="shiftBreak" type="number" min="0" max="240" placeholder="automatisch" /></label>
-            <label>Pause nach Arbeitsbeginn (Minuten; leer = automatisch, spätestens nach 6 Stunden)<input v-model.number="shiftBreakStart" type="number" min="0" max="360" placeholder="automatisch" /></label>
-            <button class="primary full">Schichtart speichern</button>
+            <label>{{ t('form.name') }}<input v-model="shiftName" maxlength="80" :placeholder="t('form.shiftExample')" required autofocus /></label>
+            <label>{{ t('form.requiredPosition') }}<input v-model="shiftPosition" maxlength="80" :placeholder="t('form.positionExample')" required /></label>
+            <label>{{ t('form.requiredEmployees') }}<input v-model.number="requiredStaff" type="number" min="1" max="100" required /></label>
+            <div class="form-row"><label>{{ t('form.start') }}<input v-model="shiftStart" type="time" required /></label><label>{{ t('form.end') }}<input v-model="shiftEnd" type="time" required /></label></div>
+            <label>{{ t('form.breakMinutes') }}<input v-model.number="shiftBreak" type="number" min="0" max="240" :placeholder="t('form.automatic')" /></label>
+            <label>{{ t('form.breakStart') }}<input v-model.number="shiftBreakStart" type="number" min="0" max="360" :placeholder="t('form.automatic')" /></label>
+            <button class="primary full">{{ t('form.saveShiftType') }}</button>
           </form>
         </template>
         <template v-else-if="showAssignmentForm">
-          <p class="eyebrow">DIENSTPLANUNG</p><h2>Dienst eintragen</h2>
+          <p class="eyebrow">{{ t('planning.eyebrow') }}</p><h2>{{ t('form.addAssignment') }}</h2>
           <form class="stack" @submit.prevent="submitAssignment">
-            <label>Mitarbeitende<select v-model="selectedEmployee" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
-            <label>Schichtart<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ shift.position }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
-            <label>Datum<input v-model="selectedDate" type="date" required /></label>
-            <button class="primary full">Dienst speichern</button>
+            <label>{{ t('form.employee') }}<select v-model="selectedEmployee" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
+            <label>{{ t('form.shiftType') }}<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ shift.position }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
+            <label>{{ t('form.date') }}<input v-model="selectedDate" type="date" required /></label>
+            <button class="primary full">{{ t('form.saveAssignment') }}</button>
           </form>
         </template>
         <template v-else-if="showManagement">
-          <p class="eyebrow">TEAMVERWALTUNG</p><h2>Team & Zugänge</h2>
+          <p class="eyebrow">{{ t('form.teamManagement') }}</p><h2>{{ t('management.title') }}</h2>
           <section v-if="canManageTeam" class="management-section">
-            <p v-if="teamNotice" class="success-message" role="status">{{ teamNotice }}</p>
+            <p v-if="teamNotice" class="success-message" role="status">{{ t(teamNotice.key, teamNotice.values) }}</p>
             <section v-if="!departments.length && roleKey !== 'PERSONNEL'" class="empty-state">
-              <h3>Ersteinrichtung: Team und Dienstpläne</h3>
-              <p>Lege eine Abteilung an. Danach kannst du Mitarbeitende, Krankenhausleitung, Oberärzte und Personaler mit eigenen Zugängen einrichten. Mitarbeitende können ohne Login angelegt werden.</p>
+              <h3>{{ t('management.setupTitle') }}</h3>
+              <p>{{ t('management.setupDescription') }}</p>
             </section>
             <section v-if="showMailOnboarding" class="settings-section">
-              <h3>E-Mail-Versand einrichten (optional)</h3>
-              <p class="muted">Mit SMTP können Einladungen und Links zum eigenen Passwort direkt an Mitarbeitende verschickt werden. Du kannst diesen Schritt überspringen und später als Admin unter Einstellungen → E-Mail-Versand erledigen.</p>
+              <h3>{{ t('management.mailTitle') }}</h3>
+              <p class="muted">{{ t('management.mailDescription') }}</p>
               <div class="form-row">
-                <button class="primary" @click="skipMailOnboarding(); openAppSettings('mail')">E-Mail-Versand einrichten</button>
-                <button class="secondary" @click="skipMailOnboarding()">Überspringen</button>
+                <button class="primary" @click="skipMailOnboarding(); openAppSettings('mail')">{{ t('management.configureMail') }}</button>
+                <button class="secondary" @click="skipMailOnboarding()">{{ t('management.skip') }}</button>
               </div>
             </section>
-            <p v-if="licenseReadOnly" class="muted">Lizenzbedingt sind Verwaltungsänderungen derzeit gesperrt.</p>
+            <p v-if="licenseReadOnly" class="muted">{{ t('management.licenseBlocked') }}</p>
             <form v-if="canManage && !licenseReadOnly" class="inline-form" @submit.prevent="saveDepartment">
-              <input v-model="departmentName" maxlength="100" placeholder="Abteilungsname" required />
-              <button class="secondary">{{ editingDepartmentId ? 'Änderung speichern' : 'Abteilung anlegen' }}</button>
-              <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">Abbrechen</button>
+              <input v-model="departmentName" maxlength="100" :placeholder="t('management.departmentName')" required />
+              <button class="secondary">{{ editingDepartmentId ? t('management.saveChange') : t('management.createDepartment') }}</button>
+              <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">{{ t('management.cancel') }}</button>
             </form>
             <template v-if="canManage">
               <div v-for="department in departments" :key="department.id" class="management-row">
-                <strong>{{ department.name }}</strong><div v-if="!licenseReadOnly"><button class="text-button" @click="editDepartment(department)">Bearbeiten</button><button class="text-button danger-text" @click="removeDepartment(department)">Löschen</button></div>
+                <strong>{{ department.name }}</strong><div v-if="!licenseReadOnly"><button class="text-button" @click="editDepartment(department)">{{ t('management.edit') }}</button><button class="text-button danger-text" @click="removeDepartment(department)">{{ t('management.delete') }}</button></div>
               </div>
             </template>
-            <h3>Mitarbeiter</h3>
-            <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
+            <h3>{{ t('management.employees') }}</h3>
+            <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
             <div v-for="employee in allEmployees" :key="employee.id" class="management-row">
-              <div><strong>{{ employee.name }}</strong><small>{{ employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? 'Keine Abteilung' }}</small></div>
-              <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">Bearbeiten</button>
+              <div><strong>{{ employee.name }}</strong><small>{{ employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? t('management.noDepartment') }}</small></div>
+              <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">{{ t('management.edit') }}</button>
             </div>
-            <h3>Konten & Rollen</h3>
+            <h3>{{ t('management.accounts') }}</h3>
             <form v-if="!licenseReadOnly" class="stack user-form" @submit.prevent="saveUser">
-              <strong>{{ userId ? 'Konto bearbeiten' : 'Konto anlegen' }}</strong>
-              <label>Vorname<input v-model="userFirstName" maxlength="80" required /></label>
-              <label>Nachname<input v-model="userLastName" maxlength="80" required /></label>
-              <label>Benutzername<input v-model="userName" minlength="3" maxlength="64" required /></label>
-              <details class="optional-details"><summary>Weitere Angaben (optional)</summary>
-                <label>Geburtsdatum<input v-model="userBirthDate" type="date" /></label>
-                <label>Adresse<input v-model="userAddress" maxlength="300" autocomplete="street-address" /></label>
-                <label>Telefon<input v-model="userPhone" type="tel" maxlength="50" /></label>
+              <strong>{{ userId ? t('management.editAccount') : t('management.createAccount') }}</strong>
+              <label>{{ t('form.firstName') }}<input v-model="userFirstName" maxlength="80" required /></label>
+              <label>{{ t('form.lastName') }}<input v-model="userLastName" maxlength="80" required /></label>
+              <label>{{ t('auth.username') }}<input v-model="userName" minlength="3" maxlength="64" required /></label>
+              <details class="optional-details"><summary>{{ t('management.optionalDetails') }}</summary>
+                <label>{{ t('management.birthDate') }}<input v-model="userBirthDate" type="date" /></label>
+                <label>{{ t('management.address') }}<input v-model="userAddress" maxlength="300" autocomplete="street-address" /></label>
+                <label>{{ t('management.phone') }}<input v-model="userPhone" type="tel" maxlength="50" /></label>
               </details>
-              <label>E-Mail für Passwort-Einladung<input v-model="userEmail" type="email" maxlength="254" :required="!userId && !userPassword" /></label>
-              <PasswordInput v-model="userPassword" :label="userId ? 'Neues Passwort (optional)' : 'Startpasswort (optional; leer = Einladungslink)'" optional />
-              <p v-if="userEmail && !userId" class="muted">Mit E-Mail wird ein Einladungslink gesendet; ein eingegebenes Startpasswort wird dabei nicht verwendet.</p>
-              <label>Systemrolle<select v-model="userRoleKey"><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? 'Kiosk (nur lesend, kein Inaktivitäts-Logout)' : option.key === 'EMPLOYEE' ? 'Mitarbeiter (Selbstbedienung)' : option.label }}</option></template></select></label>
-              <fieldset v-if="!['HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>Zugängliche Dienstpläne</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
-              <label v-if="userRoleKey === 'EMPLOYEE'">Verknüpfte Person<select v-model="userEmployeeId" required><option :value="null" disabled>Bitte wählen</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
+              <label>{{ t('management.passwordEmail') }}<input v-model="userEmail" type="email" maxlength="254" :required="!userId && !userPassword" /></label>
+              <PasswordInput v-model="userPassword" :label="userId ? t('management.newPassword') : t('management.initialPassword')" optional />
+              <p v-if="userEmail && !userId" class="muted">{{ t('management.invitationNotice') }}</p>
+              <label>{{ t('management.systemRole') }}<select v-model="userRoleKey"><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? t('role.kioskDescription') : option.key === 'EMPLOYEE' ? t('role.employeeDescription') : roleLabel(option.key) }}</option></template></select></label>
+              <fieldset v-if="!['HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>{{ t('management.accessibleSchedules') }}</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
+              <label v-if="userRoleKey === 'EMPLOYEE'">{{ t('management.linkedPerson') }}<select v-model="userEmployeeId" required><option :value="null" disabled>{{ t('management.choose') }}</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
               <template v-if="userRoleKey !== 'PERSONNEL'">
-                <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Dienstplan ansehen</label>
-                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Dienste bearbeiten <span class="permission-note">nur für Oberärzte wirksam</span></label>
-                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Vorschläge freigeben <span class="permission-note">nur für Oberärzte wirksam</span></label>
+                <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.viewSchedule') }}</label>
+                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.editShifts') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
+                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.approveSuggestions') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
               </template>
-              <div class="form-row"><button class="primary">{{ userId ? 'Konto speichern' : 'Konto anlegen' }}</button><button v-if="userId" type="button" class="secondary" @click="resetUserForm">Abbrechen</button></div>
+              <div class="form-row"><button class="primary">{{ userId ? t('management.saveAccount') : t('management.createAccount') }}</button><button v-if="userId" type="button" class="secondary" @click="resetUserForm">{{ t('management.cancel') }}</button></div>
             </form>
             <div v-for="user in users" :key="user.id" class="management-row account-row">
-              <div><strong>{{ user.username }}</strong><small>{{ roleLabel(user.role_key) }} · {{ user.email || 'Keine E-Mail hinterlegt' }} · {{ user.invitation_status === 'pending' ? 'Einladung offen' : user.invitation_status === 'delivery_failed' ? 'Einladung nicht versendet' : user.invitation_status === 'revoked' ? 'Einladung widerrufen' : user.is_locked ? 'Gesperrt' : 'Aktiv' }} · {{ user.department_ids?.map((id) => departments.find((item) => item.id === id)?.name).filter(Boolean).join(', ') || 'Alle Abteilungen' }}</small></div>
-              <div><button class="text-button" @click="editUser(user)">Bearbeiten</button><button v-if="['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">Einladung erneut senden</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">Widerrufen</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? 'Entsperren' : 'Sperren' }}</button><button class="text-button danger-text" @click="removeUser(user)">Löschen</button></div>
+              <div><strong>{{ user.username }}</strong><small>{{ roleLabel(user.role_key) }} · {{ user.email || t('management.noEmail') }} · {{ user.invitation_status === 'pending' ? t('management.invitationPending') : user.invitation_status === 'delivery_failed' ? t('management.invitationFailed') : user.invitation_status === 'revoked' ? t('management.invitationRevoked') : user.is_locked ? t('management.locked') : t('management.active') }} · {{ user.department_ids?.map((id) => departments.find((item) => item.id === id)?.name).filter(Boolean).join(', ') || t('management.allDepartments') }}</small></div>
+              <div><button class="text-button" @click="editUser(user)">{{ t('management.edit') }}</button><button v-if="['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">{{ t('management.resendInvitation') }}</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">{{ t('management.revoke') }}</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? t('management.unlock') : t('management.lock') }}</button><button class="text-button danger-text" @click="removeUser(user)">{{ t('management.delete') }}</button></div>
             </div>
           </section>
         </template>
         <template v-else-if="showSettings">
-          <p class="eyebrow">APP-EINSTELLUNGEN</p><h2>Einstellungen</h2>
+          <p class="eyebrow">{{ t('settings.eyebrow') }}</p><h2>{{ t('page.settings') }}</h2>
           <nav class="settings-tabs" role="tablist">
             <button v-for="tab in settingsTabs" :key="tab.key" role="tab" type="button" :aria-selected="settingsTab === tab.key" :class="{ active: settingsTab === tab.key }" @click="settingsTab = tab.key">{{ tab.label }}</button>
           </nav>
-          <section v-show="settingsTab === 'appearance'" class="settings-section"><strong>Darstellung</strong><p class="muted">Wähle dein persönliches Farbschema. Die Einstellung wird in diesem Browser gespeichert.</p><div class="theme-options"><button :class="{ selected: theme === 'light' }" @click="applyTheme('light')">☼ Hell</button><button :class="{ selected: theme === 'dark' }" @click="applyTheme('dark')">☾ Dunkel</button></div></section>
+          <section v-show="settingsTab === 'appearance'" class="settings-section"><strong>{{ t('settings.appearance') }}</strong><p class="muted">{{ t('settings.appearanceDescription') }}</p><div class="theme-options"><button :class="{ selected: theme === 'light' }" @click="applyTheme('light')">{{ t('settings.light') }}</button><button :class="{ selected: theme === 'dark' }" @click="applyTheme('dark')">{{ t('settings.dark') }}</button></div></section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'operations'" class="settings-section">
-            <h3>Betriebskonfiguration</h3>
-            <p class="muted">Einrichtungsart und Bundesland werden aus der Lizenz übernommen und im License Manager gepflegt. Der Feiertagskalender folgt dem Bundesland. Profilbezogene Ausnahmen werden nicht automatisch hergeleitet.</p>
+            <h3>{{ t('operations.title') }}</h3>
+            <p class="muted">{{ t('operations.description') }}</p>
             <form class="stack" @submit.prevent="saveBusinessConfiguration">
-              <label>Bundesland<select v-model="businessConfiguration.federal_state" :disabled="businessConfiguration.federal_state_managed" required><option v-for="state in federalStates" :key="state" :value="state">{{ state }}</option></select></label>
-              <label>Einrichtungsart<select v-model="businessConfiguration.operational_profile" :disabled="businessConfiguration.operational_profile_managed" required><option v-for="profileOption in operationalProfiles" :key="profileOption.value" :value="profileOption.value">{{ profileOption.label }}</option></select></label>
-              <label class="permission-toggle"><input v-model="businessConfiguration.sunday_work_authorized" type="checkbox" /> Notwendige Sonn- und Feiertagsarbeit nach ArbZG §10 ist für unseren Betrieb geprüft</label>
-              <p class="muted">Betriebszeitzone: {{ businessConfiguration.timezone }}</p>
-              <div class="form-row"><button class="secondary">Betrieb speichern</button><span v-if="businessConfigurationMessage" class="muted">{{ businessConfigurationMessage }}</span></div>
+              <label>{{ t('operations.state') }}<select v-model="businessConfiguration.federal_state" :disabled="businessConfiguration.federal_state_managed" required><option v-for="state in federalStates" :key="state" :value="state">{{ state }}</option></select></label>
+              <label>{{ t('operations.facilityType') }}<select v-model="businessConfiguration.operational_profile" :disabled="businessConfiguration.operational_profile_managed" required><option v-for="profileOption in operationalProfiles" :key="profileOption.value" :value="profileOption.value">{{ t(profileOption.label) }}</option></select></label>
+              <label class="permission-toggle"><input v-model="businessConfiguration.sunday_work_authorized" type="checkbox" /> {{ t('operations.sunday') }}</label>
+              <p class="muted">{{ t('operations.timezone', { timezone: businessConfiguration.timezone }) }}</p>
+              <div class="form-row"><button class="secondary">{{ t('operations.save') }}</button><span v-if="businessConfigurationMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'operations'" class="settings-section">
-            <h3>Arbeitszeitregeln</h3>
-            <p class="muted">Voreinstellungen nach deutschem ArbZG. Die Mindestruhezeit bleibt bei 11 Stunden; verkürzte Ruhezeiten sind gesperrt, solange der vorgeschriebene Ausgleich nicht überwacht werden kann. Die Durchschnittsgrenze bezieht sich auf geplante Dienste, nicht auf erfasste Ist-Arbeitszeit.</p>
+            <h3>{{ t('operations.rulesTitle') }}</h3>
+            <p class="muted">{{ t('operations.rulesDescription') }}</p>
             <form class="stack" @submit.prevent="saveWorkRules">
-              <label>Mindestruhezeit zwischen Diensten (Stunden)<input v-model.number="workRules.rest_hours" type="number" min="11" max="24" required /></label>
-              <label>Höchstarbeitszeit pro Tag, netto (Stunden)<input v-model.number="workRules.max_daily_hours" type="number" min="1" max="10" required /></label>
-              <label>Max. Durchschnittsarbeitszeit pro Woche im 24-Wochen-Ausgleich (Stunden)<input v-model.number="workRules.max_weekly_hours" type="number" min="1" max="48" required /></label>
-              <div class="form-row"><button class="secondary">Regeln speichern</button><span v-if="workRulesMessage" class="muted">{{ workRulesMessage }}</span></div>
+              <label>{{ t('operations.rest') }}<input v-model.number="workRules.rest_hours" type="number" min="11" max="24" required /></label>
+              <label>{{ t('operations.daily') }}<input v-model.number="workRules.max_daily_hours" type="number" min="1" max="10" required /></label>
+              <label>{{ t('operations.weekly') }}<input v-model.number="workRules.max_weekly_hours" type="number" min="1" max="48" required /></label>
+              <div class="form-row"><button class="secondary">{{ t('operations.saveRules') }}</button><span v-if="workRulesMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'mail'" class="settings-section">
-            <h3>E-Mail-Versand (SMTP)</h3>
-            <p class="muted">Konfiguriere den Mailserver deiner Klinik für Team-Einladungen. Das SMTP-Passwort wird verschlüsselt in der lokalen Datenbank gespeichert und nie wieder angezeigt. Ohne Konfiguration bleiben neu eingeladene Konten gesperrt.</p>
-            <p v-if="mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? 'Konfiguriert' : 'Noch nicht eingerichtet' }}</strong> · Passwort: <strong>{{ mailSettings.smtp_password_configured ? 'Gespeichert' : 'Nicht gespeichert' }}</strong></p>
+            <h3>{{ t('mail.title') }}</h3>
+            <p class="muted">{{ t('mail.description') }}</p>
+            <p v-if="mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? t('mail.configured') : t('mail.notConfigured') }}</strong> · {{ t('mail.password') }}: <strong>{{ mailSettings.smtp_password_configured ? t('mail.saved') : t('mail.notSaved') }}</strong></p>
             <form class="stack" @submit.prevent="void saveMailSettings()">
-              <label>Öffentliche HTTPS-Adresse dieser Instanz<input v-model="mailSettings.public_url" type="url" placeholder="https://dienstplan.klinik.example" required /></label>
+              <label>{{ t('mail.publicUrl') }}<input v-model="mailSettings.public_url" type="url" placeholder="https://dienstplan.klinik.example" required /></label>
               <div class="form-row">
-                <label>SMTP-Server<input v-model="mailSettings.smtp_host" maxlength="255" autocomplete="off" required /></label>
-                <label>Port<input v-model.number="mailSettings.smtp_port" type="number" min="1" max="65535" required /></label>
+                <label>{{ t('mail.server') }}<input v-model="mailSettings.smtp_host" maxlength="255" autocomplete="off" required /></label>
+                <label>{{ t('mail.port') }}<input v-model.number="mailSettings.smtp_port" type="number" min="1" max="65535" required /></label>
               </div>
-              <label>SMTP-Benutzername (optional)<input v-model="mailSettings.smtp_username" maxlength="255" autocomplete="username" /></label>
-              <label>SMTP-Passwort<input v-model="mailPassword" type="password" maxlength="512" autocomplete="new-password" :disabled="clearMailPassword" :placeholder="mailSettings.smtp_password_configured ? 'Gespeichertes Passwort beibehalten' : 'Passwort eingeben, falls erforderlich'" /></label>
-              <label v-if="mailSettings.smtp_password_configured" class="permission-toggle"><input v-model="clearMailPassword" type="checkbox" /> Gespeichertes SMTP-Passwort löschen</label>
-              <label>Absenderadresse<input v-model="mailSettings.from_address" type="email" maxlength="255" required /></label>
-              <label class="permission-toggle"><input v-model="mailSettings.use_ssl" type="checkbox" /> Implizites TLS verwenden (üblicherweise Port 465)</label>
-              <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> STARTTLS verwenden (empfohlen)</label>
-              <div class="form-row"><button class="primary">E-Mail-Einstellungen speichern</button><span v-if="mailSettingsMessage" class="muted">{{ mailSettingsMessage }}</span></div>
+              <label>{{ t('mail.username') }}<input v-model="mailSettings.smtp_username" maxlength="255" autocomplete="username" /></label>
+              <label>{{ t('mail.smtpPassword') }}<input v-model="mailPassword" type="password" maxlength="512" autocomplete="new-password" :disabled="clearMailPassword" :placeholder="mailSettings.smtp_password_configured ? t('mail.keepPassword') : t('mail.enterPassword')" /></label>
+              <label v-if="mailSettings.smtp_password_configured" class="permission-toggle"><input v-model="clearMailPassword" type="checkbox" /> {{ t('mail.clearPassword') }}</label>
+              <label>{{ t('mail.sender') }}<input v-model="mailSettings.from_address" type="email" maxlength="255" required /></label>
+              <label class="permission-toggle"><input v-model="mailSettings.use_ssl" type="checkbox" /> {{ t('mail.ssl') }}</label>
+              <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> {{ t('mail.starttls') }}</label>
+              <div class="form-row"><button class="primary">{{ t('mail.save') }}</button><span v-if="mailSettingsMessage" class="muted">{{ t('mail.settingsSaved') }}</span></div>
             </form>
             <form class="stack" @submit.prevent="void testMailDelivery()">
-              <h4>Verbindung testen</h4>
-              <label>Test-E-Mail-Adresse<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
-              <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? 'Sende Testmail …' : 'Einstellungen speichern und Testmail senden' }}</button><span v-if="mailTestMessage" class="muted" role="status">{{ mailTestMessage }}</span></div>
+              <h4>{{ t('mail.test') }}</h4>
+              <label>{{ t('mail.testAddress') }}<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
+              <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? t('mail.sending') : t('mail.saveAndTest') }}</button><span v-if="mailTestRecipientSent" class="muted" role="status">{{ t('mail.testSent', { recipient: mailTestRecipientSent }) }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'license'" class="license-settings">
-            <h3>Lizenz</h3>
-            <p v-if="licenseInfo?.institution_name" class="muted">Institution laut Lizenz: <strong>{{ licenseInfo.institution_name }}</strong></p>
-            <p class="muted">Status: <strong>{{ licenseInfo?.status ?? 'Ungeprüft' }}</strong><span v-if="licenseInfo?.max_users"> · Nutzerlimit: {{ licenseInfo.max_users }}</span><span v-if="licenseInfo?.license_expires_at"> · gültig bis {{ new Date(licenseInfo.license_expires_at).toLocaleDateString('de-DE') }}</span></p>
-            <p class="muted">Funktionen: {{ licenseInfo?.features?.join(', ') || 'nicht eingeschränkt' }}</p>
+            <h3>{{ t('settings.license') }}</h3>
+            <p v-if="licenseInfo?.institution_name" class="muted">{{ t('license.institution') }} <strong>{{ licenseInfo.institution_name }}</strong></p>
+            <p class="muted">{{ t('license.statusLabel') }} <strong>{{ licenseInfo?.status ?? t('license.unchecked') }}</strong><span v-if="licenseInfo?.max_users">{{ t('license.userLimit', { count: licenseInfo.max_users }) }}</span><span v-if="licenseInfo?.license_expires_at">{{ t('license.expires', { date: new Date(licenseInfo.license_expires_at).toLocaleDateString(locale) }) }}</span></p>
+            <p class="muted">{{ t('license.features', { features: licenseInfo?.features?.join(', ') || t('license.unlimited') }) }}</p>
             <form class="stack" @submit.prevent="replaceLicenseToken">
-              <label>Aktualisiertes Lizenz-Token<input v-model="licenseTokenInput" type="password" autocomplete="off" maxlength="4096" required /></label>
-              <button class="secondary" :disabled="licenseCheckBusy">{{ licenseCheckBusy ? 'Prüfe …' : 'Lizenz ersetzen und online aktivieren' }}</button>
+              <label>{{ t('license.token') }}<input v-model="licenseTokenInput" type="password" autocomplete="off" maxlength="4096" required /></label>
+              <button class="secondary" :disabled="licenseCheckBusy">{{ licenseCheckBusy ? t('license.checking') : t('license.replace') }}</button>
             </form>
-            <p class="muted">Das Token wird nicht angezeigt oder zurückgegeben. Der Lizenzserver verknüpft es idempotent mit dieser Installation.</p>
+            <p class="muted">{{ t('license.tokenDescription') }}</p>
           </section>
           <BackupPanel v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'backup'" />
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'archive'" class="settings-section">
-            <h3>Automatische Archivierung</h3>
-            <p class="muted">Optional: Abgeschlossene Zeiträume werden automatisch für alle Abteilungen unveränderlich archiviert und stehen im Archiv als PDF bereit. Ohne Aktivierung wird nur manuell archiviert. Automatische Sicherungskopien (Backups) stellst du im Reiter „Backup“ ein.</p>
+            <h3>{{ t('archive.autoTitle') }}</h3>
+            <p class="muted">{{ t('archive.autoDescription') }}</p>
             <form class="stack" @submit.prevent="saveArchiveSettings">
-              <label class="permission-toggle"><input v-model="archiveSettings.auto_enabled" type="checkbox" /> Automatisch archivieren</label>
-              <label>Zeitraum<select v-model="archiveSettings.period" :disabled="!archiveSettings.auto_enabled"><option value="monthly">Monatlich (nach Monatsende)</option><option value="weekly">Wöchentlich (Montag bis Sonntag)</option></select></label>
-              <p v-if="archiveSettings.last_period_end" class="muted">Zuletzt abgedeckt bis: {{ dateLabel(archiveSettings.last_period_end) }}</p>
-              <div class="form-row"><button class="secondary">Speichern</button><span v-if="archiveSettingsMessage" class="muted">{{ archiveSettingsMessage }}</span></div>
+              <label class="permission-toggle"><input v-model="archiveSettings.auto_enabled" type="checkbox" /> {{ t('archive.autoEnabled') }}</label>
+              <label>{{ t('archive.period') }}<select v-model="archiveSettings.period" :disabled="!archiveSettings.auto_enabled"><option value="monthly">{{ t('archive.monthly') }}</option><option value="weekly">{{ t('archive.weekly') }}</option></select></label>
+              <p v-if="archiveSettings.last_period_end" class="muted">{{ t('archive.lastPeriod', { date: dateLabel(archiveSettings.last_period_end) }) }}</p>
+              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="archiveSettingsMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'security'" class="settings-section">
-            <h3>Automatische Abmeldung</h3>
-            <p class="muted">Nach dieser Zeit ohne Aktivität werden alle Benutzer (auch der Administrator) automatisch abgemeldet. Kiosk-Konten sind davon ausgenommen. Standard: 5 Minuten.</p>
+            <h3>{{ t('settings.idleTitle') }}</h3>
+            <p class="muted">{{ t('settings.idleDescription') }}</p>
             <form class="stack" @submit.prevent="saveIdleTimeout">
-              <label>Inaktivität bis zur Abmeldung (Minuten)<input v-model.number="idleTimeoutMinutes" type="number" min="1" max="120" required /></label>
-              <div class="form-row"><button class="secondary">Speichern</button><span v-if="idleTimeoutMessage" class="muted">{{ idleTimeoutMessage }}</span></div>
+              <label>{{ t('settings.idleMinutes') }}<input v-model.number="idleTimeoutMinutes" type="number" min="1" max="120" required /></label>
+              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="idleTimeoutMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'audit'" class="audit-settings">
-            <h3>Audit-Protokoll</h3>
-            <p class="muted">Nachvollziehbare Änderungen und Anmeldeereignisse. Feldinhalte, Passwörter und Lizenz-Tokens werden nicht protokolliert.</p>
-            <label>Filter
+            <h3>{{ t('audit.title') }}</h3>
+            <p class="muted">{{ t('audit.description') }}</p>
+            <label>{{ t('audit.filter') }}
               <select v-model="auditCategory" @change="auditEvents = []; auditOffset = 0; void loadAuditEvents(true)">
-                <option value="">Alle Ereignisse</option>
-                <option value="logins">Anmeldungen &amp; Sperren</option>
-                <option value="accounts">Konten</option>
-                <option value="backups">Backups</option>
+                <option value="">{{ t('audit.all') }}</option>
+                <option value="logins">{{ t('audit.logins') }}</option>
+                <option value="accounts">{{ t('audit.accounts') }}</option>
+                <option value="backups">{{ t('audit.backups') }}</option>
               </select>
             </label>
             <div v-if="auditEvents.length" class="audit-list">
               <article v-for="event in auditEvents" :key="event.id" class="audit-row">
-                <time :datetime="event.created_at">{{ new Date(event.created_at).toLocaleString('de-DE') }}</time>
+                <time :datetime="event.created_at">{{ new Date(event.created_at).toLocaleString(locale) }}</time>
                 <strong>{{ event.actor_username }}</strong>
-                <span>{{ event.action === 'created' ? 'erstellt' : event.action === 'updated' ? 'geändert' : event.action === 'deleted' ? 'gelöscht' : event.action === 'login' ? 'angemeldet' : event.action === 'locked' ? 'Konto gesperrt' : event.action === 'unlocked' ? 'Konto entsperrt' : event.action === 'restored' ? 'Backup wiederhergestellt' : 'Anmeldung fehlgeschlagen' }}</span>
+                <span>{{ auditActionLabel(event.action) }}</span>
                 <code>{{ event.entity_type }} · {{ event.entity_id }}</code>
               </article>
             </div>
-            <p v-else-if="!auditBusy" class="muted">Noch keine protokollierten Ereignisse.</p>
-            <button v-if="auditHasMore" class="secondary audit-more" :disabled="auditBusy" @click="void loadAuditEvents()">{{ auditBusy ? 'Lädt …' : 'Ältere Ereignisse laden' }}</button>
-            <span v-else-if="auditBusy" class="muted">Audit-Ereignisse werden geladen …</span>
+            <p v-else-if="!auditBusy" class="muted">{{ t('audit.empty') }}</p>
+            <button v-if="auditHasMore" class="secondary audit-more" :disabled="auditBusy" @click="void loadAuditEvents()">{{ auditBusy ? t('audit.loading') : t('audit.more') }}</button>
+            <span v-else-if="auditBusy" class="muted">{{ t('audit.loading') }}</span>
           </section>
         </template>
       </section>

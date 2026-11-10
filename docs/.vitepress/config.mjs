@@ -37,6 +37,7 @@ export default defineConfig({
           { text: 'Sicherheit', link: '/features/security' },
           { text: 'E-Mail', link: '/features/mail' },
           { text: 'Protokoll und Updates', link: '/features/audit-and-updates' },
+          { text: 'Internationalisierung', link: '/features/internationalization' },
         ],
       },
       { text: 'Fehlerbehebung', link: '/troubleshooting' },

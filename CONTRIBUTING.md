@@ -41,7 +41,10 @@ ClinicPulse ist eine selbst gehostete Webanwendung für die Dienstplanung in Tea
 ```
 backend/
   app/            # API, Datenmodelle, Sicherheit, Planung, Backup, Lizenzprüfung
-  requirements.txt
+  requirements.txt # aus uv.lock erzeugt
+pyproject.toml    # Python-Abhängigkeiten
+uv.lock           # aufgelöste Python-Abhängigkeiten
+Makefile          # Export nach backend/requirements.txt
 frontend/
   src/            # Vue 3 + TypeScript
   nginx.conf
@@ -62,6 +65,7 @@ deploy/           # Installations- und Hilfsskripte
 | Docker Engine, Compose v2 | Anwendung starten                              |
 | OpenSSL                   | Verschlüsselungsschlüssel erzeugen             |
 | `git`                     | Versionsverwaltung                             |
+| `uv` 0.13.x und `make`    | Python-Abhängigkeiten aktualisieren            |
 
 ## Lokales Setup
 
@@ -102,8 +106,10 @@ npm run dev
 - **Berechtigungen prüfen.** Jede neue oder geänderte Funktion, die Daten liefert oder ändert, muss serverseitig auf Rolle und Zugehörigkeit geprüft werden.
 - **Keine Geheimnisse im Repository.** Keine Zugangsdaten, Lizenz-Tokens, Schlüssel oder `secrets/`-Dateien committen.
 - **Keine echten Personen- oder Gesundheitsdaten** in Code, Testdaten, Logs, Screenshots oder Beschreibungen.
-- **Abhängigkeiten sparsam hinzufügen** und begründen. `package-lock.json` immer mit committen; `backend/requirements.txt` konsistent halten.
+- **Abhängigkeiten sparsam hinzufügen** und begründen. Python-Abhängigkeiten ausschließlich in `pyproject.toml` ändern, danach im Repository-Hauptverzeichnis `uv lock && make export` ausführen und `pyproject.toml`, `uv.lock` und `backend/requirements.txt` gemeinsam committen. `backend/requirements.txt` nicht von Hand bearbeiten. Frontend-Änderungen an Abhängigkeiten immer mit `package-lock.json` committen.
+- Dependabot aktualisiert Python-Abhängigkeiten im uv-Projekt. Falls der erzeugte Requirements-Export in einem Dependabot-PR fehlt, `make export` ausführen und das Ergebnis zum PR hinzufügen.
 - **Das Frontend muss bauen:** `npm run build` führt auch die TypeScript-Prüfung (`vue-tsc`) aus.
+- Hinweise zur laufenden Lokalisierung und zu Übersetzungskatalogen stehen in [docs/development/localization.md](docs/development/localization.md).
 - Funktionen klein halten und keine spekulativen Abstraktionen einführen.
 
 ## Tests

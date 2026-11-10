@@ -29,17 +29,14 @@ jobs:
 
             Please make sure the issue includes:
 
-            - **ClinicPulse version** and **how you run it** (Docker, Docker Compose, Umbrel, local…).
+            - **ClinicPulse version** and **how you run it** (for example Docker Compose or locally).
             - **Steps to reproduce**, plus what you expected and what happened instead.
-            - **Logs** from around the time it failed:
+            - Relevant logs, after removing passwords, tokens, personal information and other sensitive data.
+              For a Docker Compose deployment, run this from the directory containing the Compose file:
 
             ```bash
-            docker logs ClinicPulse --tail 100            # Docker
-            docker compose logs ClinicPulse --tail 100    # Docker Compose
+            docker compose logs --tail 100 backend web
             ```
-
-            > [!TIP]
-            
 
             💡 Suggesting a feature?
 
@@ -51,37 +48,33 @@ jobs:
 
             🛠️  Want to fix it yourself?
 
-            You're very welcome to! Leave a comment here so nobody duplicates the work, then read CONTRIBUTING.md for the setup and PR checklist. For bigger changes, let's agree on the approach in this issue before you write the code. Translations of the app or the docs are
-            always welcome too: see Internationalization.
+            You're very welcome to! Leave a comment here so nobody duplicates the work, then read [CONTRIBUTING.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/CONTRIBUTING.md) for the setup and PR checklist. For bigger changes, let's agree on the approach in this issue before you write the code. See the [internationalization guide](https://cyberspaceconsulting.github.io/ClinicPulse/features/internationalization) for translations.
 
             📌 Good to know
 
-            - We may ask follow-up questions. Issues with no activity for 60 days are marked stale and closed 7 days later, so a quick reply keeps yours open.
+            - We may ask follow-up questions. Inactive issues can be marked stale and closed, so a quick reply helps.
             - Found a security vulnerability? Please don't discuss it publicly. Email info@cyberspaceconsulting.de instead.
 
-            Thanks again, and welcome! 🎶
+            Thanks again, and welcome!
           pr_message: |
             ## 👋 Welcome to ClinicPulse, and thanks for your first pull request!
 
-            It's great to have you here. Every contribution (code, tests, docs or translations) helps keep Downtify alive, and we're glad you chose to spend your time on it. A maintainer will review this PR as soon as possible. In the meantime, here's what helps it get merged
-            quickly.
+            It's great to have you here. Code, tests, documentation and translations all help improve ClinicPulse. A maintainer will review your contribution.
 
             ### ✅ Before review
 
-            - **Rebase on the latest `main`** so the diff only contains your change.
-            - **Format and lint:** run `make format`, then `make lint` (Ruff for Python, Prettier for the frontend and docs). CI runs the same checks.
-            - **Run the tests:** `make test` (pytest + Vitest). New behavior should come with a test, or the description should explain why it can't.
-            - **Update the docs** if the change is user-facing (a new setting, env var, endpoint or UI control): a short note in `README.md` and the details in [`docs/`] (Link to docs).
+            - **Target the appropriate branch**, usually `alpha`, and keep the diff focused on your change.
+            - **Run the relevant checks** documented in [TEST.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/TEST.md). New behavior should include tests where practical.
+            - **Update the documentation** for user-facing changes; see [`docs/`](https://github.com/CyberspaceConsulting/ClinicPulse/tree/alpha/docs).
 
             <details>
             <summary><strong>🧭 Project rules worth knowing</strong></summary>
 
             <br>
 
-            - **The API is a contract.** The web app and the Android client depend on the current endpoint paths and response shapes. Add new endpoints or fields instead of renaming or removing existing ones.
-            - **Don't silence the linter** with `# noqa` or wider ignore rules. Fix the code instead.
-            - **UI text goes in the locale files** (`frontend/src/i18n/locales/en.js`), never hard-coded in components.
-            - **Don't bump the version.** The maintainer does that at release time.
+            - **Preserve API compatibility.** Document and test any intentional contract changes.
+            - **Use the locale files** in `frontend/src/i18n/locales/` for UI text; see the internationalization guide.
+            - Follow the project's [contribution guide](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/CONTRIBUTING.md).
 
             </details>
 
@@ -89,14 +82,14 @@ jobs:
 
             - **What** changed and **why**, plus `Closes #123` if it fixes an issue.
             - **Screenshots or a short clip** for UI changes.
-            - **How you tested it:** what you ran, and for changes to downloading, the track and playlist you pulled to check tags, cover art and lyrics.
+            - **How you tested it**, including relevant success and failure cases.
 
             ### 💬 Need help?
 
             - Questions about the code or the direction of a change: ask right here, or open a thread in [Discussions](https://github.com/CyberspaceConsulting/ClinicPulse/discussions).
             - Bigger changes go more smoothly when they start as an [issue](https://github.com/CyberspaceConsulting/ClinicPulse/issues), so we can agree on the scope first.
-            - Found a security issue? Please don't post it publicly. Email **info@cyberspaceconsulting.de* instead.
+            - Found a security issue? Please don't post it publicly. Email **info@cyberspaceconsulting.de** instead.
 
             Reviews are a conversation, so expect a round or two of feedback. That's normal, not a sign something is wrong.
 
-            Thanks again, and welcome aboard! 🎶
+            Thanks again, and welcome aboard!
