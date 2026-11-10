@@ -7,7 +7,7 @@ export default defineConfig({
   base: '/ClinicPulse/',
   lastUpdated: true,
   themeConfig: {
-    nav: [{ text: 'GitHub', link: 'https://github.com/the1andoni/ClinicPulse' }],
+    nav: [{ text: 'GitHub', link: 'https://github.com/CyberspaceConsulting/ClinicPulse' }],
     sidebar: [
       { text: 'Übersicht', link: '/' },
       {
@@ -42,9 +42,9 @@ export default defineConfig({
       { text: 'Fehlerbehebung', link: '/troubleshooting' },
       { text: 'Architektur', link: '/architecture' },
     ],
-    socialLinks: [{ icon: 'github', link: 'https://github.com/the1andoni/ClinicPulse' }],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/CyberspaceConsulting/ClinicPulse' }],
     editLink: {
-      pattern: 'https://github.com/the1andoni/ClinicPulse/edit/main/docs/:path',
+      pattern: 'https://github.com/CyberspaceConsulting/ClinicPulse/edit/alpha/docs/:path',
       text: 'Diese Seite bearbeiten',
     },
   },

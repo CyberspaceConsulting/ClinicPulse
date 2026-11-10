@@ -106,15 +106,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push API image
-        id: api_image
+      - name: Build and push backend image
+        id: backend_image
         uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./docker/api.Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/the1andoni/clinicpulse-api:${{ env.IMAGE_TAG }}
+          tags: ghcr.io/cyberspaceconsulting/clinicpulse-backend:${{ env.IMAGE_TAG }}
           provenance: true
           sbom: true
 
@@ -126,7 +126,7 @@ jobs:
           file: ./docker/web.Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/the1andoni/clinicpulse-web:${{ env.IMAGE_TAG }}
+          tags: ghcr.io/cyberspaceconsulting/clinicpulse-web:${{ env.IMAGE_TAG }}
           provenance: true
           sbom: true
 
@@ -139,15 +139,15 @@ jobs:
       - name: Generate and validate CycloneDX SBOM
         env:
           SYFT: ${{ steps.syft.outputs.cmd }}
-          API_DIGEST: ${{ steps.api_image.outputs.digest }}
+          BACKEND_DIGEST: ${{ steps.backend_image.outputs.digest }}
           WEB_DIGEST: ${{ steps.web_image.outputs.digest }}
         run: |
           set -euo pipefail
           mkdir -p dist sbom
           for arch in amd64 arm64; do
-            "$SYFT" scan "registry:ghcr.io/the1andoni/clinicpulse-api@${API_DIGEST}" \
+            "$SYFT" scan "registry:ghcr.io/cyberspaceconsulting/clinicpulse-backend@${BACKEND_DIGEST}" \
               --platform "linux/${arch}" -o "cyclonedx-json=sbom/api-${arch}.json"
-            "$SYFT" scan "registry:ghcr.io/the1andoni/clinicpulse-web@${WEB_DIGEST}" \
+            "$SYFT" scan "registry:ghcr.io/cyberspaceconsulting/clinicpulse-web@${WEB_DIGEST}" \
               --platform "linux/${arch}" -o "cyclonedx-json=sbom/web-${arch}.json"
           done
           SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES=true \

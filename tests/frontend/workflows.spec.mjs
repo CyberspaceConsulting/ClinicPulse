@@ -10,7 +10,7 @@ const shift = {
   break_minutes: 30, break_start_minutes: 240, department_id: 1,
 }
 
-async function mockApi(page, role = 'OBERARZT', initialAbsences = []) {
+async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures = {}) {
   let signedIn = false
   let assignments = []
   let absences = initialAbsences
@@ -29,6 +29,15 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = []) {
     const path = new URL(request.url()).pathname
     const method = request.method()
     const reply = (json, status = 200) => route.fulfill({ status, json })
+    if (failures.unavailableAssignments && path === '/api/assignments' && method === 'GET') {
+      return route.abort('failed')
+    }
+    if (failures.expiredAssignments && path === '/api/assignments' && method === 'GET') {
+      return reply({ detail: 'Sitzung abgelaufen' }, 401)
+    }
+    if (failures.forbiddenAssignment && path === '/api/assignments' && method === 'POST') {
+      return reply({ detail: 'Keine Berechtigung für diese Aktion' }, 403)
+    }
     if (path === '/api/health') return reply({ version: 'test', architecture: 'test' })
     if (path === '/api/setup/status') return reply({ setup_required: false, institution_name: null })
     if (path === '/api/auth/session') return signedIn ? reply(session) : reply({ detail: 'Anmeldung erforderlich (401)' }, 401)
@@ -66,6 +75,7 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = []) {
     }
     return reply({ detail: `Unexpected test request: ${method} ${path}` }, 500)
   })
+  return failures
 }
 
 async function login(page) {
@@ -80,7 +90,7 @@ async function login(page) {
 test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page }) => {
   await mockApi(page)
   await page.goto('/')
-  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://the1andoni.github.io/ClinicPulse/')
+  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/ClinicPulse/')
   await page.getByLabel('Benutzername').fill('planer')
   await page.getByLabel('Passwort', { exact: true }).fill('falsch')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
@@ -88,7 +98,7 @@ test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://the1andoni.github.io/ClinicPulse/')
+  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/ClinicPulse/')
   await page.getByRole('button', { name: 'Abmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Willkommen zurück' })).toBeVisible()
 })
@@ -138,4 +148,38 @@ test('nur erlaubte Abteilung und Aktionen werden angezeigt', async ({ page }) =>
   await page.getByRole('button', { name: 'Tagesdetails öffnen' }).click()
   await expect(page.getByText('Offene Stelle', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Dienst speichern' })).toHaveCount(0)
+})
+
+test('abgelaufene Sitzung während eines API-Aufrufs führt zurück zur Anmeldung', async ({ page }) => {
+  const failures = await mockApi(page)
+  await login(page)
+  failures.expiredAssignments = true
+
+  await page.reload()
+
+  await expect(page.getByRole('heading', { name: 'Willkommen zurück' })).toBeVisible()
+  await expect(page.getByLabel('Benutzername')).toBeVisible()
+})
+
+test('verbotene Planänderung wird sichtbar gemeldet', async ({ page }) => {
+  const failures = await mockApi(page)
+  await login(page)
+  failures.forbiddenAssignment = true
+  await page.getByRole('button', { name: 'Tagesdetails öffnen' }).click()
+  await page.getByText('Offene Stelle', { exact: true }).click()
+  await page.getByRole('button', { name: 'Dienst speichern' }).click()
+
+  await expect(page.locator('.toast.toast-error')).toContainText('Keine Berechtigung für diese Aktion')
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
+test('nicht erreichbare API zeigt eine Fehlermeldung statt leerer Plan-Daten', async ({ page }) => {
+  const failures = await mockApi(page)
+  await login(page)
+  failures.unavailableAssignments = true
+
+  await page.reload()
+
+  await expect(page.locator('.toast.toast-error')).toContainText('Failed to fetch')
+  await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
 })

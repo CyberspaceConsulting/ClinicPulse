@@ -135,4 +135,4 @@ Die API liefert Fehler als JSON mit dem Feld `detail`.
 
 ## Hilfe erhalten
 
-Eröffne ein [Issue](https://github.com/the1andoni/ClinicPulse/issues) mit Version, Betriebsart, Schritten zur Reproduktion und bereinigten Logs. Sicherheitslücken bitte per E-Mail an info@cyberspaceconsulting.de melden.
+Eröffne ein [Issue](https://github.com/CyberspaceConsulting/ClinicPulse/issues) mit Version, Betriebsart, Schritten zur Reproduktion und bereinigten Logs. Sicherheitslücken bitte per E-Mail an info@cyberspaceconsulting.de melden.

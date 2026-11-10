@@ -541,8 +541,8 @@ def test_update_check_is_admin_only_and_returns_version_info(client, monkeypatch
             "update_available": True,
             "status": "update_available",
             "message": "Version 0.2.0 ist verfügbar.",
-            "release_url": "https://github.com/the1andoni/ClinicPulse/releases/tag/v0.2.0",
-            "repository_url": "https://github.com/the1andoni/ClinicPulse",
+            "release_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.2.0",
+            "repository_url": "https://github.com/CyberspaceConsulting/ClinicPulse",
             "checked_at": "2026-10-13T00:00:00+00:00",
         },
     )
@@ -888,6 +888,86 @@ def test_department_scope_and_planner_permissions(client):
     chief_headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
     visible_shifts = client.get("/api/shift-types", headers=chief_headers)
     assert [shift["name"] for shift in visible_shifts.json()] == ["Chirurgie Früh"]
+
+
+def test_department_planner_cannot_read_or_plan_for_another_department(client):
+    admin = auth_header(client)
+    departments = {
+        name: client.post("/api/departments", headers=admin, json={"name": name}).json()["id"]
+        for name in ("Chirurgie", "Radiologie")
+    }
+    employees = {}
+    shifts = {}
+    for name, department_id in departments.items():
+        employees[name] = client.post("/api/employees", headers=admin, json={
+            "first_name": name, "last_name": "Mitarbeiter", "role": "Pflege",
+            "department_id": department_id,
+        }).json()["id"]
+        planner_username = "surgery-planner" if name == "Chirurgie" else "radiology-planner"
+        planner_password = f"{planner_username}-password"
+        planner = client.post("/api/users", headers=admin, json={
+            "first_name": name, "last_name": "Planer", "username": planner_username,
+            "password": planner_password, "role_key": "OBERARZT",
+            "department_id": department_id, "can_view": True, "can_edit": True,
+            "can_approve": True,
+        })
+        assert planner.status_code == 201
+        planner_headers = _login_headers(client, planner_username, planner_password)
+        shifts[name] = client.post("/api/shift-types", headers=planner_headers, json={
+            "name": f"{name} Früh", "start_time": "08:00:00", "end_time": "16:00:00",
+            "department_id": department_id,
+        }).json()["id"]
+        assignment = client.post("/api/assignments", headers=planner_headers, json={
+            "employee_id": employees[name],
+            "shift_type_id": shifts[name],
+            "starts_at": "2031-02-05T07:00:00+00:00",
+            "ends_at": "2031-02-05T15:00:00+00:00",
+        })
+        assert assignment.status_code == 201
+
+    other_employee_account = client.post("/api/users", headers=admin, json={
+        "first_name": "Radiologie", "last_name": "Mitarbeiter", "username": "radiology-employee",
+        "password": "radiology-employee-password",
+        "role_key": "EMPLOYEE",
+        "department_id": departments["Radiologie"],
+        "employee_id": employees["Radiologie"],
+    })
+    assert other_employee_account.status_code == 201
+    headers = _login_headers(client, "surgery-planner", "surgery-planner-password")
+
+    assert {
+        employee["id"] for employee in client.get("/api/employees", headers=headers).json()
+    } == {employees["Chirurgie"]}
+    assert {
+        shift["id"] for shift in client.get("/api/shift-types", headers=headers).json()
+    } == {shifts["Chirurgie"]}
+    visible_assignments = client.get(
+        "/api/assignments?from=2031-02-05&to=2031-02-05", headers=headers
+    )
+    assert visible_assignments.status_code == 200
+    assert {item["employee_id"] for item in visible_assignments.json()} == {
+        employees["Chirurgie"]
+    }
+
+    cross_department_assignment = client.post("/api/assignments", headers=headers, json={
+        "employee_id": employees["Radiologie"],
+        "shift_type_id": shifts["Radiologie"],
+        "starts_at": "2031-02-06T07:00:00+00:00",
+        "ends_at": "2031-02-06T15:00:00+00:00",
+    })
+    assert cross_department_assignment.status_code == 403
+    assert client.get("/api/users", headers=headers).status_code == 403
+    assert client.put(
+        f"/api/users/{other_employee_account.json()['id']}",
+        headers=headers,
+        json={
+            "first_name": "Radiologie", "last_name": "Mitarbeiter",
+            "username": "radiology-employee", "role_key": "EMPLOYEE",
+            "department_id": departments["Radiologie"],
+            "employee_id": employees["Radiologie"],
+            "can_view": True,
+        },
+    ).status_code == 403
 
 
 def test_users_can_switch_between_all_assigned_department_plans(client):
@@ -1405,6 +1485,11 @@ def test_sundays_and_state_public_holidays_require_explicit_authorization(client
         "starts_at": "2030-06-20T06:00:00+00:00", "ends_at": "2030-06-20T14:30:00+00:00",
     })
     assert not_a_saxony_holiday.status_code == 201
+    day_after_holiday = client.post("/api/assignments", headers=planner, json={
+        "employee_id": employee_id, "shift_type_id": shift_id,
+        "starts_at": "2030-06-21T06:00:00+00:00", "ends_at": "2030-06-21T14:30:00+00:00",
+    })
+    assert day_after_holiday.status_code == 201
 
 
 def test_15_sunday_rest_days_and_replacement_rest_days_are_enforced(client):

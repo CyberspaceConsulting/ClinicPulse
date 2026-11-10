@@ -16,7 +16,7 @@ def test_check_detects_new_release_and_sends_optional_secret(tmp_path, monkeypat
         assert timeout == 5
         return BytesIO(json.dumps([{
             "tag_name": "v0.2.0",
-            "html_url": "https://github.com/the1andoni/ClinicPulse/releases/tag/v0.2.0",
+            "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.2.0",
             "draft": False,
             "prerelease": False,
         }]).encode())
@@ -39,7 +39,7 @@ def test_update_check_does_not_require_secret_for_public_repo(monkeypatch):
         captured.append(request)
         return BytesIO(json.dumps([{
             "tag_name": "0.1.0",
-            "html_url": "https://github.com/the1andoni/ClinicPulse/releases/tag/0.1.0",
+            "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/0.1.0",
             "draft": False,
             "prerelease": False,
         }]).encode())
@@ -59,13 +59,13 @@ def test_nightly_channel_only_compares_nightly_releases(monkeypatch):
         return BytesIO(json.dumps([
             {
                 "tag_name": "v0.3.0",
-                "html_url": "https://github.com/the1andoni/ClinicPulse/releases/tag/v0.3.0",
+                "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.3.0",
                 "draft": False,
                 "prerelease": False,
             },
             {
                 "tag_name": "v0.2.0-nightly.20261014",
-                "html_url": "https://github.com/the1andoni/ClinicPulse/releases/tag/v0.2.0-nightly.20261014",
+                "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.2.0-nightly.20261014",
                 "draft": False,
                 "prerelease": True,
             },
