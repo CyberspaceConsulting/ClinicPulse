@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BackupPanel from './BackupPanel.vue'
 import PasswordInput from './PasswordInput.vue'
 import LanguageSelector from './LanguageSelector.vue'
-import { locale, t } from './i18n'
+import { locale, t, type TranslationKey } from './i18n'
 import { apiErrorDetail } from './i18n/apiErrors'
 
 type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
@@ -1784,16 +1784,22 @@ function employeePhoto(employeeId: number | null | undefined) {
 
 function roleLabel(key: string) {
   const catalogLabel = roleCatalog.value.access_roles.find((role) => role.key === key)?.label
-  if (catalogLabel) return catalogLabel
-    return ({
-      ADMIN: 'Administrator',
-      HOSPITAL_MANAGEMENT: 'Krankenhausleitung',
-      PERSONNEL: 'Personaler',
-      OBERARZT: 'Oberarzt',
-      CHEFARZT: 'Chefarzt',
-      KIOSK: 'Kiosk',
-      EMPLOYEE: 'Mitarbeiter',
-    } as Record<string, string>)[key] ?? key
+  const managementLabels: Record<string, TranslationKey> = {
+    Krankenhausleitung: 'role.hospitalManagement',
+    Wachleitung: 'role.stationManagement',
+    Leitstellenleitung: 'role.dispatchManagement',
+    Einrichtungsleitung: 'role.facilityManagement',
+    Leitung: 'role.management',
+  }
+  if (key === 'HOSPITAL_MANAGEMENT') {
+    const labelKey = catalogLabel ? managementLabels[catalogLabel] : 'role.hospitalManagement'
+    return labelKey ? t(labelKey) : catalogLabel ?? key
+  }
+  const roles: Record<string, TranslationKey> = {
+    ADMIN: 'role.admin', PERSONNEL: 'role.personnel', OBERARZT: 'role.seniorPhysician',
+    CHEFARZT: 'role.chiefPhysician', KIOSK: 'role.kiosk', EMPLOYEE: 'role.employee',
+  }
+  return roles[key] ? t(roles[key]) : catalogLabel ?? key
 }
 
 function moveWeek(amount: number) {
@@ -2321,7 +2327,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="showEmployeeForm || showShiftForm || showAssignmentForm || showSettings || showManagement || showProfile || showArchive" class="modal-backdrop" @click.self="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">
       <section class="modal" :class="{ 'modal-wide': showSettings && !showProfile && !showEmployeeForm && !showShiftForm && !showAssignmentForm && !showManagement }" role="dialog" aria-modal="true">
-        <button class="modal-close" aria-label="Schließen" @click="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">×</button>
+        <button class="modal-close" :aria-label="t('form.close')" @click="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">×</button>
         <template v-if="showArchive">
           <p class="eyebrow">NACHWEIS</p><h2>Dienstplan-Archiv</h2>
           <p class="muted">Archivierte Stände sind unveränderlich und zeigen, wer wann welchen Dienst hatte – auch nach späteren Änderungen am Plan.</p>
@@ -2376,103 +2382,103 @@ onBeforeUnmount(() => {
           </section>
         </template>
         <template v-else-if="showEmployeeForm">
-          <p class="eyebrow">TEAMVERWALTUNG</p><h2>{{ employeeId ? 'Mitarbeiter bearbeiten' : 'Mitarbeiter erstellen' }}</h2>
+          <p class="eyebrow">{{ t('form.teamManagement') }}</p><h2>{{ employeeId ? t('form.editEmployee') : t('form.createEmployee') }}</h2>
           <form class="stack" @submit.prevent="submitEmployee">
-            <label>Vorname<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
-            <label>Nachname<input v-model="employeeLastName" maxlength="80" required /></label>
-            <label>Dienstplanfunktion<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ fn }}</option><option value="Individuell">Individuell</option></select></label>
-            <label v-if="employeeRole === 'Individuell'">Eigene Funktion<input v-model="employeeCustomRole" maxlength="80" required /></label>
-            <label>Abteilung<select v-model="employeeDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
-            <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> ClinicPulse-Zugang einrichten</label>
+            <label>{{ t('form.firstName') }}<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
+            <label>{{ t('form.lastName') }}<input v-model="employeeLastName" maxlength="80" required /></label>
+            <label>{{ t('form.scheduleRole') }}<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ fn }}</option><option value="Individuell">{{ t('form.custom') }}</option></select></label>
+            <label v-if="employeeRole === 'Individuell'">{{ t('form.customRole') }}<input v-model="employeeCustomRole" maxlength="80" required /></label>
+            <label>{{ t('form.department') }}<select v-model="employeeDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> {{ t('form.createAccess') }}</label>
             <template v-if="employeeCreateAccount && !employeeId">
-              <label>Benutzername<input v-model="employeeLoginUsername" minlength="3" maxlength="64" required /></label>
-              <label>E-Mail für die Einladung<input v-model="employeeEmail" type="email" maxlength="254" autocomplete="email" required /></label>
-              <p class="muted">Es wird kein Startpasswort benötigt. Die Person erhält einen einmaligen Link und setzt ihr eigenes Passwort.</p>
+              <label>{{ t('auth.username') }}<input v-model="employeeLoginUsername" minlength="3" maxlength="64" required /></label>
+              <label>{{ t('form.invitationEmail') }}<input v-model="employeeEmail" type="email" maxlength="254" autocomplete="email" required /></label>
+              <p class="muted">{{ t('form.invitationExplanation') }}</p>
             </template>
-            <button class="primary full">{{ employeeId ? 'Änderungen speichern' : 'Mitarbeiter erstellen' }}</button>
+            <button class="primary full">{{ employeeId ? t('form.saveChanges') : t('form.createEmployee') }}</button>
           </form>
         </template>
         <template v-else-if="showShiftForm">
-          <p class="eyebrow">SCHICHTVERWALTUNG</p><h2>Schichtart anlegen</h2>
+          <p class="eyebrow">{{ t('form.shiftManagement') }}</p><h2>{{ t('form.createShiftType') }}</h2>
           <form class="stack" @submit.prevent="submitShift">
-            <label>Bezeichnung<input v-model="shiftName" maxlength="80" placeholder="z. B. Frühdienst" required autofocus /></label>
-            <label>Benötigte Position<input v-model="shiftPosition" maxlength="80" placeholder="z. B. Pflegefachkraft" required /></label>
-            <label>Benötigte Mitarbeitende<input v-model.number="requiredStaff" type="number" min="1" max="100" required /></label>
-            <div class="form-row"><label>Beginn<input v-model="shiftStart" type="time" required /></label><label>Ende<input v-model="shiftEnd" type="time" required /></label></div>
-            <label>Pause in Minuten (leer = gesetzliches Minimum)<input v-model.number="shiftBreak" type="number" min="0" max="240" placeholder="automatisch" /></label>
-            <label>Pause nach Arbeitsbeginn (Minuten; leer = automatisch, spätestens nach 6 Stunden)<input v-model.number="shiftBreakStart" type="number" min="0" max="360" placeholder="automatisch" /></label>
-            <button class="primary full">Schichtart speichern</button>
+            <label>{{ t('form.name') }}<input v-model="shiftName" maxlength="80" :placeholder="t('form.shiftExample')" required autofocus /></label>
+            <label>{{ t('form.requiredPosition') }}<input v-model="shiftPosition" maxlength="80" :placeholder="t('form.positionExample')" required /></label>
+            <label>{{ t('form.requiredEmployees') }}<input v-model.number="requiredStaff" type="number" min="1" max="100" required /></label>
+            <div class="form-row"><label>{{ t('form.start') }}<input v-model="shiftStart" type="time" required /></label><label>{{ t('form.end') }}<input v-model="shiftEnd" type="time" required /></label></div>
+            <label>{{ t('form.breakMinutes') }}<input v-model.number="shiftBreak" type="number" min="0" max="240" :placeholder="t('form.automatic')" /></label>
+            <label>{{ t('form.breakStart') }}<input v-model.number="shiftBreakStart" type="number" min="0" max="360" :placeholder="t('form.automatic')" /></label>
+            <button class="primary full">{{ t('form.saveShiftType') }}</button>
           </form>
         </template>
         <template v-else-if="showAssignmentForm">
-          <p class="eyebrow">DIENSTPLANUNG</p><h2>Dienst eintragen</h2>
+          <p class="eyebrow">{{ t('planning.eyebrow') }}</p><h2>{{ t('form.addAssignment') }}</h2>
           <form class="stack" @submit.prevent="submitAssignment">
-            <label>Mitarbeitende<select v-model="selectedEmployee" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
-            <label>Schichtart<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ shift.position }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
-            <label>Datum<input v-model="selectedDate" type="date" required /></label>
-            <button class="primary full">Dienst speichern</button>
+            <label>{{ t('form.employee') }}<select v-model="selectedEmployee" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
+            <label>{{ t('form.shiftType') }}<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ shift.position }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
+            <label>{{ t('form.date') }}<input v-model="selectedDate" type="date" required /></label>
+            <button class="primary full">{{ t('form.saveAssignment') }}</button>
           </form>
         </template>
         <template v-else-if="showManagement">
-          <p class="eyebrow">TEAMVERWALTUNG</p><h2>Team & Zugänge</h2>
+          <p class="eyebrow">{{ t('form.teamManagement') }}</p><h2>{{ t('management.title') }}</h2>
           <section v-if="canManageTeam" class="management-section">
             <p v-if="teamNotice" class="success-message" role="status">{{ teamNotice }}</p>
             <section v-if="!departments.length && roleKey !== 'PERSONNEL'" class="empty-state">
-              <h3>Ersteinrichtung: Team und Dienstpläne</h3>
-              <p>Lege eine Abteilung an. Danach kannst du Mitarbeitende, Krankenhausleitung, Oberärzte und Personaler mit eigenen Zugängen einrichten. Mitarbeitende können ohne Login angelegt werden.</p>
+              <h3>{{ t('management.setupTitle') }}</h3>
+              <p>{{ t('management.setupDescription') }}</p>
             </section>
             <section v-if="showMailOnboarding" class="settings-section">
-              <h3>E-Mail-Versand einrichten (optional)</h3>
-              <p class="muted">Mit SMTP können Einladungen und Links zum eigenen Passwort direkt an Mitarbeitende verschickt werden. Du kannst diesen Schritt überspringen und später als Admin unter Einstellungen → E-Mail-Versand erledigen.</p>
+              <h3>{{ t('management.mailTitle') }}</h3>
+              <p class="muted">{{ t('management.mailDescription') }}</p>
               <div class="form-row">
-                <button class="primary" @click="skipMailOnboarding(); openAppSettings('mail')">E-Mail-Versand einrichten</button>
-                <button class="secondary" @click="skipMailOnboarding()">Überspringen</button>
+                <button class="primary" @click="skipMailOnboarding(); openAppSettings('mail')">{{ t('management.configureMail') }}</button>
+                <button class="secondary" @click="skipMailOnboarding()">{{ t('management.skip') }}</button>
               </div>
             </section>
-            <p v-if="licenseReadOnly" class="muted">Lizenzbedingt sind Verwaltungsänderungen derzeit gesperrt.</p>
+            <p v-if="licenseReadOnly" class="muted">{{ t('management.licenseBlocked') }}</p>
             <form v-if="canManage && !licenseReadOnly" class="inline-form" @submit.prevent="saveDepartment">
-              <input v-model="departmentName" maxlength="100" placeholder="Abteilungsname" required />
-              <button class="secondary">{{ editingDepartmentId ? 'Änderung speichern' : 'Abteilung anlegen' }}</button>
-              <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">Abbrechen</button>
+              <input v-model="departmentName" maxlength="100" :placeholder="t('management.departmentName')" required />
+              <button class="secondary">{{ editingDepartmentId ? t('management.saveChange') : t('management.createDepartment') }}</button>
+              <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">{{ t('management.cancel') }}</button>
             </form>
             <template v-if="canManage">
               <div v-for="department in departments" :key="department.id" class="management-row">
-                <strong>{{ department.name }}</strong><div v-if="!licenseReadOnly"><button class="text-button" @click="editDepartment(department)">Bearbeiten</button><button class="text-button danger-text" @click="removeDepartment(department)">Löschen</button></div>
+                <strong>{{ department.name }}</strong><div v-if="!licenseReadOnly"><button class="text-button" @click="editDepartment(department)">{{ t('management.edit') }}</button><button class="text-button danger-text" @click="removeDepartment(department)">{{ t('management.delete') }}</button></div>
               </div>
             </template>
-            <h3>Mitarbeiter</h3>
-            <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">＋ Mitarbeiter</button>
+            <h3>{{ t('management.employees') }}</h3>
+            <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
             <div v-for="employee in allEmployees" :key="employee.id" class="management-row">
-              <div><strong>{{ employee.name }}</strong><small>{{ employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? 'Keine Abteilung' }}</small></div>
-              <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">Bearbeiten</button>
+              <div><strong>{{ employee.name }}</strong><small>{{ employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? t('management.noDepartment') }}</small></div>
+              <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">{{ t('management.edit') }}</button>
             </div>
-            <h3>Konten & Rollen</h3>
+            <h3>{{ t('management.accounts') }}</h3>
             <form v-if="!licenseReadOnly" class="stack user-form" @submit.prevent="saveUser">
-              <strong>{{ userId ? 'Konto bearbeiten' : 'Konto anlegen' }}</strong>
-              <label>Vorname<input v-model="userFirstName" maxlength="80" required /></label>
-              <label>Nachname<input v-model="userLastName" maxlength="80" required /></label>
-              <label>Benutzername<input v-model="userName" minlength="3" maxlength="64" required /></label>
-              <details class="optional-details"><summary>Weitere Angaben (optional)</summary>
-                <label>Geburtsdatum<input v-model="userBirthDate" type="date" /></label>
-                <label>Adresse<input v-model="userAddress" maxlength="300" autocomplete="street-address" /></label>
-                <label>Telefon<input v-model="userPhone" type="tel" maxlength="50" /></label>
+              <strong>{{ userId ? t('management.editAccount') : t('management.createAccount') }}</strong>
+              <label>{{ t('form.firstName') }}<input v-model="userFirstName" maxlength="80" required /></label>
+              <label>{{ t('form.lastName') }}<input v-model="userLastName" maxlength="80" required /></label>
+              <label>{{ t('auth.username') }}<input v-model="userName" minlength="3" maxlength="64" required /></label>
+              <details class="optional-details"><summary>{{ t('management.optionalDetails') }}</summary>
+                <label>{{ t('management.birthDate') }}<input v-model="userBirthDate" type="date" /></label>
+                <label>{{ t('management.address') }}<input v-model="userAddress" maxlength="300" autocomplete="street-address" /></label>
+                <label>{{ t('management.phone') }}<input v-model="userPhone" type="tel" maxlength="50" /></label>
               </details>
-              <label>E-Mail für Passwort-Einladung<input v-model="userEmail" type="email" maxlength="254" :required="!userId && !userPassword" /></label>
-              <PasswordInput v-model="userPassword" :label="userId ? 'Neues Passwort (optional)' : 'Startpasswort (optional; leer = Einladungslink)'" optional />
-              <p v-if="userEmail && !userId" class="muted">Mit E-Mail wird ein Einladungslink gesendet; ein eingegebenes Startpasswort wird dabei nicht verwendet.</p>
-              <label>Systemrolle<select v-model="userRoleKey"><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? 'Kiosk (nur lesend, kein Inaktivitäts-Logout)' : option.key === 'EMPLOYEE' ? 'Mitarbeiter (Selbstbedienung)' : option.label }}</option></template></select></label>
-              <fieldset v-if="!['HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>Zugängliche Dienstpläne</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
-              <label v-if="userRoleKey === 'EMPLOYEE'">Verknüpfte Person<select v-model="userEmployeeId" required><option :value="null" disabled>Bitte wählen</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
+              <label>{{ t('management.passwordEmail') }}<input v-model="userEmail" type="email" maxlength="254" :required="!userId && !userPassword" /></label>
+              <PasswordInput v-model="userPassword" :label="userId ? t('management.newPassword') : t('management.initialPassword')" optional />
+              <p v-if="userEmail && !userId" class="muted">{{ t('management.invitationNotice') }}</p>
+              <label>{{ t('management.systemRole') }}<select v-model="userRoleKey"><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? t('role.kioskDescription') : option.key === 'EMPLOYEE' ? t('role.employeeDescription') : roleLabel(option.key) }}</option></template></select></label>
+              <fieldset v-if="!['HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>{{ t('management.accessibleSchedules') }}</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
+              <label v-if="userRoleKey === 'EMPLOYEE'">{{ t('management.linkedPerson') }}<select v-model="userEmployeeId" required><option :value="null" disabled>{{ t('management.choose') }}</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
               <template v-if="userRoleKey !== 'PERSONNEL'">
-                <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Dienstplan ansehen</label>
-                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Dienste bearbeiten <span class="permission-note">nur für Oberärzte wirksam</span></label>
-                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> Vorschläge freigeben <span class="permission-note">nur für Oberärzte wirksam</span></label>
+                <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.viewSchedule') }}</label>
+                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.editShifts') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
+                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.approveSuggestions') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
               </template>
-              <div class="form-row"><button class="primary">{{ userId ? 'Konto speichern' : 'Konto anlegen' }}</button><button v-if="userId" type="button" class="secondary" @click="resetUserForm">Abbrechen</button></div>
+              <div class="form-row"><button class="primary">{{ userId ? t('management.saveAccount') : t('management.createAccount') }}</button><button v-if="userId" type="button" class="secondary" @click="resetUserForm">{{ t('management.cancel') }}</button></div>
             </form>
             <div v-for="user in users" :key="user.id" class="management-row account-row">
-              <div><strong>{{ user.username }}</strong><small>{{ roleLabel(user.role_key) }} · {{ user.email || 'Keine E-Mail hinterlegt' }} · {{ user.invitation_status === 'pending' ? 'Einladung offen' : user.invitation_status === 'delivery_failed' ? 'Einladung nicht versendet' : user.invitation_status === 'revoked' ? 'Einladung widerrufen' : user.is_locked ? 'Gesperrt' : 'Aktiv' }} · {{ user.department_ids?.map((id) => departments.find((item) => item.id === id)?.name).filter(Boolean).join(', ') || 'Alle Abteilungen' }}</small></div>
-              <div><button class="text-button" @click="editUser(user)">Bearbeiten</button><button v-if="['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">Einladung erneut senden</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">Widerrufen</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? 'Entsperren' : 'Sperren' }}</button><button class="text-button danger-text" @click="removeUser(user)">Löschen</button></div>
+              <div><strong>{{ user.username }}</strong><small>{{ roleLabel(user.role_key) }} · {{ user.email || t('management.noEmail') }} · {{ user.invitation_status === 'pending' ? t('management.invitationPending') : user.invitation_status === 'delivery_failed' ? t('management.invitationFailed') : user.invitation_status === 'revoked' ? t('management.invitationRevoked') : user.is_locked ? t('management.locked') : t('management.active') }} · {{ user.department_ids?.map((id) => departments.find((item) => item.id === id)?.name).filter(Boolean).join(', ') || t('management.allDepartments') }}</small></div>
+              <div><button class="text-button" @click="editUser(user)">{{ t('management.edit') }}</button><button v-if="['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">{{ t('management.resendInvitation') }}</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">{{ t('management.revoke') }}</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? t('management.unlock') : t('management.lock') }}</button><button class="text-button danger-text" @click="removeUser(user)">{{ t('management.delete') }}</button></div>
             </div>
           </section>
         </template>
@@ -2481,7 +2487,7 @@ onBeforeUnmount(() => {
           <nav class="settings-tabs" role="tablist">
             <button v-for="tab in settingsTabs" :key="tab.key" role="tab" type="button" :aria-selected="settingsTab === tab.key" :class="{ active: settingsTab === tab.key }" @click="settingsTab = tab.key">{{ tab.label }}</button>
           </nav>
-          <section v-show="settingsTab === 'appearance'" class="settings-section"><strong>Darstellung</strong><p class="muted">Wähle dein persönliches Farbschema. Die Einstellung wird in diesem Browser gespeichert.</p><div class="theme-options"><button :class="{ selected: theme === 'light' }" @click="applyTheme('light')">☼ Hell</button><button :class="{ selected: theme === 'dark' }" @click="applyTheme('dark')">☾ Dunkel</button></div></section>
+          <section v-show="settingsTab === 'appearance'" class="settings-section"><strong>{{ t('settings.appearance') }}</strong><p class="muted">{{ t('settings.appearanceDescription') }}</p><div class="theme-options"><button :class="{ selected: theme === 'light' }" @click="applyTheme('light')">{{ t('settings.light') }}</button><button :class="{ selected: theme === 'dark' }" @click="applyTheme('dark')">{{ t('settings.dark') }}</button></div></section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'operations'" class="settings-section">
             <h3>Betriebskonfiguration</h3>
             <p class="muted">Einrichtungsart und Bundesland werden aus der Lizenz übernommen und im License Manager gepflegt. Der Feiertagskalender folgt dem Bundesland. Profilbezogene Ausnahmen werden nicht automatisch hergeleitet.</p>
@@ -2550,11 +2556,11 @@ onBeforeUnmount(() => {
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'security'" class="settings-section">
-            <h3>Automatische Abmeldung</h3>
-            <p class="muted">Nach dieser Zeit ohne Aktivität werden alle Benutzer (auch der Administrator) automatisch abgemeldet. Kiosk-Konten sind davon ausgenommen. Standard: 5 Minuten.</p>
+            <h3>{{ t('settings.idleTitle') }}</h3>
+            <p class="muted">{{ t('settings.idleDescription') }}</p>
             <form class="stack" @submit.prevent="saveIdleTimeout">
-              <label>Inaktivität bis zur Abmeldung (Minuten)<input v-model.number="idleTimeoutMinutes" type="number" min="1" max="120" required /></label>
-              <div class="form-row"><button class="secondary">Speichern</button><span v-if="idleTimeoutMessage" class="muted">{{ idleTimeoutMessage }}</span></div>
+              <label>{{ t('settings.idleMinutes') }}<input v-model.number="idleTimeoutMinutes" type="number" min="1" max="120" required /></label>
+              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="idleTimeoutMessage" class="muted">{{ idleTimeoutMessage }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'audit'" class="audit-settings">

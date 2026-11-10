@@ -141,6 +141,58 @@ test('schedule overview and day details switch languages without changing custom
   await expect(page.locator('.team-roster')).toContainText('Alex Beispiel')
 })
 
+test('English shift forms and system role use localized labels while preserving values', async ({ page }) => {
+  await mockApi(page)
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('planer')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.profile-text').first()).toContainText('Senior physician')
+  await page.getByRole('button', { name: 'Open day details' }).click()
+  await page.getByText('Open position', { exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'Add shift' })).toBeVisible()
+  await expect(dialog.getByLabel('Employee')).toHaveValue('1')
+  await expect(dialog.getByLabel('Employee')).toContainText('Alex Beispiel')
+  await expect(dialog.getByLabel('Shift type')).toContainText('Frühdienst')
+  await dialog.getByRole('button', { name: 'Save shift' }).click()
+  await expect(page.locator('.filled-slot')).toContainText('Alex Beispiel')
+  await page.getByRole('button', { name: '＋ Shift type' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Create shift type' })).toBeVisible()
+  await expect(dialog.getByLabel('Name')).toHaveAttribute('placeholder', 'e.g. Morning shift')
+  await dialog.getByLabel('Name').fill('Eigene Schicht')
+  await expect(dialog.getByLabel('Name')).toHaveValue('Eigene Schicht')
+})
+
+test('team management displays translated labels and preserves account and department data', async ({ page }) => {
+  await mockApi(page, 'HOSPITAL_MANAGEMENT')
+  await page.route('**/api/users', (route) => route.fulfill({ json: [{
+    id: 2, username: 'test-user', role_key: 'EMPLOYEE', department_id: 1, department_ids: [1],
+    employee_id: 1, can_view: true, can_edit: false, can_approve: false, invitation_status: 'pending',
+  }] }))
+  await page.route('**/api/role-catalog', (route) => route.fulfill({ json: {
+    functions: ['Pflege'],
+    access_roles: [{ key: 'HOSPITAL_MANAGEMENT', label: 'Wachleitung' }, { key: 'OBERARZT', label: 'Oberarzt' }, { key: 'EMPLOYEE', label: 'Mitarbeiter' }],
+  } }))
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('planer')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.profile-text').first()).toContainText('Station management')
+  await page.getByRole('button', { name: 'Team management', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'Team & access' })).toBeVisible()
+  await expect(dialog.getByText('test-user', { exact: true })).toBeVisible()
+  await expect(dialog.locator('.account-row')).toContainText('Invitation pending')
+  await expect(dialog.locator('.account-row')).toContainText('Chirurgie')
+  await dialog.getByLabel('First name').fill('Unverändert')
+  await dialog.getByLabel('System role').selectOption('EMPLOYEE')
+  await expect(dialog.getByLabel('Linked person')).toContainText('Alex Beispiel')
+  await expect(dialog.getByLabel('First name')).toHaveValue('Unverändert')
+})
+
 test('English absence request keeps user data and translates labels and status', async ({ page }) => {
   await mockApi(page, 'EMPLOYEE')
   await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
@@ -165,6 +217,10 @@ test('known API errors are translated and unknown details remain visible', async
   await page.getByLabel('Passwort', { exact: true }).fill('incorrect')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
   await expect(page.getByText('Ungültiger Benutzername oder ungültiges Passwort')).toBeVisible()
+
+  await page.route('**/api/auth/login', (route) => route.fulfill({ status: 409, json: { detail: 'Username is already in use' } }))
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.getByText('Der Benutzername wird bereits verwendet')).toBeVisible()
 
   await page.getByLabel('Sprache').selectOption('en')
   await page.route('**/api/auth/login', (route) => route.fulfill({ status: 503, json: { detail: 'Externer Dienst: technische Details' } }))
@@ -218,6 +274,10 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.getByRole('button', { name: '☼ Light' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Security' }).click()
+  await expect(page.getByRole('heading', { name: 'Automatic sign-out' })).toBeVisible()
+  await expect(page.getByLabel('Inactivity before sign-out (minutes)')).toBeVisible()
   await page.getByRole('tab', { name: 'Backup' }).click()
   await expect(page.getByRole('heading', { name: 'Data backup' })).toBeVisible()
   await expect(page.locator('.backup-settings option').getByText('Monday', { exact: true })).toBeAttached()

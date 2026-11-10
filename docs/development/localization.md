@@ -3,7 +3,8 @@
 Die Lokalisierung befindet sich noch im Aufbau. Die Passwortkomponente, die
 statischen Texte der Anmeldung, Ersteinrichtung und Einladung, die Navigation,
 die Abwesenheitsoberfläche, die Planungsvorschau, die Wochen- und Tagesansicht
-des Dienstplans und die Backup-Oberfläche sind teilweise übersetzt. Einige
+des Dienstplans, Formulare für Dienste und Mitarbeitende, Teile der
+Teamverwaltung und die Backup-Oberfläche sind teilweise übersetzt. Einige
 bekannte API-Fehler werden ebenfalls übersetzt. Der Sprachumschalter ist vor
 und nach der Anmeldung verfügbar. Bei Englisch weist er darauf hin, dass die
 übrige Oberfläche und API-Meldungen noch nicht vollständig übersetzt sind.
