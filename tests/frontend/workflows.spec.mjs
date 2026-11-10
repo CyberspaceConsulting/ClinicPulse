@@ -209,7 +209,7 @@ test('team management displays translated labels and preserves account and depar
     employee_id: 1, can_view: true, can_edit: false, can_approve: false, invitation_status: 'pending',
   }] }))
   await page.route('**/api/role-catalog', (route) => route.fulfill({ json: {
-    functions: ['Pflege'],
+    functions: ['Pflegefachkraft', 'Eigene Funktion'],
     access_roles: [{ key: 'HOSPITAL_MANAGEMENT', label: 'Wachleitung' }, { key: 'OBERARZT', label: 'Oberarzt' }, { key: 'EMPLOYEE', label: 'Mitarbeiter' }],
   } }))
   await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
@@ -250,6 +250,7 @@ test('team management displays translated labels and preserves account and depar
     }
     return route.fallback()
   })
+
   await dialog.locator('.account-row').getByRole('button', { name: 'Delete' }).click()
   const confirmation = page.getByRole('alertdialog', { name: 'Confirmation' })
   await expect(confirmation).toContainText('Delete account “test-user”?')
@@ -261,6 +262,26 @@ test('team management displays translated labels and preserves account and depar
   await confirmation.getByRole('button', { name: 'Delete' }).click()
   await deleteResponse
   expect(deleteRequests).toBe(1)
+})
+
+test('standard schedule functions translate without changing their values', async ({ page }) => {
+  await mockApi(page, 'HOSPITAL_MANAGEMENT')
+  await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/role-catalog', (route) => route.fulfill({ json: {
+    functions: ['Pflegefachkraft', 'Eigene Funktion'], access_roles: [],
+  } }))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('planer')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  await page.getByRole('dialog').getByRole('button', { name: '＋ Mitarbeiter' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('Dienstplanfunktion')).toHaveValue('Pflegefachkraft')
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(dialog.getByLabel('Schedule role')).toHaveValue('Pflegefachkraft')
+  await expect(dialog.getByLabel('Schedule role')).toContainText('Registered nurse')
+  await expect(dialog.getByLabel('Schedule role')).toContainText('Eigene Funktion')
 })
 
 test('English profile editing keeps user data and submits unchanged API values', async ({ page }) => {
@@ -400,13 +421,18 @@ test('backup interface translates without changing the restore confirmation cont
   await page.route('**/api/admin/audit**', (route) => route.fulfill({ json: { items: [
     { id: 1, created_at: '2026-11-01T10:00:00Z', actor_username: 'admin', action: 'updated', entity_type: 'settings', entity_id: '1' },
     { id: 2, created_at: '2026-11-01T10:00:00Z', actor_username: 'admin', action: 'custom_action', entity_type: 'custom', entity_id: '2' },
+    { id: 3, created_at: '2026-11-01T10:00:00Z', actor_username: 'admin', action: 'invitation_accepted', entity_type: 'user', entity_id: '3' },
   ], limit: 25, offset: 0 } }))
   await page.route('**/api/admin/mail-settings', (route) => route.fulfill({ json: {
     public_url: 'https://clinic.example', smtp_host: 'smtp.example', smtp_port: 587, smtp_username: 'user',
     smtp_password_configured: true, from_address: 'sender@example.org', use_ssl: false, use_starttls: true,
   } }))
+  let backupSettingsFail = false
   await page.route('**/api/admin/backup/**', async (route) => {
     const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/settings') && route.request().method() === 'PUT' && backupSettingsFail) {
+      return route.fulfill({ status: 404, json: { detail: 'Backup-Ziel nicht gefunden' } })
+    }
     if (path.endsWith('/settings')) return route.fulfill({ json: { schedule_enabled: false, frequency: 'weekly', weekday: 0, time_of_day: '12:00', recipient_count: 1, timezone: 'Europe/Berlin' } })
     if (path.endsWith('/recipients')) return route.fulfill({ json: [{ id: 1, name: 'Team A', public_key: 'CPPUB1:test' }] })
     if (path.endsWith('/targets') || path.endsWith('/runs')) return route.fulfill({ json: [] })
@@ -443,6 +469,7 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByRole('tab', { name: 'Audit log' }).click()
   await expect(page.locator('.audit-row').first()).toContainText('updated')
   await expect(page.locator('.audit-row').nth(1)).toContainText('custom_action')
+  await expect(page.locator('.audit-row').nth(2)).toContainText('invitation accepted')
   await page.getByRole('tab', { name: 'License' }).click()
   await expect(page.getByLabel('Updated license token')).toBeVisible()
   await expect(page.getByText('The token is not displayed or returned. The license server links it idempotently to this installation.')).toBeVisible()
@@ -473,6 +500,13 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByLabel('Language').selectOption('de')
   await expect(page.locator('.backup-settings [role="status"]')).toHaveText('Einstellungen gespeichert.')
   await page.getByLabel('Sprache').selectOption('en')
+  backupSettingsFail = true
+  await page.getByRole('button', { name: 'Save schedule' }).click()
+  await expect(page.locator('.backup-settings [role="alert"]')).toHaveText('Backup destination not found')
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.locator('.backup-settings [role="alert"]')).toHaveText('Backup-Ziel nicht gefunden')
+  await page.getByLabel('Sprache').selectOption('en')
+  backupSettingsFail = false
   const restore = page.getByRole('button', { name: 'Restore from file' })
   await page.getByLabel('Recovery key (.cpkey)').setInputFiles({ name: 'test.cpkey', mimeType: 'text/plain', buffer: Buffer.from('test-key') })
   await page.getByLabel('Upload backup file (.cpbak)').setInputFiles({ name: 'test.cpbak', mimeType: 'application/octet-stream', buffer: Buffer.from('test-backup') })
@@ -535,6 +569,27 @@ test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page
   await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/ClinicPulse/')
   await page.getByRole('button', { name: 'Abmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Willkommen zurück' })).toBeVisible()
+})
+
+test('API errors are retranslated when the language changes', async ({ page }) => {
+  await mockApi(page)
+  let detail = 'Invalid username or password'
+  await page.route('**/api/auth/login', (route) => route.fulfill({ status: 401, json: { detail } }))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('planer')
+  await page.getByLabel('Passwort', { exact: true }).fill('incorrect')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.getByText('Ungültiger Benutzername oder ungültiges Passwort')).toBeVisible()
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByText('Invalid username or password')).toBeVisible()
+  await expect(page.getByLabel('Username')).toHaveValue('planer')
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.getByText('Ungültiger Benutzername oder ungültiges Passwort')).toBeVisible()
+  detail = 'Unbekannter externer Fehler'
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.getByText(detail)).toBeVisible()
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByText(/Unbekannter externer Fehler/)).toBeVisible()
 })
 
 test('offene Stelle kann im Tagesplan besetzt werden', async ({ page }) => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { locale, t, type TranslationKey } from './i18n'
-import { apiErrorDetail } from './i18n/apiErrors'
+import { ApiError, TranslatedError, apiErrorDetail, errorMessage } from './i18n/apiErrors'
 
 type Target = { id: number; name: string; kind: string; config: Record<string, string>; enabled: boolean; retention_count: number }
 type Settings = { schedule_enabled: boolean; frequency: 'daily' | 'weekly'; weekday: number; time_of_day: string; recipient_count: number; last_slot: string | null; timezone: string }
@@ -49,7 +49,8 @@ const busy = ref(false)
 type Notice = { key: TranslationKey; values?: Record<string, string | number> }
 const notice = ref<Notice | null>(null)
 const message = computed(() => notice.value ? t(notice.value.key, notice.value.values) : '')
-const problem = ref('')
+const problem = ref<string | Error>('')
+const displayedProblem = computed(() => errorMessage(problem.value))
 const form = reactive({ id: null as number | null, name: '', kind: 'local', config: {} as Record<string, string>, enabled: true, retention_count: 10 })
 const showForm = ref(false)
 const restorePassphrase = ref('')  // password of the recovery key file
@@ -69,7 +70,7 @@ async function call<T>(path: string, options: RequestInit = {}, json = true): Pr
   })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
-    throw new Error((data && 'detail' in data ? apiErrorDetail(data.detail) : null) ?? t('api.requestFailed', { status: response.status }))
+    throw new ApiError(data && 'detail' in data ? data.detail : null, response.status)
   }
   if (response.status === 204) return undefined as T
   if (response.headers.get('content-type')?.includes('application/json')) return response.json() as Promise<T>
@@ -84,7 +85,7 @@ async function guarded(action: () => Promise<void>, success?: Notice) {
     await action()
     if (success) notice.value = success
   } catch (err) {
-    problem.value = err instanceof Error ? err.message : t('backup.actionFailed')
+    problem.value = err instanceof Error ? err : new TranslatedError('backup.actionFailed')
   } finally {
     busy.value = false
   }
@@ -149,7 +150,7 @@ async function runNow(target: Target) {
   await guarded(async () => {
     const run = await call<Run>(`/targets/${target.id}/run`, { method: 'POST' })
     await loadAll()
-    if (run.status !== 'success') throw new Error(run.error ? apiErrorDetail(run.error) ?? t('backup.runFailed') : t('backup.runFailed'))
+    if (run.status !== 'success') throw run.error ? new ApiError(run.error, 500) : new TranslatedError('backup.runFailed')
   }, { key: 'backup.runSuccess', values: { name: target.name } })
 }
 
@@ -161,7 +162,7 @@ async function downloadBackup() {
     })
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
-      throw new Error((data && 'detail' in data ? apiErrorDetail(data.detail) : null) ?? t('api.requestFailed', { status: response.status }))
+      throw new ApiError(data && 'detail' in data ? data.detail : null, response.status)
     }
     const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'clinicpulse.cpbak'
     const url = URL.createObjectURL(await response.blob())
@@ -198,7 +199,7 @@ async function createRecoveryKey() {
     })
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
-      throw new Error((data && 'detail' in data ? apiErrorDetail(data.detail) : null) ?? t('api.requestFailed', { status: response.status }))
+      throw new ApiError(data && 'detail' in data ? data.detail : null, response.status)
     }
     lastPublicKey.value = response.headers.get('x-public-key') ?? ''
     const url = URL.createObjectURL(await response.blob())
@@ -272,7 +273,7 @@ onMounted(() => { void guarded(loadAll) })
     <h3>{{ t('backup.title') }}</h3>
     <p class="muted">{{ t('backup.description') }}</p>
     <p v-if="message" class="planning-notice" role="status">{{ message }}</p>
-    <p v-if="problem" class="error-message" role="alert">{{ problem }}</p>
+    <p v-if="problem" class="error-message" role="alert">{{ displayedProblem }}</p>
 
     <div class="stack">
       <strong>{{ t('backup.recipients') }}</strong>

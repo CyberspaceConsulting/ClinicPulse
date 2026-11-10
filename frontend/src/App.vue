@@ -4,7 +4,7 @@ import BackupPanel from './BackupPanel.vue'
 import PasswordInput from './PasswordInput.vue'
 import LanguageSelector from './LanguageSelector.vue'
 import { locale, t, type TranslationKey } from './i18n'
-import { apiErrorDetail } from './i18n/apiErrors'
+import { ApiError, TranslatedError, apiErrorDetail, errorMessage } from './i18n/apiErrors'
 
 type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
 type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
@@ -196,7 +196,7 @@ const setupPasswordConfirm = ref('')
 const invitationToken = ref(new URLSearchParams(window.location.hash.slice(1)).get('invite') ?? '')
 const invitationPassword = ref('')
 const invitationPasswordConfirm = ref('')
-const invitationMessage = ref('')
+const invitationMessage = ref(false)
 const teamNotice = ref<{ key: TranslationKey; values?: Record<string, string | number> } | null>(null)
 const onboardingMailSkipped = ref(localStorage.getItem('clinicpulse-onboarding-mail-skipped') === 'true')
 const showMailOnboarding = computed(() =>
@@ -214,9 +214,9 @@ const mailSettings = ref<MailSettings>({
 })
 const mailPassword = ref('')
 const clearMailPassword = ref(false)
-const mailSettingsMessage = ref('')
+const mailSettingsMessage = ref(false)
 const mailTestRecipient = ref('')
-const mailTestMessage = ref('')
+const mailTestRecipientSent = ref('')
 const mailTestBusy = ref(false)
 const mailSettingsLoaded = ref(false)
 const setupLicenseToken = ref('')
@@ -224,7 +224,8 @@ const setupSundayWorkAuthorized = ref(false)
 const setupChecked = ref(false)
 const setupRequired = ref(false)
 const institutionName = ref<string | null>(null)
-const error = ref('')
+const error = ref<string | Error>('')
+const displayedError = computed(() => errorMessage(error.value))
 const confirmDialog = ref<{ message: string; confirmLabel: string; resolve: (value: boolean) => void } | null>(null)
 
 function askConfirmation(message: string, confirmLabel = t('management.delete')) {
@@ -303,6 +304,19 @@ const roleCatalog = ref<{ access_roles: { key: string; label: string }[]; functi
   functions: ['Pflegefachkraft', 'Arzt', 'Assistenzarzt', 'Pflegeassistenz', 'Hebamme', 'Medizinische Fachangestellte'],
 })
 const defaultEmployeeRole = computed(() => roleCatalog.value.functions[0] ?? 'Individuell')
+const catalogFunctionKeys: Record<string, TranslationKey> = {
+  Pflegefachkraft: 'function.nurse', Arzt: 'function.physician', Assistenzarzt: 'function.resident',
+  Pflegeassistenz: 'function.nursingAssistant', Hebamme: 'function.midwife', 'Medizinische Fachangestellte': 'function.medicalAssistant',
+  Notfallsanitäter: 'function.paramedic', Rettungssanitäter: 'function.emergencyTechnician',
+  Rettungsassistent: 'function.rescueAssistant', Rettungshelfer: 'function.rescueHelper', Notarzt: 'function.emergencyPhysician',
+  Disponent: 'function.dispatcher', Schichtführer: 'function.shiftLeader', Auszubildender: 'function.trainee',
+  Pflegehelfer: 'function.careHelper', Betreuungskraft: 'function.careWorker', Hauswirtschaft: 'function.housekeeping',
+  Mitarbeiter: 'function.employee', Teamleitung: 'function.teamLeader',
+}
+function catalogFunctionLabel(value: string) {
+  const key = Object.hasOwn(catalogFunctionKeys, value) ? catalogFunctionKeys[value] : undefined
+  return key ? t(key) : value
+}
 const employeeDepartmentId = ref('')
 const employeeCreateAccount = ref(false)
 const employeeLoginUsername = ref('')
@@ -580,10 +594,8 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
-    const detail = typeof data === 'object' && data !== null && 'detail' in data
-      ? apiErrorDetail(data.detail)
-      : null
-    throw new Error(detail ?? t('api.requestFailed', { status: response.status }))
+    const detail = typeof data === 'object' && data !== null && 'detail' in data ? data.detail : null
+    throw new ApiError(detail, response.status)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -629,13 +641,13 @@ async function checkSetup(restoreSession = true) {
         void checkForUpdates()
         void refreshLicenseStatus()
       } catch (err) {
-        if (!(err instanceof Error) || !err.message.includes('(401)')) {
-          error.value = err instanceof Error ? err.message : t('errors.sessionCheck')
+        if (!(err instanceof ApiError) || err.status !== 401) {
+          error.value = err instanceof Error ? err : new TranslatedError('errors.sessionCheck')
         }
       }
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.installationStatus')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.installationStatus')
   } finally {
     setupChecked.value = true
   }
@@ -684,7 +696,7 @@ async function loadData() {
     if (!employeeDepartmentId.value && departments.value.length) employeeDepartmentId.value = String(departments.value[0].id)
     if (!userDepartmentIds.value.length && departments.value.length) userDepartmentIds.value = [departments.value[0].id]
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.loadData')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.loadData')
   } finally {
     busy.value = false
   }
@@ -700,7 +712,7 @@ async function loadAbsences() {
   try {
     absences.value = await api<Absence[]>('/absences')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('absence.loadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('absence.loadFailed')
   }
 }
 
@@ -708,7 +720,7 @@ async function loadArchives() {
   try {
     planArchives.value = await api<PlanArchiveSummary[]>('/archives')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('archive.loadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('archive.loadFailed')
   }
 }
 
@@ -723,7 +735,7 @@ async function saveIdleTimeout() {
     scheduleIdleLogout()
     idleTimeoutMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.saveSecurity')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveSecurity')
   }
 }
 
@@ -731,7 +743,7 @@ async function loadArchiveSettings() {
   try {
     archiveSettings.value = await api('/admin/archive-settings')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('archive.settingsLoadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('archive.settingsLoadFailed')
   }
 }
 
@@ -744,7 +756,7 @@ async function saveArchiveSettings() {
     })
     archiveSettingsMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('archive.settingsSaveFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('archive.settingsSaveFailed')
   }
 }
 
@@ -774,7 +786,7 @@ async function createArchive() {
     archiveNote.value = ''
     await loadArchives()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('archive.createFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('archive.createFailed')
   }
 }
 
@@ -805,7 +817,7 @@ async function submitAbsence() {
     absenceNote.value = ''
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('absence.saveFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('absence.saveFailed')
   }
 }
 
@@ -815,7 +827,7 @@ async function decideAbsence(absence: Absence, decision: 'approved' | 'rejected'
     await api(`/absences/${absence.id}/decision`, { method: 'POST', body: JSON.stringify({ decision }) })
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('absence.decisionFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('absence.decisionFailed')
   }
 }
 
@@ -825,7 +837,7 @@ async function removeAbsence(absence: Absence) {
     await api(`/absences/${absence.id}`, { method: 'DELETE' })
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('absence.deleteFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('absence.deleteFailed')
   }
 }
 
@@ -837,7 +849,7 @@ async function checkForUpdates(refresh = false) {
     updateChannel.value = updateInfo.value.channel
     appVersion.value = updateInfo.value.current_version
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.updateStatus')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.updateStatus')
   } finally {
     updateCheckBusy.value = false
   }
@@ -849,7 +861,7 @@ async function refreshLicenseStatus() {
     licenseInfo.value = await api<LicenseInfo>('/license/status')
   } catch (err) {
     if (roleKey.value === 'ADMIN') {
-      error.value = err instanceof Error ? err.message : t('errors.licenseStatus')
+      error.value = err instanceof Error ? err : new TranslatedError('errors.licenseStatus')
     }
   }
 }
@@ -866,7 +878,7 @@ async function loadAuditEvents(reset = false) {
     auditOffset.value = offset + result.items.length
     auditHasMore.value = result.items.length === result.limit
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('audit.loadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('audit.loadFailed')
   } finally {
     auditBusy.value = false
   }
@@ -876,9 +888,10 @@ function auditActionLabel(action: string) {
   const keys: Record<string, TranslationKey> = {
     created: 'audit.created', updated: 'audit.updated', deleted: 'audit.deleted',
     login: 'audit.login', locked: 'audit.locked', unlocked: 'audit.unlocked',
-    restored: 'audit.restored', login_failed: 'audit.loginFailed',
+    restored: 'audit.restored', login_failed: 'audit.loginFailed', invitation_accepted: 'audit.invitationAccepted',
   }
-  return keys[action] ? t(keys[action]) : action
+  const key = Object.hasOwn(keys, action) ? keys[action] : undefined
+  return key ? t(key) : action
 }
 
 async function loadMailSettings() {
@@ -886,12 +899,12 @@ async function loadMailSettings() {
     mailSettings.value = await api<MailSettings>('/admin/mail-settings')
     mailSettingsLoaded.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('mail.loadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('mail.loadFailed')
   }
 }
 
 async function saveMailSettings(): Promise<boolean> {
-  mailSettingsMessage.value = ''
+  mailSettingsMessage.value = false
   try {
     const saved = await api<MailSettings>('/admin/mail-settings', {
       method: 'PUT',
@@ -910,26 +923,27 @@ async function saveMailSettings(): Promise<boolean> {
     mailSettings.value = saved
     mailPassword.value = ''
     clearMailPassword.value = false
-    mailSettingsMessage.value = t('mail.settingsSaved')
+    mailSettingsMessage.value = true
     return true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('mail.saveFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('mail.saveFailed')
     return false
   }
 }
 
 async function testMailDelivery() {
-  mailTestMessage.value = ''
+  mailTestRecipientSent.value = ''
   mailTestBusy.value = true
+  const recipient = mailTestRecipient.value.trim()
   try {
     if (!await saveMailSettings()) return
     await api('/admin/mail-settings/test', {
       method: 'POST',
-      body: JSON.stringify({ recipient: mailTestRecipient.value.trim() }),
+      body: JSON.stringify({ recipient }),
     })
-    mailTestMessage.value = t('mail.testSent', { recipient: mailTestRecipient.value.trim() })
+    mailTestRecipientSent.value = recipient
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('mail.testFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('mail.testFailed')
   } finally {
     mailTestBusy.value = false
   }
@@ -965,7 +979,7 @@ async function checkLicenseNow() {
   try {
     licenseInfo.value = await api<LicenseInfo>('/admin/license/check', { method: 'POST' })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('license.checkFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('license.checkFailed')
   } finally {
     licenseCheckBusy.value = false
   }
@@ -981,7 +995,7 @@ async function replaceLicenseToken() {
     })
     licenseTokenInput.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('license.replaceFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('license.replaceFailed')
   } finally {
     licenseCheckBusy.value = false
   }
@@ -1013,13 +1027,13 @@ function scheduleIdleLogout() {
   const remaining = idleTimeoutMs() - (Date.now() - lastActivityAt)
   if (remaining <= 0) {
     void logout().then(() => {
-      error.value = t('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
+      error.value = new TranslatedError('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
     })
     return
   }
   idleLogoutTimer = setTimeout(async () => {
     await logout()
-    error.value = t('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
+    error.value = new TranslatedError('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
   }, remaining)
 }
 
@@ -1044,7 +1058,7 @@ function checkIdleDeadline() {
     && Date.now() - lastActivityAt >= idleTimeoutMs()
   ) {
     void logout().then(() => {
-      error.value = t('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
+      error.value = new TranslatedError('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
     })
     return
   }
@@ -1086,7 +1100,7 @@ async function openProfile() {
     profilePhone.value = ownProfile.phone ?? ''
     teamProfiles.value = colleagues
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('profile.loadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('profile.loadFailed')
   }
 }
 
@@ -1095,7 +1109,7 @@ function selectProfileImage(event: Event) {
   const file = input.files?.[0]
   if (!file) return
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 256_000) {
-    error.value = t('profile.invalidImage')
+    error.value = new TranslatedError('profile.invalidImage')
     input.value = ''
     return
   }
@@ -1104,7 +1118,7 @@ function selectProfileImage(event: Event) {
     if (typeof reader.result === 'string') profileImageData.value = reader.result
   })
   reader.addEventListener('error', () => {
-    error.value = t('profile.readImageFailed')
+    error.value = new TranslatedError('profile.readImageFailed')
   })
   reader.readAsDataURL(file)
 }
@@ -1127,7 +1141,7 @@ async function saveProfile() {
     })
     teamProfiles.value = await api<TeamProfile[]>('/profile/department')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('profile.saveFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('profile.saveFailed')
   }
 }
 
@@ -1141,7 +1155,7 @@ async function changeUpdateChannel(event: Event) {
     updateChannel.value = result.channel
     await checkForUpdates(true)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.updateChannel')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.updateChannel')
   }
 }
 
@@ -1149,7 +1163,7 @@ async function loadWorkRules() {
   try {
     workRules.value = await api('/admin/work-rules')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('operations.rulesLoadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('operations.rulesLoadFailed')
   }
 }
 
@@ -1157,7 +1171,7 @@ async function loadBusinessConfiguration() {
   try {
     businessConfiguration.value = await api<BusinessConfiguration>('/admin/business-configuration')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('operations.loadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('operations.loadFailed')
   }
 }
 
@@ -1171,7 +1185,7 @@ async function saveBusinessConfiguration() {
     businessConfigurationMessage.value = true
     void loadRoleCatalog()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('operations.saveFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('operations.saveFailed')
   }
 }
 
@@ -1181,7 +1195,7 @@ async function saveWorkRules() {
     workRules.value = await api('/admin/work-rules', { method: 'PUT', body: JSON.stringify(workRules.value) })
     workRulesMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('operations.rulesSaveFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('operations.rulesSaveFailed')
   }
 }
 
@@ -1204,7 +1218,7 @@ async function login() {
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.login')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.login')
   } finally {
     busy.value = false
   }
@@ -1212,7 +1226,7 @@ async function login() {
 
 async function acceptInvitation() {
   if (invitationPassword.value !== invitationPasswordConfirm.value) {
-    error.value = t('auth.passwordMismatch')
+    error.value = new TranslatedError('auth.passwordMismatch')
     return
   }
   busy.value = true
@@ -1225,10 +1239,10 @@ async function acceptInvitation() {
     invitationToken.value = ''
     invitationPassword.value = ''
     invitationPasswordConfirm.value = ''
-    invitationMessage.value = 'Dein Passwort wurde gesetzt. Du kannst dich jetzt anmelden.'
+    invitationMessage.value = true
     window.history.replaceState({}, '', window.location.pathname + window.location.search)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.acceptInvitation')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.acceptInvitation')
   } finally {
     busy.value = false
   }
@@ -1236,7 +1250,7 @@ async function acceptInvitation() {
 
 async function completeSetup() {
   if (setupPassword.value !== setupPasswordConfirm.value) {
-    error.value = t('auth.passwordMismatch')
+    error.value = new TranslatedError('auth.passwordMismatch')
     return
   }
   busy.value = true
@@ -1266,7 +1280,7 @@ async function completeSetup() {
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.setup')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.setup')
   } finally {
     busy.value = false
   }
@@ -1279,7 +1293,7 @@ async function logout() {
   try {
     await api('/auth/logout', { method: 'POST' })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.logout')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.logout')
   }
   authenticated.value = false
   username.value = ''
@@ -1340,7 +1354,7 @@ async function submitEmployee() {
     if (authenticated.value && canView.value) await loadData()
     if (canManageTeam.value) await openManagement()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.createEmployee')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.createEmployee')
   }
 }
 
@@ -1391,7 +1405,7 @@ async function submitShift() {
     showShiftForm.value = false
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.createShift')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.createShift')
   }
 }
 
@@ -1420,14 +1434,14 @@ async function addAssignment(employeeId: number, date: string, shift: ShiftType)
 async function submitAssignment() {
   const shift = shiftTypes.value.find((item) => item.id === Number(selectedShift.value))
   if (!shift) {
-    error.value = t('schedule.shiftTypeRequired')
+    error.value = new TranslatedError('schedule.shiftTypeRequired')
     return
   }
   try {
     await addAssignment(Number(selectedEmployee.value), selectedDate.value, shift)
     showAssignmentForm.value = false
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.planShift')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.planShift')
   }
 }
 
@@ -1437,7 +1451,7 @@ async function removeAssignment(id: number) {
     await api(`/assignments/${id}`, { method: 'DELETE' })
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.removeShift')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.removeShift')
   }
 }
 
@@ -1453,7 +1467,7 @@ async function suggestFor(date: string, shift: ShiftType) {
     const result = await api<{ candidates: Candidate[] }>(`/smart-selection?${params}`)
     smartCandidates.value = result.candidates
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.smartSelection')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.smartSelection')
     smartGap.value = null
   }
 }
@@ -1474,7 +1488,7 @@ async function approveCandidate(candidate: Candidate) {
     smartCandidates.value = []
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.applySuggestion')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.applySuggestion')
   }
 }
 
@@ -1501,7 +1515,7 @@ async function proposePlanning() {
     })
     planningDays.value = result.days
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('planning.calculateFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('planning.calculateFailed')
   } finally {
     planningBusy.value = false
   }
@@ -1526,7 +1540,7 @@ async function approvePlanning() {
     planningDays.value = null
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('planning.approveFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('planning.approveFailed')
   } finally {
     planningBusy.value = false
   }
@@ -1546,7 +1560,7 @@ async function optimizeSelectedDay() {
       }),
     })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.calculateOptimization')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.calculateOptimization')
   } finally {
     optimizationBusy.value = false
   }
@@ -1571,7 +1585,7 @@ async function applyOptimizationSuggestion(suggestion: OptimizationSuggestion) {
     }
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.applyOptimization')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.applyOptimization')
   }
 }
 
@@ -1586,7 +1600,7 @@ async function dropEmployee(event: DragEvent, date: string, shift: ShiftType) {
   try {
     await addAssignment(employeeId, date, shift)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.assignShift')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.assignShift')
   }
 }
 
@@ -1605,7 +1619,7 @@ async function saveSettings() {
     newPassword.value = ''
     showProfile.value = false
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('errors.saveSettings')
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveSettings')
   }
 }
 
@@ -1625,7 +1639,7 @@ async function openManagement() {
       if (!employeeDepartmentId.value && organization.length) employeeDepartmentId.value = String(organization[0].id)
       if (roleKey.value === 'PERSONNEL' && userId.value === null) resetUserForm()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : t('errors.loadManagement')
+      error.value = err instanceof Error ? err : new TranslatedError('errors.loadManagement')
     }
   }
 
@@ -1673,7 +1687,7 @@ async function toggleUserLock(user: AccountUser) {
       })
       users.value = users.value.map((item) => (item.id === updated.id ? updated : item))
     } catch (err) {
-      error.value = err instanceof Error ? err.message : t('errors.changeAccount')
+      error.value = err instanceof Error ? err : new TranslatedError('errors.changeAccount')
     }
   }
 
@@ -1685,7 +1699,7 @@ async function toggleUserLock(user: AccountUser) {
           ? { key: 'management.invitationResent', values: { email: String(updated.email) } }
           : { key: 'management.invitationResendFailed' }
       } catch (err) {
-        error.value = err instanceof Error ? err.message : t('errors.sendInvitation')
+        error.value = err instanceof Error ? err : new TranslatedError('errors.sendInvitation')
       }
   }
 
@@ -1696,7 +1710,7 @@ async function toggleUserLock(user: AccountUser) {
           teamNotice.value = { key: 'management.invitationRevokedNotice', values: { name: user.username } }
           await openManagement()
         } catch (err) {
-          error.value = err instanceof Error ? err.message : t('errors.revokeInvitation')
+          error.value = err instanceof Error ? err : new TranslatedError('errors.revokeInvitation')
         }
   }
 
@@ -1731,7 +1745,7 @@ async function toggleUserLock(user: AccountUser) {
       resetUserForm()
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : t('errors.saveAccount')
+      error.value = err instanceof Error ? err : new TranslatedError('errors.saveAccount')
     }
   }
 
@@ -1741,7 +1755,7 @@ async function removeUser(user: AccountUser) {
       await api(`/users/${user.id}`, { method: 'DELETE' })
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : t('errors.deleteAccount')
+      error.value = err instanceof Error ? err : new TranslatedError('errors.deleteAccount')
     }
   }
 
@@ -1755,7 +1769,7 @@ async function saveDepartment() {
       editingDepartmentId.value = null
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : t('errors.saveDepartment')
+      error.value = err instanceof Error ? err : new TranslatedError('errors.saveDepartment')
     }
   }
 
@@ -1770,7 +1784,7 @@ async function removeDepartment(department: Department) {
       await api(`/departments/${department.id}`, { method: 'DELETE' })
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : t('errors.deleteDepartment')
+      error.value = err instanceof Error ? err : new TranslatedError('errors.deleteDepartment')
     }
   }
 
@@ -1863,7 +1877,7 @@ async function loadNotificationHistory() {
     }
     notificationHistory.value = items
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('notifications.loadFailed')
+    error.value = err instanceof Error ? err : new TranslatedError('notifications.loadFailed')
   } finally {
     notificationsLoading.value = false
   }
@@ -1921,7 +1935,7 @@ onBeforeUnmount(() => {
         <p class="muted">{{ t('auth.licenseDescription') }}</p>
         <button class="primary full" :disabled="busy">{{ busy ? t('auth.settingUp') : t('auth.createAdmin') }}</button>
       </form>
-      <p v-if="error" class="error-message">{{ error }}</p>
+      <p v-if="error" class="error-message">{{ displayedError }}</p>
       <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
@@ -1938,7 +1952,7 @@ onBeforeUnmount(() => {
         <label>{{ t('auth.repeatPassword') }}<input v-model="invitationPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
         <button class="primary full" :disabled="busy">{{ busy ? t('auth.savingPassword') : t('auth.setPassword') }}</button>
       </form>
-      <p v-if="error" class="error-message">{{ error }}</p>
+      <p v-if="error" class="error-message">{{ displayedError }}</p>
       <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
@@ -1951,7 +1965,7 @@ onBeforeUnmount(() => {
       <p v-if="institutionName" class="institution-label">{{ t('auth.licensedTo') }} <strong>{{ institutionName }}</strong></p>
       <h1>{{ t('auth.welcome') }}</h1>
       <p class="muted">{{ t('auth.loginDescription') }}</p>
-      <p v-if="invitationMessage" class="success-message" role="status">{{ invitationMessage }}</p>
+      <p v-if="invitationMessage" class="success-message" role="status">{{ t('auth.invitationAccepted') }}</p>
       <form class="stack" @submit.prevent="login">
         <label>{{ t('auth.username') }}<input v-model="loginUsername" autocomplete="username" required /></label>
         <label>{{ t('auth.password') }}<input v-model="password" type="password" autocomplete="current-password" required /></label>
@@ -1959,7 +1973,7 @@ onBeforeUnmount(() => {
         <p class="muted">{{ t('auth.adminRememberWarning') }}</p>
         <button class="primary full" :disabled="busy">{{ busy ? t('auth.signingIn') : t('auth.signIn') }}</button>
       </form>
-      <p v-if="error" class="error-message">{{ error }}</p>
+      <p v-if="error" class="error-message">{{ displayedError }}</p>
       <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
@@ -2030,7 +2044,7 @@ onBeforeUnmount(() => {
             <p class="muted">{{ t('planning.description') }}</p>
           </div>
         </div>
-        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
+        <div v-if="error" class="alert" role="alert"><span>{{ displayedError }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
         <p v-if="planningNotice" class="planning-notice" role="status">{{ planningNotice }}</p>
         <section class="planning-controls">
           <label>{{ t('planning.period') }}
@@ -2140,7 +2154,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
+        <div v-if="error" class="alert" role="alert"><span>{{ displayedError }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
         <section
           v-if="roleKey === 'ADMIN' && licenseInfo && !licenseInfo.suppress_warnings && (licenseInfo.status !== 'PAID' || licenseInfo.read_only || licenseInfo.last_error)"
           class="license-banner"
@@ -2325,7 +2339,7 @@ onBeforeUnmount(() => {
     </section>
 
     <div v-if="authenticated && error" class="toast toast-error" role="alert">
-      <span>{{ error }}</span><button type="button" :aria-label="t('planning.closeAlert')" @click="error = ''">×</button>
+      <span>{{ displayedError }}</span><button type="button" :aria-label="t('planning.closeAlert')" @click="error = ''">×</button>
     </div>
     <div v-if="confirmDialog" class="modal-backdrop confirm-backdrop" @click.self="answerConfirmation(false)" @keydown.esc="answerConfirmation(false)">
       <section class="modal confirm-modal" role="alertdialog" aria-modal="true" :aria-label="t('management.confirmation')">
@@ -2394,7 +2408,7 @@ onBeforeUnmount(() => {
           <form class="stack" @submit.prevent="submitEmployee">
             <label>{{ t('form.firstName') }}<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
             <label>{{ t('form.lastName') }}<input v-model="employeeLastName" maxlength="80" required /></label>
-            <label>{{ t('form.scheduleRole') }}<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ fn }}</option><option value="Individuell">{{ t('form.custom') }}</option></select></label>
+            <label>{{ t('form.scheduleRole') }}<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ catalogFunctionLabel(fn) }}</option><option value="Individuell">{{ t('form.custom') }}</option></select></label>
             <label v-if="employeeRole === 'Individuell'">{{ t('form.customRole') }}<input v-model="employeeCustomRole" maxlength="80" required /></label>
             <label>{{ t('form.department') }}<select v-model="employeeDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
             <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> {{ t('form.createAccess') }}</label>
@@ -2533,12 +2547,12 @@ onBeforeUnmount(() => {
               <label>{{ t('mail.sender') }}<input v-model="mailSettings.from_address" type="email" maxlength="255" required /></label>
               <label class="permission-toggle"><input v-model="mailSettings.use_ssl" type="checkbox" /> {{ t('mail.ssl') }}</label>
               <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> {{ t('mail.starttls') }}</label>
-              <div class="form-row"><button class="primary">{{ t('mail.save') }}</button><span v-if="mailSettingsMessage" class="muted">{{ mailSettingsMessage }}</span></div>
+              <div class="form-row"><button class="primary">{{ t('mail.save') }}</button><span v-if="mailSettingsMessage" class="muted">{{ t('mail.settingsSaved') }}</span></div>
             </form>
             <form class="stack" @submit.prevent="void testMailDelivery()">
               <h4>{{ t('mail.test') }}</h4>
               <label>{{ t('mail.testAddress') }}<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
-              <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? t('mail.sending') : t('mail.saveAndTest') }}</button><span v-if="mailTestMessage" class="muted" role="status">{{ mailTestMessage }}</span></div>
+              <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? t('mail.sending') : t('mail.saveAndTest') }}</button><span v-if="mailTestRecipientSent" class="muted" role="status">{{ t('mail.testSent', { recipient: mailTestRecipientSent }) }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'license'" class="license-settings">

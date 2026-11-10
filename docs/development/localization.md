@@ -6,8 +6,9 @@ die Abwesenheitsoberfläche, die Planungsvorschau, die Wochen- und Tagesansicht
 des Dienstplans, Formulare für Dienste und Mitarbeitende, Teile der
 Teamverwaltung, Benachrichtigungen, Profil, Archiv, SMTP-Einstellungen und die Backup-Oberfläche
 sind teilweise übersetzt. Einige
-bekannte API-Fehler werden ebenfalls übersetzt. Hinweise der Teamverwaltung
-werden beim Sprachwechsel neu dargestellt. Der Sprachumschalter ist vor
+bekannte API-Fehler werden ebenfalls übersetzt. API-Fehler, Sicherungs- und
+Einstellungshinweise sowie Hinweise der Teamverwaltung werden beim Sprachwechsel
+neu dargestellt. Der Sprachumschalter ist vor
 und nach der Anmeldung verfügbar. Bei Englisch weist er darauf hin, dass die
 übrige Oberfläche und API-Meldungen noch nicht vollständig übersetzt sind.
 
@@ -35,7 +36,12 @@ und bekannten API-Meldungen übersetzt und überprüft sind. Frei eingegebene
 Daten dürfen nicht übersetzt werden. Bekannte API-Fehlermeldungen werden in
 `frontend/src/i18n/apiErrors.ts` Katalogschlüsseln zugeordnet. Unbekannte
 Meldungen bleiben unverändert sichtbar und erhalten bei Englisch eine
-übersetzte Einleitung.
+übersetzte Einleitung. `ApiError` speichert den ursprünglichen Antwortinhalt
+und HTTP-Status; `errorMessage` übersetzt erst bei der Anzeige. Auch
+`TranslatedError` speichert Schlüssel und Parameter statt eines bereits
+übersetzten Textes. So bleiben angezeigte Fehler beim Sprachwechsel aktuell.
+Die vom Server gelieferten Standardfunktionen werden nur in der Auswahlliste
+übersetzt; ihre gespeicherten Werte und frei eingegebenen Daten bleiben erhalten.
 
 Kataloge und Build prüfen:
 

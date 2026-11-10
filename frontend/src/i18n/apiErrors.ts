@@ -34,6 +34,56 @@ const knownErrors: Record<string, TranslationKey> = {
   'Employee not found': 'api.employeeNotFound',
   'Absence not found': 'api.absenceNotFound',
   'Absence management permission required': 'api.absencePermission',
+  'Setup required': 'api.setupRequired',
+  'Archive not found': 'api.archiveNotFound',
+  'Date range must be 1–366 days': 'api.archiveDateRange',
+  'Date range must be 1–63 days': 'api.planningDateRange',
+  'Department is required': 'api.departmentRequired',
+  'Current password is incorrect': 'api.currentPasswordIncorrect',
+  'Business configuration is missing': 'api.businessConfigurationMissing',
+  'Initial setup is already complete': 'api.setupComplete',
+  'Licensed user limit reached': 'api.licenseUserLimit',
+  'Role is not available for this facility type': 'api.roleUnavailable',
+  'Personnel users can create employee accounts only': 'api.personnelCreateOnly',
+  'Personnel users can manage employee accounts only': 'api.personnelManageOnly',
+  'Only the administrator can add hospital managers': 'api.adminAddManagement',
+  'Only the administrator can manage hospital managers': 'api.adminManageManagement',
+  'Only management can add personnel users': 'api.managementAddPersonnel',
+  'Only management can assign the personnel role': 'api.managementAssignPersonnel',
+  'A department is required for this role': 'api.roleDepartmentRequired',
+  'Chief physicians are read-only': 'api.chiefPhysicianReadOnly',
+  'A password or invitation email is required': 'api.passwordOrInvitationRequired',
+  'An invited account must accept its invitation before it can be unlocked': 'api.invitationBeforeUnlock',
+  'No invitation email address is stored': 'api.invitationEmailMissing',
+  'No active invitation exists': 'api.invitationMissing',
+  'You can only plan your own department': 'api.planOwnDepartment',
+  'You can only approve for your own department': 'api.approveOwnDepartment',
+  'No department access is configured': 'api.departmentAccessMissing',
+  'The scheduled break must fit within the shift and start within the first six hours (ArbZG §4)': 'api.invalidBreak',
+  'Shift type name already exists': 'api.shiftNameExists',
+  'Shift type is in use': 'api.shiftTypeInUse',
+  'A valid timezone-aware interval is required': 'api.timezoneInterval',
+  'SMTP authentication requires TLS': 'api.smtpTlsRequired',
+  'Testmail konnte nicht versendet werden. SMTP-Host, Zugangsdaten und TLS-Einstellungen prüfen.': 'api.smtpTestFailed',
+  'Bundesland fehlt': 'api.stateMissing',
+  'Einrichtungsart fehlt': 'api.facilityMissing',
+  'Lizenzprüfung ist nicht verfügbar': 'api.licenseUnavailable',
+  'Lizenzprüfung ist nicht konfiguriert': 'api.licenseNotConfigured',
+  'Lizenzserver ist momentan nicht erreichbar': 'api.licenseServerUnreachable',
+  'Lizenz-Token oder Status ungültig': 'api.invalidLicense',
+  'Lizenz-Token oder signierter Lizenzstatus ist ungültig': 'api.invalidSignedLicense',
+  'Lizenz enthält kein ClinicPulse-Kernfeature': 'api.licenseCoreMissing',
+  'Diese Lizenz ist gesperrt': 'api.licenseLocked',
+  'License installation is not initialized': 'api.licenseNotInitialized',
+  'Die Lizenz enthält kein Bundesland. Bitte im License Manager beim Kunden hinterlegen und Token neu ausstellen.': 'api.licenseStateMissing',
+  'Die Lizenz enthält keine Einrichtungsart. Bitte im License Manager beim Kunden hinterlegen und Token neu ausstellen.': 'api.licenseFacilityMissing',
+  'Angemeldet bleiben ist für Administrationskonten nicht verfügbar': 'api.adminRememberUnavailable',
+  'Dieses Konto ist keiner Abteilung zugeordnet': 'api.accountDepartmentMissing',
+  'Passwortprüfung momentan nicht verfügbar': 'api.passwordCheckUnavailable',
+  'Ungültige Antwort des Passwort-Prüfdienstes': 'api.passwordCheckInvalid',
+  'Have I Been Pwned konnte nicht erreicht werden': 'api.passwordCheckUnreachable',
+  'Antwort des Passwort-Prüfdienstes ist zu groß': 'api.passwordCheckTooLarge',
+  'Dienstpläne sind für den Administrator nicht einsehbar': 'api.adminScheduleUnavailable',
   'Absences are not available for kiosk accounts': 'api.absenceKiosk',
   'You can only request your own absences': 'api.ownAbsenceOnly',
   'An absence already exists in this period': 'api.absenceOverlap',
@@ -76,4 +126,28 @@ export function apiErrorDetail(detail: unknown): string | null {
     return typeof item.msg === 'string' ? [item.msg] : []
   })
   return messages.length ? [...new Set(messages)].map((message) => apiErrorDetail(message)).join('; ') : null
+}
+
+export class ApiError extends Error {
+  constructor(readonly detail: unknown, readonly status: number) {
+    super(`HTTP ${status}`)
+  }
+
+  display(): string {
+    return apiErrorDetail(this.detail) ?? t('api.requestFailed', { status: this.status })
+  }
+}
+
+export class TranslatedError extends Error {
+  constructor(readonly key: TranslationKey, readonly values?: Record<string, string | number>) {
+    super(key)
+  }
+
+  display(): string {
+    return t(this.key, this.values)
+  }
+}
+
+export function errorMessage(error: string | Error): string {
+  return error instanceof ApiError || error instanceof TranslatedError ? error.display() : typeof error === 'string' ? error : error.message
 }
