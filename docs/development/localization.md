@@ -2,8 +2,9 @@
 
 Die Lokalisierung befindet sich noch im Aufbau. Die Passwortkomponente, die
 statischen Texte der Anmeldung, Ersteinrichtung und Einladung, die Navigation
-und die Abwesenheitsoberfläche sind übersetzt. Ein Sprachumschalter ist noch nicht freigegeben;
-die übrige Oberfläche und API-Meldungen sind nicht vollständig übersetzt.
+und die Abwesenheitsoberfläche sind übersetzt. Der Sprachumschalter ist vor
+und nach der Anmeldung verfügbar. Bei Englisch weist er darauf hin, dass die
+übrige Oberfläche und API-Meldungen noch nicht vollständig übersetzt sind.
 
 Die Kataloge liegen in `frontend/src/i18n/locales/de.js` und `en.js`. Schlüssel
 sind nach Bereich benannt. Texte für neue oder migrierte Oberflächenelemente
@@ -22,9 +23,10 @@ innerhalb von `computed` aufgerufen wird. Einmalig außerhalb davon ausgewertete
 Um eine weitere Sprache vorzubereiten, einen vollständigen Katalog mit
 denselben Schlüsseln und Platzhaltern anlegen, ihn in
 `frontend/src/i18n/index.ts` registrieren und die Katalogtests entsprechend
-erweitern. Bevor die Sprache in einem Umschalter angeboten wird, müssen alle
-UI-Texte, Standardrollen und bekannten API-Meldungen übersetzt und überprüft
-sein. Frei eingegebene Daten dürfen nicht übersetzt werden. Nicht vorhersagbare
+erweitern. Außerdem einen Eintrag in `localeOptions` und den Namen im
+Sprachkatalog ergänzen. Weitere
+Sprachen sollen erst angeboten werden, wenn alle UI-Texte, Standardrollen
+und bekannten API-Meldungen übersetzt und überprüft sind. Frei eingegebene Daten dürfen nicht übersetzt werden. Nicht vorhersagbare
 externe Fehlermeldungen sollen mit übersetzter Einleitung und unverändertem
 Original angezeigt werden.
 

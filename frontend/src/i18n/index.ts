@@ -7,6 +7,11 @@ export type TranslationKey = keyof typeof en
 const translations = { de, en } satisfies Record<string, Record<TranslationKey, string>>
 export type Locale = keyof typeof translations
 
+export const localeOptions: { value: Locale; label: TranslationKey; flag: string }[] = [
+  { value: 'de', label: 'language.de', flag: '🇩🇪' },
+  { value: 'en', label: 'language.en', flag: '🇬🇧' },
+]
+
 function isLocale(value: string | null): value is Locale {
   return value !== null && Object.hasOwn(translations, value)
 }

@@ -15,6 +15,7 @@
 | [Sicherheit](security.md)                                       | Anmeldung, Sitzungen, Passwortprüfung, Verschlüsselung        |
 | [E-Mail](mail.md)                                               | SMTP-Einstellungen und Testversand                            |
 | [Protokoll und Updates](audit-and-updates.md)                   | Änderungsprotokoll und Update-Hinweise                        |
+| [Internationalisierung](internationalization.md)               | Sprachwahl und Übersetzungsstand                              |
 
 ::: info
 Die Seiten beschreiben das Verhalten des Backends (`backend/app/`). Die Oberfläche kann sich in der Alpha-Phase ändern.

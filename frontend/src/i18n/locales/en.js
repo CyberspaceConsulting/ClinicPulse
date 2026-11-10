@@ -1,4 +1,8 @@
 export default {
+  'language.label': 'Language',
+  'language.de': 'Deutsch',
+  'language.en': 'English',
+  'language.incomplete': 'English translation is incomplete; some text may still appear in German.',
   'auth.starting': 'ClinicPulse is starting …',
   'auth.checkingSetup': 'Checking installation status.',
   'auth.setupEyebrow': 'CLINICPULSE · INITIAL SETUP',

@@ -16,6 +16,13 @@ body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .55; cursor: not-allowed; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.language-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; }
+.language-selector { display: inline-flex; align-items: center; gap: 5px; }
+.language-selector select { color: inherit; background: transparent; border: 1px solid #cbd8d4; border-radius: 6px; padding: 5px; font-size: 12px; }
+.language-notice { max-width: 190px; color: #80621e; font-size: 10px; }
+.language-banner { margin: 0; padding: 6px 15px; color: #6b5014; background: #fff3d4; font-size: 11px; }
+.login-card > .language-control { justify-content: flex-end; margin-bottom: 12px; }
 .app-shell { min-height: 100vh; display: flex; }
 .sidebar { position: fixed; inset: 0 auto 0 0; width: 248px; background: #102b29; color: #e9f2ef; display: flex; flex-direction: column; padding: 27px 18px 18px; z-index: 2; }
 .mobile-navigation { display: none; }
@@ -145,6 +152,7 @@ h1, h2, h3, p { margin-top: 0; }
 @media (max-width: 720px) {
   .mobile-navigation { display: flex; gap: 6px; overflow-x: auto; padding: 8px 14px; background: #102b29; }
   .mobile-navigation button { flex: 0 0 auto; border: 0; border-radius: 6px; padding: 8px 10px; background: #214440; color: #fff; cursor: pointer; }
+  .topbar .breadcrumb { display: none; }
   .sidebar { position: static; width: 100%; height: 58px; padding: 10px 14px; flex-direction: row; align-items: center; }.brand { font-size: 17px; }.brand-mark.small { width: 31px; height: 31px; }.nav-caption, .plan-nav-list, .nav-item, .sidebar-bottom { display: none; }.mobile-plan-selector { display: block; }
   .app-shell { display: block; }.workspace { width: 100%; margin: 0; }.topbar { height: 48px; padding: 0 15px; }.content { padding: 23px 14px; }.page-heading { align-items: flex-start; gap: 12px; }.page-heading h1 { font-size: 23px; }.page-heading .muted { max-width: 210px; line-height: 1.5; }.page-heading > .primary { white-space: nowrap; padding: 9px 10px; font-size: 10px; }
   .stats { gap: 7px; }.stat-card { display: flex; align-items: flex-start; flex-direction: column; gap: 7px; min-height: 100px; padding: 10px; }.stat-icon { display: none; }.stat-card strong { font-size: 19px; }.stat-card small { font-size: 9px; }.stat-label { font-size: 9px; }

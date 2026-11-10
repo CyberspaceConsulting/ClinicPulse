@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BackupPanel from './BackupPanel.vue'
 import PasswordInput from './PasswordInput.vue'
+import LanguageSelector from './LanguageSelector.vue'
 import { locale, t } from './i18n'
 
 type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
@@ -1888,11 +1889,12 @@ onBeforeUnmount(() => {
 
 <template>
   <main v-if="!setupChecked" class="login-shell">
-    <section class="login-card"><div class="brand-mark">C</div><h1>{{ t('auth.starting') }}</h1><p class="muted">{{ t('auth.checkingSetup') }}</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version 0.1.0</footer></section>
+    <section class="login-card"><LanguageSelector /><div class="brand-mark">C</div><h1>{{ t('auth.starting') }}</h1><p class="muted">{{ t('auth.checkingSetup') }}</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version 0.1.0</footer></section>
   </main>
 
   <main v-else-if="setupRequired && !authenticated" class="login-shell">
     <section class="login-card setup-card">
+      <LanguageSelector />
       <div class="brand-mark">C</div>
       <p class="eyebrow">{{ t('auth.setupEyebrow') }}</p>
       <h1>{{ t('auth.setupTitle') }}</h1>
@@ -1914,6 +1916,7 @@ onBeforeUnmount(() => {
 
   <main v-else-if="invitationToken && !authenticated" class="login-shell">
     <section class="login-card setup-card">
+      <LanguageSelector />
       <div class="brand-mark">C</div>
       <p class="eyebrow">{{ t('auth.invitationEyebrow') }}</p>
       <h1>{{ t('auth.invitationTitle') }}</h1>
@@ -1930,6 +1933,7 @@ onBeforeUnmount(() => {
 
   <main v-else-if="!authenticated" class="login-shell">
     <section class="login-card">
+      <LanguageSelector />
       <div class="brand-mark">C</div>
       <p class="eyebrow">{{ t('auth.loginEyebrow') }}</p>
       <p v-if="institutionName" class="institution-label">{{ t('auth.licensedTo') }} <strong>{{ institutionName }}</strong></p>
@@ -1988,6 +1992,7 @@ onBeforeUnmount(() => {
       <header class="topbar">
         <div class="breadcrumb">{{ t('nav.workspaceLabel') }} <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? t('nav.dayView') : t('nav.weekView') }}</div>
         <div class="topbar-right">
+          <LanguageSelector compact />
           <select class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
             <option v-if="canManage" value="all">{{ t('nav.allSchedules') }}</option>
             <option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option>
@@ -2004,6 +2009,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </header>
+      <p v-if="locale === 'en'" class="language-banner" role="status">{{ t('language.incomplete') }}</p>
       <main v-if="showPlanning" class="content">
         <div class="page-heading">
           <div>
