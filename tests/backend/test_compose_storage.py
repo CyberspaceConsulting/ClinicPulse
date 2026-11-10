@@ -60,7 +60,7 @@ def test_encrypted_storage_overlay_keeps_database_mount_explicit(base, tmp_path)
     result = subprocess.run(command, env=environment, capture_output=True, text=True, check=True)
     config = json.loads(result.stdout)
     services = config["services"]
-    mounts = [volume for volume in services["db"]["volumes"] if volume["target"] == "/var/lib/postgresql/data"]
+    mounts = [volume for volume in services["db"]["volumes"] if volume["target"] == "/var/lib/postgresql"]
     assert len(mounts) == 1
     assert mounts[0]["type"] == "bind"
     assert mounts[0]["source"] == str(tmp_path)

@@ -26,6 +26,17 @@ Testdatenbank über `TEST_POSTGRES_URL` konfiguriert ist. Verwende dafür
 ausschließlich eine entbehrliche lokale Testdatenbank, niemals eine
 Produktivdatenbank.
 
+Der echte Docker-Compose-Smoke-Test baut und startet Web, Backend und PostgreSQL
+und prüft API- sowie Web-Erreichbarkeit über den veröffentlichten Web-Port:
+
+```sh
+./tests/compose-smoke.sh
+```
+
+Er benötigt Docker Compose v2, `curl`, `openssl`, Python 3 und einen freien
+lokalen TCP-Port. Der Test verwendet ein eigenes Compose-Projekt und räumt seine
+Container, sein Volume und temporäre Schlüsseldateien anschließend wieder auf.
+
 ## Frontend
 
 Build und Browser-Tests:
