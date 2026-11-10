@@ -72,3 +72,11 @@ jobs:
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  compose-smoke:
+    name: Docker Compose runtime smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Start the real Compose stack and verify web/API/database
+        run: ./tests/compose-smoke.sh
