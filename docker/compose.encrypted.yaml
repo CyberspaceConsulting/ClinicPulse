@@ -4,7 +4,7 @@ services:
     volumes:
       - type: bind
         source: ${CLINICPULSE_ENCRYPTED_PGDATA:?Set CLINICPULSE_ENCRYPTED_PGDATA to an existing directory on encrypted storage}
-        target: /var/lib/postgresql/data
+        target: /var/lib/postgresql
         bind:
           create_host_path: false
   backend:
