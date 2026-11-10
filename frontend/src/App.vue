@@ -4,6 +4,7 @@ import BackupPanel from './BackupPanel.vue'
 import PasswordInput from './PasswordInput.vue'
 import LanguageSelector from './LanguageSelector.vue'
 import { locale, t } from './i18n'
+import { apiErrorDetail } from './i18n/apiErrors'
 
 type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
 type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
@@ -551,17 +552,6 @@ function dateLabel(value: string) {
   })
 }
 
-function formatApiErrorDetail(detail: unknown): string | null {
-  if (typeof detail === 'string') return detail
-  if (!Array.isArray(detail)) return null
-
-  const messages = detail.flatMap((item: unknown) => {
-    if (typeof item !== 'object' || item === null || !('msg' in item)) return []
-    return typeof item.msg === 'string' ? [item.msg] : []
-  })
-  return messages.length ? [...new Set(messages)].join('; ') : null
-}
-
 let apiAbortController = new AbortController()
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -584,9 +574,9 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     const detail = typeof data === 'object' && data !== null && 'detail' in data
-      ? formatApiErrorDetail(data.detail)
+      ? apiErrorDetail(data.detail)
       : null
-    throw new Error(detail ?? `Anfrage fehlgeschlagen (${response.status})`)
+    throw new Error(detail ?? t('api.requestFailed', { status: response.status }))
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -1495,7 +1485,7 @@ async function proposePlanning() {
     })
     planningDays.value = result.days
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienstplan konnte nicht berechnet werden'
+    error.value = err instanceof Error ? err.message : t('planning.calculateFailed')
   } finally {
     planningBusy.value = false
   }
@@ -1516,11 +1506,11 @@ async function approvePlanning() {
         }))),
       }),
     })
-    planningNotice.value = `${result.created} Dienste wurden genehmigt und eingetragen.`
+    planningNotice.value = t(result.created === 1 ? 'planning.approvedOne' : 'planning.approvedOther', { count: result.created })
     planningDays.value = null
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienstplan konnte nicht genehmigt werden'
+    error.value = err instanceof Error ? err.message : t('planning.approveFailed')
   } finally {
     planningBusy.value = false
   }
@@ -2013,48 +2003,48 @@ onBeforeUnmount(() => {
       <main v-if="showPlanning" class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">DIENSTPLANUNG</p>
-            <h1>Dienstplan vorschlagen</h1>
-            <p class="muted">Bereits eingetragene Dienste bleiben unverändert. Der Vorschlag füllt nur offene Stellen und wird erst nach deiner Genehmigung gespeichert.</p>
+            <p class="eyebrow">{{ t('planning.eyebrow') }}</p>
+            <h1>{{ t('planning.title') }}</h1>
+            <p class="muted">{{ t('planning.description') }}</p>
           </div>
         </div>
-        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" aria-label="Meldung schließen">×</button></div>
+        <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button @click="error = ''" :aria-label="t('planning.closeAlert')">×</button></div>
         <p v-if="planningNotice" class="planning-notice" role="status">{{ planningNotice }}</p>
         <section class="planning-controls">
-          <label>Zeitraum
+          <label>{{ t('planning.period') }}
             <select v-model="planningMode">
-              <option value="week">Woche</option>
-              <option value="month">Monat</option>
+              <option value="week">{{ t('planning.week') }}</option>
+              <option value="month">{{ t('planning.month') }}</option>
             </select>
           </label>
-          <label>Datum im Zeitraum
+          <label>{{ t('planning.date') }}
             <input v-model="planningAnchor" type="date" />
           </label>
-          <p class="muted">{{ planningPeriod.start.split('-').reverse().join('.') }} – {{ planningPeriod.end.split('-').reverse().join('.') }} · {{ selectedPlanName }}</p>
+          <p class="muted">{{ new Date(`${planningPeriod.start}T12:00:00`).toLocaleDateString(locale) }} – {{ new Date(`${planningPeriod.end}T12:00:00`).toLocaleDateString(locale) }} · {{ selectedPlanName }}</p>
           <button class="primary" :disabled="planningBusy || !shiftTypes.length" @click="void proposePlanning()">
-            {{ planningBusy ? 'Berechne …' : '✧ Dienstplan vorschlagen' }}
+            {{ planningBusy ? t('planning.calculating') : t('planning.propose') }}
           </button>
         </section>
         <section v-if="planningDays" class="optimization-panel smart-panel" aria-live="polite">
           <header class="smart-heading">
-            <strong>{{ planningSuggestionCount }} neue Dienste vorgeschlagen · {{ planningUnfilledCount }} Stellen unbesetzt</strong>
-            <span>Jeder Dienst wird beim Genehmigen erneut gegen Arbeitszeitgesetz und Abwesenheiten geprüft.</span>
-            <button class="primary approve-button" :disabled="planningBusy || !planningSuggestionCount" @click="void approvePlanning()">Plan genehmigen</button>
+            <strong>{{ t('planning.summary', { suggestions: t(planningSuggestionCount === 1 ? 'planning.suggestionOne' : 'planning.suggestionOther', { count: planningSuggestionCount }), unfilled: t(planningUnfilledCount === 1 ? 'planning.unfilledOne' : 'planning.unfilledOther', { count: planningUnfilledCount }) }) }}</strong>
+            <span>{{ t('planning.review') }}</span>
+            <button class="primary approve-button" :disabled="planningBusy || !planningSuggestionCount" @click="void approvePlanning()">{{ t('planning.approve') }}</button>
           </header>
           <p v-if="planningLoad.length" class="muted">
-            Verteilung: <span v-for="([name, count], index) in planningLoad" :key="name">{{ index ? ' · ' : '' }}{{ name }} {{ count }}</span>
+            {{ t('planning.distribution') }} <span v-for="([name, count], index) in planningLoad" :key="name">{{ index ? ' · ' : '' }}{{ name }} {{ count }}</span>
           </p>
           <article v-for="day in planningDays.filter((entry) => entry.suggestions.length || entry.unfilled_slots.length)" :key="day.target_date" class="planning-day">
             <h3>{{ dateLabel(day.target_date) }}</h3>
             <p v-for="suggestion in day.suggestions" :key="`${suggestion.shift_type_id}-${suggestion.employee_id}`" class="planning-line">
               <strong>{{ suggestion.employee_name }}</strong> · {{ suggestion.shift_name }}
-              <small>{{ timeLabel(suggestion.starts_at) }}–{{ timeLabel(suggestion.ends_at) }}{{ suggestion.role_match ? '' : ' · Rollenabweichung' }}</small>
+              <small>{{ timeLabel(suggestion.starts_at) }}–{{ timeLabel(suggestion.ends_at) }}{{ suggestion.role_match ? '' : t('planning.roleMismatch') }}</small>
             </p>
             <p v-for="(slot, index) in day.unfilled_slots" :key="`gap-${slot.shift_type_id}-${index}`" class="planning-line planning-gap">
-              Unbesetzt: {{ slot.shift_name }} ({{ slot.position }})
+              {{ t('planning.unfilled', { shift: slot.shift_name, position: slot.position }) }}
             </p>
           </article>
-          <p v-if="!planningSuggestionCount && !planningUnfilledCount" class="muted">Im gewählten Zeitraum sind keine offenen Stellen vorhanden.</p>
+          <p v-if="!planningSuggestionCount && !planningUnfilledCount" class="muted">{{ t('planning.empty') }}</p>
         </section>
       </main>
       <main v-else-if="showAbsences" class="content">

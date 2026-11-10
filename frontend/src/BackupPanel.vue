@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { t } from './i18n'
+import { apiErrorDetail } from './i18n/apiErrors'
 
 type Target = { id: number; name: string; kind: string; config: Record<string, string>; enabled: boolean; retention_count: number }
 type Settings = { schedule_enabled: boolean; frequency: 'daily' | 'weekly'; weekday: number; time_of_day: string; recipient_count: number; last_slot: string | null; timezone: string }
@@ -55,12 +57,6 @@ const remoteFile = ref('')
 
 const currentFields = computed(() => kindFields[form.kind] ?? [])
 
-function detailText(detail: unknown): string {
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) return detail.map((item) => (item && typeof item === 'object' && 'msg' in item ? String(item.msg) : String(item))).join(', ')
-  return 'Anfrage fehlgeschlagen'
-}
-
 async function call<T>(path: string, options: RequestInit = {}, json = true): Promise<T> {
   const response = await fetch(`/api/admin/backup${path}`, {
     ...options,
@@ -69,7 +65,7 @@ async function call<T>(path: string, options: RequestInit = {}, json = true): Pr
   })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
-    throw new Error(data && 'detail' in data ? detailText(data.detail) : `Anfrage fehlgeschlagen (${response.status})`)
+    throw new Error((data && 'detail' in data ? apiErrorDetail(data.detail) : null) ?? t('api.requestFailed', { status: response.status }))
   }
   if (response.status === 204) return undefined as T
   if (response.headers.get('content-type')?.includes('application/json')) return response.json() as Promise<T>
@@ -161,7 +157,7 @@ async function downloadBackup() {
     })
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
-      throw new Error(data && 'detail' in data ? detailText(data.detail) : `Anfrage fehlgeschlagen (${response.status})`)
+      throw new Error((data && 'detail' in data ? apiErrorDetail(data.detail) : null) ?? t('api.requestFailed', { status: response.status }))
     }
     const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'clinicpulse.cpbak'
     const url = URL.createObjectURL(await response.blob())
@@ -198,7 +194,7 @@ async function createRecoveryKey() {
     })
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
-      throw new Error(data && 'detail' in data ? detailText(data.detail) : `Anfrage fehlgeschlagen (${response.status})`)
+      throw new Error((data && 'detail' in data ? apiErrorDetail(data.detail) : null) ?? t('api.requestFailed', { status: response.status }))
     }
     lastPublicKey.value = response.headers.get('x-public-key') ?? ''
     const url = URL.createObjectURL(await response.blob())

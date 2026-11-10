@@ -1,8 +1,9 @@
 # Lokalisierung
 
 Die Lokalisierung befindet sich noch im Aufbau. Die Passwortkomponente, die
-statischen Texte der Anmeldung, Ersteinrichtung und Einladung, die Navigation
-und die Abwesenheitsoberfläche sind übersetzt. Der Sprachumschalter ist vor
+statischen Texte der Anmeldung, Ersteinrichtung und Einladung, die Navigation,
+die Abwesenheitsoberfläche und die Planungsvorschau sind übersetzt. Einige
+bekannte API-Fehler werden ebenfalls übersetzt. Der Sprachumschalter ist vor
 und nach der Anmeldung verfügbar. Bei Englisch weist er darauf hin, dass die
 übrige Oberfläche und API-Meldungen noch nicht vollständig übersetzt sind.
 
@@ -26,9 +27,11 @@ denselben Schlüsseln und Platzhaltern anlegen, ihn in
 erweitern. Außerdem einen Eintrag in `localeOptions` und den Namen im
 Sprachkatalog ergänzen. Weitere
 Sprachen sollen erst angeboten werden, wenn alle UI-Texte, Standardrollen
-und bekannten API-Meldungen übersetzt und überprüft sind. Frei eingegebene Daten dürfen nicht übersetzt werden. Nicht vorhersagbare
-externe Fehlermeldungen sollen mit übersetzter Einleitung und unverändertem
-Original angezeigt werden.
+und bekannten API-Meldungen übersetzt und überprüft sind. Frei eingegebene
+Daten dürfen nicht übersetzt werden. Bekannte API-Fehlermeldungen werden in
+`frontend/src/i18n/apiErrors.ts` Katalogschlüsseln zugeordnet. Unbekannte
+Meldungen bleiben unverändert sichtbar und erhalten bei Englisch eine
+übersetzte Einleitung.
 
 Kataloge und Build prüfen:
 

@@ -60,6 +60,12 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures =
       return reply(assignments[0], 201)
     }
     if (path === '/api/assignments') return reply(assignments)
+    if (path === '/api/planning/preview') return reply({ days: [{
+      target_date: '2026-11-16', status: 'FEASIBLE',
+      suggestions: [{ employee_id: 1, employee_name: employee.name, employee_role: employee.role, shift_type_id: 1, shift_name: shift.name, role_match: true, starts_at: '2026-11-16T07:00:00', ends_at: '2026-11-16T15:00:00' }],
+      unfilled_slots: [{ shift_type_id: 1, shift_name: shift.name, position: shift.position }],
+    }] })
+    if (path === '/api/planning/approve') return reply({ created: 1 })
     if (path === '/api/absences' && method === 'POST') {
       absences.push({
         ...request.postDataJSON(), id: 1, employee_id: 1, employee_name: employee.name,
@@ -129,6 +135,37 @@ test('English absence request keeps user data and translates labels and status',
   await expect(page.getByText('Alex Beispiel · Vacation')).toBeVisible()
   await expect(page.getByText(/Pending/).last()).toBeVisible()
   await expect(page.getByText('Requested by alex')).toBeVisible()
+})
+
+test('known API errors are translated and unknown details remain visible', async ({ page }) => {
+  await mockApi(page, 'EMPLOYEE')
+  await page.route('**/api/auth/login', (route) => route.fulfill({ status: 401, json: { detail: 'Invalid username or password' } }))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('alex')
+  await page.getByLabel('Passwort', { exact: true }).fill('incorrect')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.getByText('Ungültiger Benutzername oder ungültiges Passwort')).toBeVisible()
+
+  await page.getByLabel('Sprache').selectOption('en')
+  await page.route('**/api/auth/login', (route) => route.fulfill({ status: 503, json: { detail: 'Externer Dienst: technische Details' } }))
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByText('Server message: Externer Dienst: technische Details')).toBeVisible()
+})
+
+test('English planning preview and approval retain custom names', async ({ page }) => {
+  await mockApi(page)
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('planer')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: /Shift planning/ }).click()
+  await expect(page.getByRole('heading', { name: 'Suggest a schedule' })).toBeVisible()
+  await page.getByRole('button', { name: /Suggest a schedule/ }).click()
+  await expect(page.getByText('1 new shift suggested · 1 position unfilled')).toBeVisible()
+  await expect(page.getByText('Unfilled: Frühdienst (Pflege)')).toBeVisible()
+  await page.getByRole('button', { name: 'Approve schedule' }).click()
+  await expect(page.getByText('1 shift was approved and scheduled.')).toBeVisible()
 })
 
 test('language selector works before and after login and persists across reload', async ({ page }) => {
