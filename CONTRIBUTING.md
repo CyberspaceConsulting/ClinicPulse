@@ -26,7 +26,7 @@ Sei respektvoll, konstruktiv und geduldig. Reviews beziehen sich auf den Code, n
 
 ## Möglichkeiten beizutragen
 
-- Fehler aus den [Issues](https://github.com/the1andoni/ClinicPulse/issues) beheben.
+- Fehler aus den [Issues](https://github.com/CyberspaceConsulting/ClinicPulse/issues) beheben.
 - Funktionen umsetzen, die in einem Issue besprochen und akzeptiert wurden.
 - Dokumentation verbessern (`README.md`, `TEST.md`, diese Datei).
 - Tests ergänzen, besonders für Berechtigungen, Validierung und Arbeitszeitprüfungen.
@@ -71,7 +71,7 @@ git clone https://github.com/<dein-benutzername>/ClinicPulse.git
 cd ClinicPulse
 
 # 2. Upstream hinzufügen, um den Fork aktuell zu halten
-git remote add upstream https://github.com/the1andoni/ClinicPulse.git
+git remote add upstream https://github.com/CyberspaceConsulting/ClinicPulse.git
 
 # 3. Frontend-Abhängigkeiten installieren
 npm --prefix frontend ci
@@ -160,11 +160,11 @@ Reviews sind ein Austausch. Rechne mit ein bis zwei Feedbackrunden.
 ## Branches und Releases
 
 - Änderungen laufen per Pull Request in den Hauptbranch des Repositorys. Eine Vorgabe für die Zielbranch klären die Maintainer im Issue.
-- Releases und Versionsnummern verwalten die Maintainer. Installationsartefakte stehen unter [GitHub Releases](https://github.com/the1andoni/ClinicPulse/releases).
+- Releases und Versionsnummern verwalten die Maintainer. Installationsartefakte stehen unter [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).
 
 ## Fehler melden und Features vorschlagen
 
-- Nutze die [Issues](https://github.com/the1andoni/ClinicPulse/issues).
+- Nutze die [Issues](https://github.com/CyberspaceConsulting/ClinicPulse/issues).
 - Bei Fehlern: ClinicPulse-Version bzw. Commit, Betriebsart (Docker Compose oder lokal), Schritte zur Reproduktion, erwartetes und tatsächliches Verhalten sowie bereinigte Logs (`docker compose logs --tail 100`).
 - Bei Feature-Wünschen: zuerst das Problem beschreiben, dann die Lösungsidee.
 

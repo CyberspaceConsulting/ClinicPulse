@@ -456,8 +456,8 @@ const pageTitle = computed(() => {
   if (selectedDay.value) return dateLabel(selectedDay.value)
   return 'Dienstplan'
 })
-const repositoryUrl = 'https://github.com/the1andoni/ClinicPulse'
-const documentationUrl = 'https://the1andoni.github.io/ClinicPulse/'
+const repositoryUrl = 'https://github.com/CyberspaceConsulting/ClinicPulse'
+const documentationUrl = 'https://cyberspaceconsulting.github.io/ClinicPulse/'
 const selectedPlanName = computed(() =>
   selectedPlanId.value === null
     ? 'Alle Dienstpläne'

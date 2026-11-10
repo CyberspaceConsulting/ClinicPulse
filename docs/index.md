@@ -29,4 +29,4 @@ ClinicPulse ist keine produktionsreife Lösung für den Einsatz in Kliniken und 
 | [Fehlerbehebung](/troubleshooting)  | Häufige Probleme, HTTP-Statuscodes und Fehlermeldungen                     |
 | [Architektur](/architecture)        | Dienste, Netzwerke und Backend-Module                                      |
 
-Zum Mitwirken siehe [CONTRIBUTING.md](https://github.com/the1andoni/ClinicPulse/blob/main/CONTRIBUTING.md), zu Tests siehe [TEST.md](https://github.com/the1andoni/ClinicPulse/blob/main/TEST.md).
+Zum Mitwirken siehe [CONTRIBUTING.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/CONTRIBUTING.md), zu Tests siehe [TEST.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/TEST.md).

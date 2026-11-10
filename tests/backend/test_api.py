@@ -541,8 +541,8 @@ def test_update_check_is_admin_only_and_returns_version_info(client, monkeypatch
             "update_available": True,
             "status": "update_available",
             "message": "Version 0.2.0 ist verfügbar.",
-            "release_url": "https://github.com/the1andoni/ClinicPulse/releases/tag/v0.2.0",
-            "repository_url": "https://github.com/the1andoni/ClinicPulse",
+            "release_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.2.0",
+            "repository_url": "https://github.com/CyberspaceConsulting/ClinicPulse",
             "checked_at": "2026-10-13T00:00:00+00:00",
         },
     )

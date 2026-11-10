@@ -1,4 +1,4 @@
-[![Tests](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/tests.yml) [![Dependency Graph](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/dependabot/update-graph) [![Release images](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml/badge.svg?branch=alpha)](https://github.com/the1andoni/ClinicPulse/actions/workflows/release-images.yml)
+[![Tests](https://github.com/CyberspaceConsulting/ClinicPulse/actions/workflows/tests.yml/badge.svg?branch=alpha)](https://github.com/CyberspaceConsulting/ClinicPulse/actions/workflows/tests.yml) [![Dependency Graph](https://github.com/CyberspaceConsulting/ClinicPulse/actions/workflows/dependabot/update-graph/badge.svg?branch=alpha)](https://github.com/CyberspaceConsulting/ClinicPulse/actions/workflows/dependabot/update-graph) [![Release images](https://github.com/CyberspaceConsulting/ClinicPulse/actions/workflows/release-images.yml/badge.svg?branch=alpha)](https://github.com/CyberspaceConsulting/ClinicPulse/actions/workflows/release-images.yml)
 
 # ClinicPulse
 
@@ -33,8 +33,35 @@ verarbeitet werden.
 
 Voraussetzungen: Docker Engine, Docker Compose v2 und OpenSSL.
 
+## Installation eines Releases
+
+Voraussetzungen: Docker Engine mit Compose v2, `curl`, `openssl` und
+`sha256sum`. Der Befehl lädt den Installer der neuesten stabilen Version,
+prüft die heruntergeladene Compose-Datei und startet ClinicPulse samt Datenbank.
+Die Installation wird standardmäßig im Verzeichnis `./clinicpulse` angelegt;
+ein vorhandener Verschlüsselungsschlüssel und vorhandene Daten bleiben erhalten.
+
 ```sh
-git clone https://github.com/the1andoni/ClinicPulse.git
+curl -fsSL https://github.com/CyberspaceConsulting/ClinicPulse/releases/latest/download/install.sh | sh
+```
+
+Danach ist ClinicPulse unter <http://localhost:8080> erreichbar. Für Updates:
+
+```sh
+cd clinicpulse
+docker compose pull
+docker compose up -d
+```
+
+Den Schlüssel unter `clinicpulse/secrets/data_encryption_key` separat sichern.
+Ohne ihn können verschlüsselte Daten nicht wiederhergestellt werden.
+
+## Schnellstart aus dem Quellcode
+
+Voraussetzungen: Docker Engine, Docker Compose v2 und OpenSSL.
+
+```sh
+git clone https://github.com/CyberspaceConsulting/ClinicPulse.git
 cd ClinicPulse
 
 mkdir -p secrets
@@ -66,7 +93,7 @@ Die Datenbank wird in einem Docker-Volume gespeichert. Sichere
 können verschlüsselte Daten nicht mehr gelesen werden. SMTP ist optional; für
 Einladungs-E-Mails müssen SMTP und die öffentliche HTTPS-Adresse der Instanz
 konfiguriert werden. Details zu verfügbaren Installationsartefakten findest du
-unter [GitHub Releases](https://github.com/the1andoni/ClinicPulse/releases).
+unter [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).
 
 ## Entwicklung und Tests
 

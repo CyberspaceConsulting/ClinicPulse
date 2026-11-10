@@ -7,7 +7,7 @@ Voraussetzungen: Docker Engine, Docker Compose v2 und OpenSSL.
 ## Aus dem Quellcode
 
 ```sh
-git clone https://github.com/the1andoni/ClinicPulse.git
+git clone https://github.com/CyberspaceConsulting/ClinicPulse.git
 cd ClinicPulse
 
 mkdir -p secrets
@@ -38,4 +38,4 @@ docker compose -f docker/docker-compose.yml down
 - Die Datenbank liegt im Docker-Volume `clinicpulse_data`.
 - **Sichere `secrets/data_encryption_key` getrennt und geschützt.** Ohne diesen Schlüssel können verschlüsselte Daten nicht mehr gelesen werden.
 - SMTP ist optional. Für Einladungs-E-Mails müssen SMTP und die öffentliche HTTPS-Adresse der Instanz konfiguriert sein, siehe [Umgebungsvariablen](environment-variables.md).
-- Installationsartefakte stehen unter [GitHub Releases](https://github.com/the1andoni/ClinicPulse/releases).
+- Installationsartefakte stehen unter [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).
