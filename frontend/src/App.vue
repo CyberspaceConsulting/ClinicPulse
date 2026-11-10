@@ -197,7 +197,7 @@ const invitationToken = ref(new URLSearchParams(window.location.hash.slice(1)).g
 const invitationPassword = ref('')
 const invitationPasswordConfirm = ref('')
 const invitationMessage = ref('')
-const teamNotice = ref('')
+const teamNotice = ref<{ key: TranslationKey; values?: Record<string, string | number> } | null>(null)
 const onboardingMailSkipped = ref(localStorage.getItem('clinicpulse-onboarding-mail-skipped') === 'true')
 const showMailOnboarding = computed(() =>
   roleKey.value === 'ADMIN' && departments.value.length === 0 && !onboardingMailSkipped.value,
@@ -623,7 +623,7 @@ async function checkSetup(restoreSession = true) {
         storeSession(await api<SessionInfo>('/auth/session'))
         await loadData()
         if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
-          teamNotice.value = 'Willkommen bei ClinicPulse. Lege zuerst eine Abteilung an und richte danach dein Team und die Zugänge ein. Du kannst diesen Schritt schließen und später links unter Teamverwaltung fortsetzen.'
+          teamNotice.value = { key: 'management.welcomeLater' }
           await openManagement()
         }
         void checkForUpdates()
@@ -1251,7 +1251,7 @@ async function completeSetup() {
     setupLicenseToken.value = ''
     await loadData()
     if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
-      teamNotice.value = 'Willkommen bei ClinicPulse. Lege zuerst eine Abteilung an und richte danach dein Team und die Zugänge ein.'
+      teamNotice.value = { key: 'management.welcome' }
       await openManagement()
     }
     void checkForUpdates()
@@ -1322,11 +1322,11 @@ async function submitEmployee() {
     employeeEmail.value = ''
     showEmployeeForm.value = false
     if (result.invitation_status === 'pending') {
-      teamNotice.value = 'Mitarbeiter angelegt und Einladung per E-Mail versendet.'
+      teamNotice.value = { key: 'management.employeeInvited' }
     } else if (result.invitation_status === 'delivery_failed') {
-      teamNotice.value = 'Mitarbeiter angelegt, aber die Einladung konnte nicht gesendet werden. Das Konto bleibt gesperrt; SMTP prüfen und Einladung erneut senden.'
+      teamNotice.value = { key: 'management.employeeInvitationFailed' }
     } else {
-      teamNotice.value = 'Mitarbeiter angelegt.'
+      teamNotice.value = { key: 'management.employeeCreated' }
     }
     if (authenticated.value && canView.value) await loadData()
     if (canManageTeam.value) await openManagement()
@@ -1673,8 +1673,8 @@ async function toggleUserLock(user: AccountUser) {
         const updated = await api<AccountUser>(`/users/${user.id}/invitation`, { method: 'POST' })
         users.value = users.value.map((item) => item.id === updated.id ? updated : item)
         teamNotice.value = updated.invitation_status === 'pending'
-          ? `Einladung an ${updated.email} erneut versendet.`
-          : 'Einladung konnte nicht versendet werden. SMTP-Konfiguration prüfen.'
+          ? { key: 'management.invitationResent', values: { email: String(updated.email) } }
+          : { key: 'management.invitationResendFailed' }
       } catch (err) {
         error.value = err instanceof Error ? err.message : 'Einladung konnte nicht versendet werden'
       }
@@ -1684,7 +1684,7 @@ async function toggleUserLock(user: AccountUser) {
         if (!await askConfirmation(t('management.revokeConfirm', { name: user.username }), t('management.revokeInvitation'))) return
         try {
           await api(`/users/${user.id}/invitation`, { method: 'DELETE' })
-          teamNotice.value = `Einladung für ${user.username} widerrufen.`
+          teamNotice.value = { key: 'management.invitationRevokedNotice', values: { name: user.username } }
           await openManagement()
         } catch (err) {
           error.value = err instanceof Error ? err.message : 'Einladung konnte nicht widerrufen werden'
@@ -1715,9 +1715,9 @@ async function toggleUserLock(user: AccountUser) {
         body: JSON.stringify(payload),
       })
       if (saved.invitation_status === 'pending') {
-        teamNotice.value = `Zugang erstellt. Einladung an ${saved.email} versendet.`
+        teamNotice.value = { key: 'management.accountInvited', values: { email: String(saved.email) } }
       } else if (saved.invitation_status === 'delivery_failed') {
-        teamNotice.value = 'Zugang erstellt, aber die Einladung konnte nicht gesendet werden. Das Konto bleibt gesperrt; SMTP prüfen und Einladung erneut senden.'
+        teamNotice.value = { key: 'management.accountInvitationFailed' }
       }
       resetUserForm()
       await openManagement()
@@ -2421,7 +2421,7 @@ onBeforeUnmount(() => {
         <template v-else-if="showManagement">
           <p class="eyebrow">{{ t('form.teamManagement') }}</p><h2>{{ t('management.title') }}</h2>
           <section v-if="canManageTeam" class="management-section">
-            <p v-if="teamNotice" class="success-message" role="status">{{ teamNotice }}</p>
+            <p v-if="teamNotice" class="success-message" role="status">{{ t(teamNotice.key, teamNotice.values) }}</p>
             <section v-if="!departments.length && roleKey !== 'PERSONNEL'" class="empty-state">
               <h3>{{ t('management.setupTitle') }}</h3>
               <p>{{ t('management.setupDescription') }}</p>

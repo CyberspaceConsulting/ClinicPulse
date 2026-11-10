@@ -6,7 +6,8 @@ die Abwesenheitsoberfläche, die Planungsvorschau, die Wochen- und Tagesansicht
 des Dienstplans, Formulare für Dienste und Mitarbeitende, Teile der
 Teamverwaltung, Benachrichtigungen, Profil, Archiv, SMTP-Einstellungen und die Backup-Oberfläche
 sind teilweise übersetzt. Einige
-bekannte API-Fehler werden ebenfalls übersetzt. Der Sprachumschalter ist vor
+bekannte API-Fehler werden ebenfalls übersetzt. Hinweise der Teamverwaltung
+werden beim Sprachwechsel neu dargestellt. Der Sprachumschalter ist vor
 und nach der Anmeldung verfügbar. Bei Englisch weist er darauf hin, dass die
 übrige Oberfläche und API-Meldungen noch nicht vollständig übersetzt sind.
 

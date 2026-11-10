@@ -378,6 +378,10 @@ html[data-theme="dark"] .management-row { border-color: #344541; }
 }
 @media (max-width: 720px) {
   .heading-actions { flex-direction: column; align-items: stretch; }
+  .topbar { height: auto; min-height: 48px; padding-top: 6px; padding-bottom: 6px; }
+  .topbar-right { flex-wrap: wrap; gap: 6px; }
+  .topbar-right .management-button { display: none; }
+  .topbar-right .icon-button, .topbar-right .profile-avatar-button { flex-shrink: 0; }
   .license-banner { align-items: flex-start; flex-direction: column; }
   .week-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-day { min-height: 150px; border-bottom: 1px solid #eef2f1; }
@@ -399,6 +403,9 @@ html[data-theme="dark"] .management-row { border-color: #344541; }
 .toast { position: fixed; z-index: 20; top: 16px; right: 16px; max-width: min(92vw, 420px); display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 9px; font-size: 13px; box-shadow: 0 10px 34px #102b2940; }
 .toast-error { background: #fdeceb; color: #8c2f25; border: 1px solid #efb7b1; }
 .toast button { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+@media (max-width: 720px) {
+  .toast { top: auto; bottom: 16px; }
+}
 .confirm-backdrop { z-index: 30; }
 .confirm-modal { width: min(100%, 360px); }
 .confirm-modal p { margin: 0 0 18px; font-size: 14px; }

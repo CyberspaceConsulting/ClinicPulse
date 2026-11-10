@@ -121,6 +121,22 @@ test('English login and navigation use the stored locale', async ({ page }) => {
   await expect(page).toHaveTitle('ClinicPulse – Schedule')
 })
 
+test('mobile administrator toolbar remains usable when an error is displayed', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await mockApi(page, 'ADMIN')
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('admin')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.toast-error')).toContainText('Unexpected test request')
+  await expect(page.getByLabel('Language')).toBeVisible()
+  await expect(page.locator('.mobile-navigation').getByRole('button', { name: 'Team management' })).toBeVisible()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5000 })
+  await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible()
+  await expect(page.locator('.toast-error')).toBeVisible()
+})
+
 test('notification history switches language without losing shift data or selected period', async ({ page }) => {
   await mockApi(page)
   await page.route('**/api/shift-types', (route) => route.fulfill({ json: [
@@ -212,6 +228,20 @@ test('team management displays translated labels and preserves account and depar
   await dialog.getByLabel('System role').selectOption('EMPLOYEE')
   await expect(dialog.getByLabel('Linked person')).toContainText('Alex Beispiel')
   await expect(dialog.getByLabel('First name')).toHaveValue('Unverändert')
+  await page.route('**/api/users/2/invitation', (route) => route.fulfill({ json: {
+    id: 2, username: 'test-user', role_key: 'EMPLOYEE', department_id: 1, department_ids: [1],
+    employee_id: 1, can_view: true, can_edit: false, can_approve: false,
+    invitation_status: 'pending', email: 'person@example.org',
+  } }))
+  await dialog.getByRole('button', { name: 'Resend invitation' }).click()
+  await expect(dialog.getByText('Invitation resent to person@example.org.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByLabel('Language').selectOption('de')
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  await expect(dialog.getByText('Einladung an person@example.org erneut versendet.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Schließen', exact: true }).click()
+  await page.getByLabel('Sprache').selectOption('en')
+  await page.getByRole('button', { name: 'Team management', exact: true }).first().click()
   let deleteRequests = 0
   await page.route('**/api/users/2', (route) => {
     if (route.request().method() === 'DELETE') {
@@ -354,6 +384,20 @@ test('English planning preview and approval retain custom names', async ({ page 
 
 test('backup interface translates without changing the restore confirmation contract', async ({ page }) => {
   await mockApi(page, 'ADMIN')
+  await page.route('**/api/admin/updates**', (route) => route.fulfill({ json: {
+    current_version: 'test', channel: 'stable', latest_version: null, update_available: false,
+    status: 'up_to_date', message: '', release_url: null, repository_url: '', checked_at: '',
+  } }))
+  await page.route('**/api/admin/business-configuration', (route) => route.fulfill({ json: {
+    federal_state: 'Berlin', operational_profile: 'hospital', timezone: 'Europe/Berlin', sunday_work_authorized: false,
+  } }))
+  await page.route('**/api/admin/archive-settings', (route) => route.fulfill({ json: {
+    auto_enabled: false, period: 'monthly', last_period_end: null,
+  } }))
+  await page.route('**/api/admin/work-rules', (route) => route.fulfill({ json: {
+    rest_hours: 11, max_daily_hours: 10, max_weekly_hours: 48,
+  } }))
+  await page.route('**/api/admin/audit**', (route) => route.fulfill({ json: { items: [], limit: 25, offset: 0 } }))
   await page.route('**/api/admin/mail-settings', (route) => route.fulfill({ json: {
     public_url: 'https://clinic.example', smtp_host: 'smtp.example', smtp_port: 587, smtp_username: 'user',
     smtp_password_configured: true, from_address: 'sender@example.org', use_ssl: false, use_starttls: true,
@@ -371,7 +415,9 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.toast-error')).toHaveCount(0)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.locator('.toast-error')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '☼ Light' })).toBeVisible()
   await page.getByRole('tab', { name: 'Email delivery' }).click()
   await expect(page.getByRole('heading', { name: 'Email delivery (SMTP)' })).toBeVisible()
