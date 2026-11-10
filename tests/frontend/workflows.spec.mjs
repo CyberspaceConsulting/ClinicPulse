@@ -661,6 +661,9 @@ test('validation and parameterized API errors retain details across language cha
     ['At least 30 minutes of break are required for this shift length (ArbZG §4)', 'Für diese Schichtdauer sind mindestens 30 Minuten Pause erforderlich (ArbZG §4)'],
     ['A distinct replacement rest day is required within a 14-day period including 2026-11-16 (ArbZG §11)', 'Ein eigener Ersatzruhetag ist innerhalb eines Zeitraums von 14 Tagen einschließlich 2026-11-16 erforderlich (ArbZG §11)'],
     ['License is read-only: License is blocked', 'Die Lizenz erlaubt nur Lesezugriff: Die Lizenz ist gesperrt'],
+    ['Limit optimization to a maximum of 150 open positions per day', 'Die Optimierung ist auf höchstens 150 offene Stellen pro Tag begrenzt'],
+    ['Select a smaller department for day optimization', 'Für die Tagesoptimierung eine kleinere Abteilung auswählen'],
+    ['Optimization has too many eligible employee-position combinations', 'Die Optimierung enthält zu viele geeignete Kombinationen aus Mitarbeitenden und Stellen'],
   ]) {
     detail = serverDetail
     await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
