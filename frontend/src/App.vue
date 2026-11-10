@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BackupPanel from './BackupPanel.vue'
 import PasswordInput from './PasswordInput.vue'
+import { locale, t } from './i18n'
 
 type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
 type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
@@ -420,7 +421,7 @@ const days = computed(() => Array.from({ length: 7 }, (_, index) => {
 const weekLabel = computed(() => {
   const start = days.value[0]
   const end = days.value[6]
-  return `${start.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })} – ${end.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })}`
+  return `${start.toLocaleDateString(locale.value, { day: '2-digit', month: 'short' })} – ${end.toLocaleDateString(locale.value, { day: '2-digit', month: 'short', year: 'numeric' })}`
 })
 const totalHours = computed(() => assignments.value.reduce((total, assignment) => {
   return total + (new Date(assignment.ends_at).getTime() - new Date(assignment.starts_at).getTime()) / 3_600_000
@@ -443,25 +444,25 @@ const notificationDays = ref(14)
 const notificationHistory = ref<{ id: string; date: string; text: string }[]>([])
 const notificationsLoading = ref(false)
 const pageTitle = computed(() => {
-  if (!setupChecked.value) return 'Starting …'
-  if (setupRequired.value && !authenticated.value) return 'Ersteinrichtung'
-  if (!authenticated.value) return 'Anmeldung'
-  if (showPlanning.value) return 'Dienstplanung'
-  if (showAbsences.value) return 'Abwesenheiten'
-  if (showArchive.value) return 'Archiv'
-  if (showManagement.value) return 'Verwaltung'
-  if (showSettings.value) return 'Einstellungen'
-  if (showProfile.value) return 'Profil'
-  if (showNotifications.value) return 'Meldungen'
+  if (!setupChecked.value) return t('page.starting')
+  if (setupRequired.value && !authenticated.value) return t('page.setup')
+  if (!authenticated.value) return t('page.login')
+  if (showPlanning.value) return t('page.planning')
+  if (showAbsences.value) return t('page.absences')
+  if (showArchive.value) return t('page.archive')
+  if (showManagement.value) return t('page.management')
+  if (showSettings.value) return t('page.settings')
+  if (showProfile.value) return t('page.profile')
+  if (showNotifications.value) return t('page.notifications')
   if (selectedDay.value) return dateLabel(selectedDay.value)
-  return 'Dienstplan'
+  return t('page.schedule')
 })
 const repositoryUrl = 'https://github.com/CyberspaceConsulting/ClinicPulse'
 const documentationUrl = 'https://cyberspaceconsulting.github.io/ClinicPulse/'
 const selectedPlanName = computed(() =>
   selectedPlanId.value === null
-    ? 'Alle Dienstpläne'
-    : departments.value.find((department) => department.id === selectedPlanId.value)?.name ?? 'Dienstplan',
+    ? t('nav.allSchedules')
+    : departments.value.find((department) => department.id === selectedPlanId.value)?.name ?? t('page.schedule'),
 )
 const licenseReadOnly = computed(() => licenseInfo.value?.read_only ?? true)
 const canEditPlan = computed(() => roleKey.value === 'OBERARZT' && canEdit.value && !licenseReadOnly.value)
@@ -540,11 +541,11 @@ function dateAssignments(date: Date) {
 }
 
 function timeLabel(value: string) {
-  return new Date(value).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+  return new Date(value).toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit' })
 }
 
 function dateLabel(value: string) {
-  return new Date(`${value}T12:00:00`).toLocaleDateString('de-DE', {
+  return new Date(`${value}T12:00:00`).toLocaleDateString(locale.value, {
     weekday: 'long', day: 'numeric', month: 'long',
   })
 }
@@ -1887,117 +1888,117 @@ onBeforeUnmount(() => {
 
 <template>
   <main v-if="!setupChecked" class="login-shell">
-    <section class="login-card"><div class="brand-mark">C</div><h1>ClinicPulse startet …</h1><p class="muted">Installationsstatus wird geprüft.</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version 0.1.0</footer></section>
+    <section class="login-card"><div class="brand-mark">C</div><h1>{{ t('auth.starting') }}</h1><p class="muted">{{ t('auth.checkingSetup') }}</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version 0.1.0</footer></section>
   </main>
 
   <main v-else-if="setupRequired && !authenticated" class="login-shell">
     <section class="login-card setup-card">
       <div class="brand-mark">C</div>
-      <p class="eyebrow">CLINICPULSE · ERSTEINRICHTUNG</p>
-      <h1>Dein Admin-Zugang</h1>
-      <p class="muted">Erstelle deinen Zugang. Passwort und Signaturschlüssel werden sicher serverseitig in der Datenbank gespeichert.</p>
+      <p class="eyebrow">{{ t('auth.setupEyebrow') }}</p>
+      <h1>{{ t('auth.setupTitle') }}</h1>
+      <p class="muted">{{ t('auth.setupDescription') }}</p>
       <form class="stack" @submit.prevent="completeSetup">
-        <label>Admin-Benutzername<input v-model="setupUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
-        <PasswordInput v-model="setupPassword" label="Passwort (mindestens 8 Zeichen)" required />
-        <label>Passwort wiederholen<input v-model="setupPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
-        <label>Lizenz-Token aus dem Licensing-Tool<input v-model="setupLicenseToken" type="password" autocomplete="off" maxlength="4096" required /></label>
-        <label class="permission-toggle"><input v-model="setupSundayWorkAuthorized" type="checkbox" /> Unser Betrieb nimmt notwendige Sonn- und Feiertagsarbeit nach ArbZG §10 in Anspruch</label>
-        <p class="muted">Nur aktivieren, wenn die rechtlichen Voraussetzungen für deinen Betrieb geprüft sind. Sonst werden Dienste an Sonn- und gesetzlichen Feiertagen blockiert.</p>
-        <p class="muted">Die Lizenzsignatur wird geprüft. Das Token wird anschließend serverseitig gespeichert.</p>
-        <button class="primary full" :disabled="busy">{{ busy ? 'Einrichtung …' : 'Admin-Zugang erstellen' }}</button>
+        <label>{{ t('auth.adminUsername') }}<input v-model="setupUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
+        <PasswordInput v-model="setupPassword" :label="t('auth.passwordMinimum')" required />
+        <label>{{ t('auth.repeatPassword') }}<input v-model="setupPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
+        <label>{{ t('auth.licenseToken') }}<input v-model="setupLicenseToken" type="password" autocomplete="off" maxlength="4096" required /></label>
+        <label class="permission-toggle"><input v-model="setupSundayWorkAuthorized" type="checkbox" /> {{ t('auth.sundayAuthorization') }}</label>
+        <p class="muted">{{ t('auth.sundayWarning') }}</p>
+        <p class="muted">{{ t('auth.licenseDescription') }}</p>
+        <button class="primary full" :disabled="busy">{{ busy ? t('auth.settingUp') : t('auth.createAdmin') }}</button>
       </form>
       <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
   <main v-else-if="invitationToken && !authenticated" class="login-shell">
     <section class="login-card setup-card">
       <div class="brand-mark">C</div>
-      <p class="eyebrow">CLINICPULSE · EINLADUNG</p>
-      <h1>Eigenes Passwort festlegen</h1>
-      <p class="muted">Lege ein Passwort mit mindestens 8 Zeichen fest. Der Einladungslink kann nur einmal verwendet werden.</p>
+      <p class="eyebrow">{{ t('auth.invitationEyebrow') }}</p>
+      <h1>{{ t('auth.invitationTitle') }}</h1>
+      <p class="muted">{{ t('auth.invitationDescription') }}</p>
       <form class="stack" @submit.prevent="acceptInvitation">
-        <PasswordInput v-model="invitationPassword" label="Neues Passwort" required />
-        <label>Passwort wiederholen<input v-model="invitationPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
-        <button class="primary full" :disabled="busy">{{ busy ? 'Passwort wird gespeichert …' : 'Passwort festlegen' }}</button>
+        <PasswordInput v-model="invitationPassword" :label="t('auth.newPassword')" required />
+        <label>{{ t('auth.repeatPassword') }}<input v-model="invitationPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
+        <button class="primary full" :disabled="busy">{{ busy ? t('auth.savingPassword') : t('auth.setPassword') }}</button>
       </form>
       <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
   <main v-else-if="!authenticated" class="login-shell">
     <section class="login-card">
       <div class="brand-mark">C</div>
-      <p class="eyebrow">CLINICPULSE · DIENSTPLANUNG</p>
-      <p v-if="institutionName" class="institution-label">Lizenz für <strong>{{ institutionName }}</strong></p>
-      <h1>Willkommen zurück</h1>
-      <p class="muted">Melde dich an, um den Dienstplan zu verwalten.</p>
+      <p class="eyebrow">{{ t('auth.loginEyebrow') }}</p>
+      <p v-if="institutionName" class="institution-label">{{ t('auth.licensedTo') }} <strong>{{ institutionName }}</strong></p>
+      <h1>{{ t('auth.welcome') }}</h1>
+      <p class="muted">{{ t('auth.loginDescription') }}</p>
       <p v-if="invitationMessage" class="success-message" role="status">{{ invitationMessage }}</p>
       <form class="stack" @submit.prevent="login">
-        <label>Benutzername<input v-model="loginUsername" autocomplete="username" required /></label>
-        <label>Passwort<input v-model="password" type="password" autocomplete="current-password" required /></label>
-        <label class="permission-toggle"><input v-model="staySignedIn" type="checkbox" /> Angemeldet bleiben (30 Tage)</label>
-        <p class="muted">Für Administrationskonten ist diese Option gesperrt.</p>
-        <button class="primary full" :disabled="busy">{{ busy ? 'Anmeldung …' : 'Anmelden' }}</button>
+        <label>{{ t('auth.username') }}<input v-model="loginUsername" autocomplete="username" required /></label>
+        <label>{{ t('auth.password') }}<input v-model="password" type="password" autocomplete="current-password" required /></label>
+        <label class="permission-toggle"><input v-model="staySignedIn" type="checkbox" /> {{ t('auth.rememberMe') }}</label>
+        <p class="muted">{{ t('auth.adminRememberWarning') }}</p>
+        <button class="primary full" :disabled="busy">{{ busy ? t('auth.signingIn') : t('auth.signIn') }}</button>
       </form>
       <p v-if="error" class="error-message">{{ error }}</p>
-      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">ClinicPulse auf GitHub</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a> · Version {{ displayVersion }}</footer>
+      <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
     </section>
   </main>
 
   <div v-else class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
     <aside class="sidebar">
       <a class="brand" href="#"><span class="brand-mark small">C</span><span class="brand-text">Clinic<span class="brand-light">Pulse</span></span></a>
-      <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'" :title="sidebarCollapsed ? 'Ausklappen' : 'Einklappen'" @click="toggleSidebar">{{ sidebarCollapsed ? '»' : '«' }}</button>
+      <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')" :title="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')" @click="toggleSidebar">{{ sidebarCollapsed ? '»' : '«' }}</button>
       <div v-if="roleKey !== 'PERSONNEL'" class="plan-nav-list">
-        <p class="nav-caption">DIENSTPLÄNE</p>
-        <button v-if="canManage" class="nav-item plan-nav-item" title="Alle Dienstpläne" :class="{ active: selectedPlanId === null }" @click="selectPlan(null)"><span>▦</span> Alle Dienstpläne</button>
+        <p class="nav-caption">{{ t('nav.schedules') }}</p>
+        <button v-if="canManage" class="nav-item plan-nav-item" :title="t('nav.allSchedules')" :class="{ active: selectedPlanId === null }" @click="selectPlan(null)"><span>▦</span> {{ t('nav.allSchedules') }}</button>
         <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
       </div>
-      <p class="nav-caption nav-caption-spaced">ARBEITSBEREICH</p>
-      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" title="Dienstplan" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null"><span>▦</span> Dienstplan</button>
-      <button v-if="canEditPlan" class="nav-item" title="Dienstplanung" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> Dienstplanung</button>
-      <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" class="nav-item" title="Abwesenheiten" @click="void openAbsences()"><span>☾</span> Abwesenheiten</button>
-      <button v-if="canViewArchive" class="nav-item" title="Archiv" @click="void openArchive()"><span>▤</span> Archiv</button>
-      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" title="Meldungen" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> Meldungen <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
-      <button v-if="canManageTeam" class="nav-item" title="Teamverwaltung" :class="{ active: showManagement }" @click="void openManagement()"><span>♙</span> Teamverwaltung</button>
+      <p class="nav-caption nav-caption-spaced">{{ t('nav.workspace') }}</p>
+      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
+      <button v-if="canEditPlan" class="nav-item" :title="t('page.planning')" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> {{ t('page.planning') }}</button>
+      <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
+      <button v-if="canViewArchive" class="nav-item" :title="t('page.archive')" @click="void openArchive()"><span>▤</span> {{ t('page.archive') }}</button>
+      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.notifications')" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> {{ t('page.notifications') }} <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
+      <button v-if="canManageTeam" class="nav-item" :title="t('nav.teamManagement')" :class="{ active: showManagement }" @click="void openManagement()"><span>♙</span> {{ t('nav.teamManagement') }}</button>
       <div class="sidebar-bottom">
-        <button class="profile profile-button" title="Mein Profil" @click="void openProfile()">
+        <button class="profile profile-button" :title="t('nav.myProfile')" @click="void openProfile()">
           <img v-if="profile?.profile_image_data" class="avatar profile-avatar" :src="profile.profile_image_data" alt="" />
           <div v-else class="avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
-          <span class="profile-text"><strong>{{ username }}</strong><small>{{ roleLabel(roleKey) }} · Mein Profil</small></span>
+          <span class="profile-text"><strong>{{ username }}</strong><small>{{ roleLabel(roleKey) }} · {{ t('nav.myProfile') }}</small></span>
         </button>
         <p class="idle-hint" :class="{ warning: idleWarning }" role="status" :title="idleRemainingLabel">⏱ {{ idleRemainingLabel }}</p>
-        <button class="logout" :title="'Abmelden'" @click="logout"><span class="logout-icon">⏻</span><span class="logout-text">Abmelden</span></button>
+        <button class="logout" :title="t('nav.signOut')" @click="logout"><span class="logout-icon">⏻</span><span class="logout-text">{{ t('nav.signOut') }}</span></button>
       </div>
     </aside>
 
     <section class="workspace">
-      <nav class="mobile-navigation" aria-label="Mobile Navigation">
-        <button v-if="roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null">Dienstplan</button>
-        <button v-if="canEditPlan" @click="openPlanning()">Dienstplanung</button>
-        <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" @click="void openAbsences()">Abwesenheiten</button>
-        <button v-if="canViewArchive" @click="void openArchive()">Archiv</button>
-        <button v-if="roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">Meldungen</button>
-        <button v-if="canManageTeam" @click="void openManagement()">Teamverwaltung</button>
-        <button @click="logout()">Abmelden</button>
+      <nav class="mobile-navigation" :aria-label="t('nav.mobileNavigation')">
+        <button v-if="roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null">{{ t('page.schedule') }}</button>
+        <button v-if="canEditPlan" @click="openPlanning()">{{ t('page.planning') }}</button>
+        <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" @click="void openAbsences()">{{ t('page.absences') }}</button>
+        <button v-if="canViewArchive" @click="void openArchive()">{{ t('page.archive') }}</button>
+        <button v-if="roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">{{ t('page.notifications') }}</button>
+        <button v-if="canManageTeam" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
+        <button @click="logout()">{{ t('nav.signOut') }}</button>
       </nav>
       <header class="topbar">
-        <div class="breadcrumb">Arbeitsbereich <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? 'Tagesansicht' : 'Wochenübersicht' }}</div>
+        <div class="breadcrumb">{{ t('nav.workspaceLabel') }} <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? t('nav.dayView') : t('nav.weekView') }}</div>
         <div class="topbar-right">
-          <select class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" aria-label="Dienstplan auswählen" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
-            <option v-if="canManage" value="all">Alle Dienstpläne</option>
+          <select class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
+            <option v-if="canManage" value="all">{{ t('nav.allSchedules') }}</option>
             <option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option>
           </select>
-          <span class="status-dot"></span> Lokal verbunden
+          <span class="status-dot"></span> {{ t('nav.connected') }}
           <div class="notification-wrap">
-            <button class="icon-button notification-button" aria-label="Meldungen öffnen" @click="openNotificationsPage()">♧<span v-if="notifications.length" class="notification-count">{{ notifications.length }}</span></button>
+            <button class="icon-button notification-button" :aria-label="t('nav.openNotifications')" @click="openNotificationsPage()">♧<span v-if="notifications.length" class="notification-count">{{ notifications.length }}</span></button>
           </div>
-          <button v-if="canManageTeam" class="secondary management-button" @click="void openManagement()">Teamverwaltung</button>
-          <button class="icon-button" aria-label="Einstellungen" @click="openAppSettings()">⚙</button>
-          <button class="profile-avatar-button" aria-label="Eigenes Profil öffnen" @click="void openProfile()">
+          <button v-if="canManageTeam" class="secondary management-button" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
+          <button class="icon-button" :aria-label="t('page.settings')" @click="openAppSettings()">⚙</button>
+          <button class="profile-avatar-button" :aria-label="t('nav.openProfile')" @click="void openProfile()">
             <img v-if="profile?.profile_image_data" class="avatar profile-avatar" :src="profile.profile_image_data" alt="" />
             <span v-else class="avatar">{{ username.slice(0, 1).toUpperCase() }}</span>
           </button>

@@ -1,7 +1,8 @@
 # Lokalisierung
 
-Die Lokalisierung befindet sich noch im Aufbau. Derzeit ist nur die
-Passwortkomponente übersetzt. Ein Sprachumschalter ist noch nicht freigegeben;
+Die Lokalisierung befindet sich noch im Aufbau. Die Passwortkomponente, die
+statischen Texte der Anmeldung, Ersteinrichtung und Einladung sowie die
+Navigation sind übersetzt. Ein Sprachumschalter ist noch nicht freigegeben;
 die übrige Oberfläche und API-Meldungen sind nicht vollständig übersetzt.
 
 Die Kataloge liegen in `frontend/src/i18n/locales/de.js` und `en.js`. Schlüssel

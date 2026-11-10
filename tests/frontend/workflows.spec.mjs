@@ -96,9 +96,23 @@ test('password guidance uses the stored locale on the setup screen', async ({ pa
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await expect(page.getByText('At least 8 characters; a longer and more varied passphrase is safer.')).toBeVisible()
-  await page.getByLabel('Passwort (mindestens 8 Zeichen)').fill('test-password-123')
+  await expect(page.getByRole('heading', { name: 'Your administrator account' })).toBeVisible()
+  await page.getByLabel('Password (at least 8 characters)').fill('test-password-123')
   await expect(page.getByText(/Found in data breaches \(2 times\)/)).toBeVisible()
   await expect(page.getByText(/Strength:/)).toBeVisible()
+})
+
+test('English login and navigation use the stored locale', async ({ page }) => {
+  await mockApi(page)
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+  await page.getByLabel('Username').fill('planer')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('nav.mobile-navigation')).toHaveAttribute('aria-label', 'Mobile navigation')
+  await expect(page.getByRole('button', { name: 'Open notifications' })).toBeVisible()
+  await expect(page).toHaveTitle('ClinicPulse – Schedule')
 })
 
 test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page }) => {
