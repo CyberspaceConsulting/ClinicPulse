@@ -7,7 +7,7 @@ services:
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
-  api:
+  backend:
     restart: "no"
   web:
     restart: "no"

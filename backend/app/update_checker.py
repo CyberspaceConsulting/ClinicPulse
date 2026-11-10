@@ -8,8 +8,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 APP_VERSION = os.environ.get("CLINICPULSE_VERSION", "0.1.0")
-REPOSITORY_URL = "https://github.com/the1andoni/ClinicPulse"
-RELEASES_API_URL = "https://api.github.com/repos/the1andoni/ClinicPulse/releases?per_page=30"
+REPOSITORY_URL = "https://github.com/CyberspaceConsulting/ClinicPulse"
+RELEASES_API_URL = "https://api.github.com/repos/CyberspaceConsulting/ClinicPulse/releases?per_page=30"
 CHECK_INTERVAL = timedelta(hours=6)
 ERROR_CACHE_INTERVAL = timedelta(minutes=5)
 VERSION_PATTERN = re.compile(

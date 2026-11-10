@@ -93,7 +93,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="clinicpulse-sbom-") as directory:
             subprocess.run(
                 [
-                    "gh", "release", "download", args.tag, "--repo", "the1andoni/ClinicPulse",
+                    "gh", "release", "download", args.tag, "--repo", "CyberspaceConsulting/ClinicPulse",
                     "--pattern", ASSET, "--pattern", "SHA256SUMS", "--dir", directory,
                 ],
                 check=True,
