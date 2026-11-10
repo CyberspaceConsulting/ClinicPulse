@@ -1,5 +1,5 @@
 #!/bin/sh
-# ClinicPulse release installer. Usage: ./install.sh [install-directory]
+# ClinicPulse installer. Usage: ./install.sh [install-directory]
 set -eu
 
 target="${1:-clinicpulse}"
@@ -19,6 +19,7 @@ chmod 700 "$target/secrets"
 mkdir -p "$target/backups"
 chmod 700 "$target/backups"
 
+source_compose=""
 if [ -f "$0" ]; then
   here="$(cd "$(dirname "$0")" && pwd)"
 else
@@ -29,6 +30,9 @@ if [ -n "$here" ] && [ -f "$here/compose.yaml" ]; then
   if [ "$here" != "$target" ]; then
     cp "$here/compose.yaml" "$target/compose.yaml"
   fi
+elif [ -n "$here" ] && [ -f "$here/../docker/docker-compose.yml" ]; then
+  source_compose="$(cd "$here/../docker" && pwd)/docker-compose.yml"
+  echo "Using the local source checkout and building its Docker images."
 else
   command -v curl >/dev/null 2>&1 || { echo "curl is required to download the ClinicPulse release" >&2; exit 1; }
   command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required to verify the ClinicPulse release" >&2; exit 1; }
@@ -66,6 +70,13 @@ fi
 chmod 600 "$target/secrets/smtp_password"
 
 cd "$target"
-docker compose pull
-docker compose up -d
+if [ -n "$source_compose" ]; then
+  export CLINICPULSE_DATA_ENCRYPTION_KEY_FILE="$target/secrets/data_encryption_key"
+  export CLINICPULSE_SMTP_PASSWORD_SECRET_FILE="$target/secrets/smtp_password"
+  export CLINICPULSE_BACKUP_HOST_DIR="$target/backups"
+  docker compose --file "$source_compose" up --build -d
+else
+  docker compose pull
+  docker compose up -d
+fi
 echo "ClinicPulse is starting on http://localhost:${CLINICPULSE_PORT:-8080}"

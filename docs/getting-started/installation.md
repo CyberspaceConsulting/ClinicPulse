@@ -6,6 +6,16 @@ Voraussetzungen: Docker Engine, Docker Compose v2 und OpenSSL.
 
 ## Aus dem Quellcode
 
+Das Repository-Installationsskript kann ebenfalls direkt aus dem Checkout
+gestartet werden. Es erstellt lokale Secrets und Backups im Zielverzeichnis
+und baut die Container aus dem aktuellen Quellcode:
+
+```sh
+sh deploy/install.sh ./clinicpulse
+```
+
+Alternativ kann der Stack wie unten beschrieben manuell gestartet werden:
+
 ```sh
 git clone https://github.com/CyberspaceConsulting/ClinicPulse.git
 cd ClinicPulse
