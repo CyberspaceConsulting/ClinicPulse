@@ -10,4 +10,4 @@ holidays>=0.108,<1.0
 ortools>=9.11,<10.0
 cryptography>=50.0.2
 paramiko>=5.1.0,<6
-boto3>=1.43.125,<2
+boto3>=1.43.126,<2
