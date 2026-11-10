@@ -260,16 +260,16 @@ const showSettings = ref(false)
 const settingsTab = ref('appearance')
 const settingsTabs = computed(() => roleKey.value === 'ADMIN'
   ? [
-      { key: 'appearance', label: 'Darstellung' },
-      { key: 'operations', label: 'Betrieb & Arbeitszeit' },
-      { key: 'mail', label: 'E-Mail-Versand' },
-      { key: 'license', label: 'Lizenz' },
-      { key: 'backup', label: 'Backup' },
-      { key: 'archive', label: 'Archivierung' },
-      { key: 'security', label: 'Sicherheit' },
-      { key: 'audit', label: 'Audit-Protokoll' },
+      { key: 'appearance', label: t('settings.appearance') },
+      { key: 'operations', label: t('settings.operations') },
+      { key: 'mail', label: t('settings.mail') },
+      { key: 'license', label: t('settings.license') },
+      { key: 'backup', label: t('settings.backup') },
+      { key: 'archive', label: t('settings.archive') },
+      { key: 'security', label: t('settings.security') },
+      { key: 'audit', label: t('settings.audit') },
     ]
-  : [{ key: 'appearance', label: 'Darstellung' }])
+  : [{ key: 'appearance', label: t('settings.appearance') }])
 const showManagement = ref(false)
 const sidebarCollapsed = ref(localStorage.getItem('clinicpulse-sidebar-collapsed') === '1')
 function toggleSidebar() {
@@ -2469,7 +2469,7 @@ onBeforeUnmount(() => {
           </section>
         </template>
         <template v-else-if="showSettings">
-          <p class="eyebrow">APP-EINSTELLUNGEN</p><h2>Einstellungen</h2>
+          <p class="eyebrow">{{ t('settings.eyebrow') }}</p><h2>{{ t('page.settings') }}</h2>
           <nav class="settings-tabs" role="tablist">
             <button v-for="tab in settingsTabs" :key="tab.key" role="tab" type="button" :aria-selected="settingsTab === tab.key" :class="{ active: settingsTab === tab.key }" @click="settingsTab = tab.key">{{ tab.label }}</button>
           </nav>

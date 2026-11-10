@@ -2,8 +2,8 @@
 
 Die Lokalisierung befindet sich noch im Aufbau. Die Passwortkomponente, die
 statischen Texte der Anmeldung, Ersteinrichtung und Einladung, die Navigation,
-die Abwesenheitsoberfläche und die Planungsvorschau sind übersetzt. Einige
-bekannte API-Fehler werden ebenfalls übersetzt. Der Sprachumschalter ist vor
+die Abwesenheitsoberfläche, die Planungsvorschau und die Backup-Oberfläche
+sind übersetzt. Einige bekannte API-Fehler werden ebenfalls übersetzt. Der Sprachumschalter ist vor
 und nach der Anmeldung verfügbar. Bei Englisch weist er darauf hin, dass die
 übrige Oberfläche und API-Meldungen noch nicht vollständig übersetzt sind.
 

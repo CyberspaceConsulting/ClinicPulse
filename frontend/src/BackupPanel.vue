@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { t } from './i18n'
+import { locale, t } from './i18n'
 import { apiErrorDetail } from './i18n/apiErrors'
 
 type Target = { id: number; name: string; kind: string; config: Record<string, string>; enabled: boolean; retention_count: number }
@@ -10,32 +10,34 @@ type Recipient = { id: number; name: string; public_key: string; created_at: str
 type RemoteFile = { name: string; size: number; modified: string | null }
 type Field = { key: string; label: string; secret?: boolean; hint?: string }
 
-const kindLabels: Record<string, string> = { local: 'Lokaler Ordner', sftp: 'SFTP', webdav: 'WebDAV (z. B. Nextcloud)', s3: 'S3-kompatibel' }
-const kindFields: Record<string, Field[]> = {
-  local: [{ key: 'subdir', label: 'Unterordner (optional)', hint: 'Relativ zum Backup-Verzeichnis des Servers (/backups)' }],
+const kindLabels = computed<Record<string, string>>(() => ({ local: t('backup.local'), sftp: 'SFTP', webdav: t('backup.webdav'), s3: t('backup.s3') }))
+const kindFields = computed<Record<string, Field[]>>(() => ({
+  local: [{ key: 'subdir', label: t('backup.subdir'), hint: t('backup.subdirHint') }],
   sftp: [
-    { key: 'host', label: 'Server' }, { key: 'port', label: 'Port (Standard 22)' }, { key: 'username', label: 'Benutzer' },
-    { key: 'password', label: 'Passwort (oder Passphrase des Schlüssels)', secret: true },
-    { key: 'private_key', label: 'Privater Schlüssel (optional, PEM)', secret: true },
-    { key: 'directory', label: 'Zielordner (optional)' },
-    { key: 'host_key_fingerprint', label: 'Host-Key-Fingerabdruck', hint: 'Format SHA256:… (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub). Bei „Testen“ zeigt ein Fehler den aktuellen Wert des Servers.' },
+    { key: 'host', label: t('backup.host') }, { key: 'port', label: t('backup.port') }, { key: 'username', label: t('backup.username') },
+    { key: 'password', label: t('backup.password'), secret: true },
+    { key: 'private_key', label: t('backup.privateKey'), secret: true },
+    { key: 'directory', label: t('backup.directory') },
+    { key: 'host_key_fingerprint', label: t('backup.fingerprint'), hint: t('backup.fingerprintHint') },
   ],
   webdav: [
-    { key: 'url', label: 'URL des Zielordners', hint: 'Muss mit https:// beginnen, z. B. https://cloud.example.org/remote.php/dav/files/benutzer/ClinicPulse' },
-    { key: 'username', label: 'Benutzer' }, { key: 'password', label: 'Passwort / App-Passwort', secret: true },
+    { key: 'url', label: t('backup.url'), hint: t('backup.urlHint') },
+    { key: 'username', label: t('backup.username') }, { key: 'password', label: t('backup.appPassword'), secret: true },
   ],
   s3: [
-    { key: 'endpoint_url', label: 'Endpunkt (https://…, leer für AWS)' }, { key: 'region', label: 'Region (optional)' }, { key: 'bucket', label: 'Bucket' },
-    { key: 'prefix', label: 'Präfix (optional)' }, { key: 'access_key', label: 'Access Key' }, { key: 'secret_key', label: 'Secret Key', secret: true },
+    { key: 'endpoint_url', label: t('backup.endpoint') }, { key: 'region', label: t('backup.region') }, { key: 'bucket', label: t('backup.bucket') },
+    { key: 'prefix', label: t('backup.prefix') }, { key: 'access_key', label: t('backup.accessKey') }, { key: 'secret_key', label: t('backup.secretKey'), secret: true },
   ],
-}
-const weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+}))
+const weekdays = computed(() => Array.from({ length: 7 }, (_, index) =>
+  new Intl.DateTimeFormat(locale.value, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, index + 1))),
+))
 
 const settings = ref<Settings | null>(null)
 const recipients = ref<Recipient[]>([])
 const recipientName = ref('')
 const recipientKey = ref('')
-const keyName = ref('Diese Instanz')
+const keyName = ref(t('backup.instance'))
 const keyPassphrase = ref('')
 const lastPublicKey = ref('')
 const oneOffKey = ref('')
@@ -55,7 +57,7 @@ const remoteTargetId = ref<number | null>(null)
 const remoteFiles = ref<RemoteFile[]>([])
 const remoteFile = ref('')
 
-const currentFields = computed(() => kindFields[form.kind] ?? [])
+const currentFields = computed(() => kindFields.value[form.kind] ?? [])
 
 async function call<T>(path: string, options: RequestInit = {}, json = true): Promise<T> {
   const response = await fetch(`/api/admin/backup${path}`, {
@@ -78,9 +80,9 @@ async function guarded(action: () => Promise<void>, success = '') {
   problem.value = ''
   try {
     await action()
-    message.value = success
+    if (success) message.value = success
   } catch (err) {
-    problem.value = err instanceof Error ? err.message : 'Aktion fehlgeschlagen'
+    problem.value = err instanceof Error ? err.message : t('backup.actionFailed')
   } finally {
     busy.value = false
   }
@@ -107,7 +109,7 @@ async function saveSettings() {
         time_of_day: current.time_of_day,
       }),
     })
-  }, 'Einstellungen gespeichert.')
+  }, t('backup.settingsSaved'))
 }
 
 function newTarget() {
@@ -126,27 +128,27 @@ async function saveTarget() {
     await call(form.id ? `/targets/${form.id}` : '/targets', { method: form.id ? 'PUT' : 'POST', body })
     showForm.value = false
     await loadAll()
-  }, 'Backup-Ziel gespeichert.')
+  }, t('backup.targetSaved'))
 }
 
 async function removeTarget(target: Target) {
-  if (!window.confirm(`Backup-Ziel „${target.name}“ entfernen? Bereits gespeicherte Backups bleiben am Ziel erhalten.`)) return
+  if (!window.confirm(t('backup.removeTargetConfirm', { name: target.name }))) return
   await guarded(async () => {
     await call(`/targets/${target.id}`, { method: 'DELETE' })
     await loadAll()
-  }, 'Backup-Ziel entfernt.')
+  }, t('backup.targetRemoved'))
 }
 
 async function testTarget(target: Target) {
-  await guarded(async () => { await call(`/targets/${target.id}/test`, { method: 'POST' }) }, `Verbindung zu „${target.name}“ erfolgreich.`)
+  await guarded(async () => { await call(`/targets/${target.id}/test`, { method: 'POST' }) }, t('backup.connectionSuccess', { name: target.name }))
 }
 
 async function runNow(target: Target) {
   await guarded(async () => {
     const run = await call<Run>(`/targets/${target.id}/run`, { method: 'POST' })
     await loadAll()
-    if (run.status !== 'success') throw new Error(run.error ?? 'Backup fehlgeschlagen')
-  }, `Backup auf „${target.name}“ erstellt.`)
+    if (run.status !== 'success') throw new Error(run.error ? apiErrorDetail(run.error) ?? t('backup.runFailed') : t('backup.runFailed'))
+  }, t('backup.runSuccess', { name: target.name }))
 }
 
 async function downloadBackup() {
@@ -166,7 +168,7 @@ async function downloadBackup() {
     link.download = name
     link.click()
     URL.revokeObjectURL(url)
-  }, 'Backup heruntergeladen.')
+  }, t('backup.downloaded'))
 }
 
 async function addRecipient() {
@@ -175,15 +177,15 @@ async function addRecipient() {
     recipientName.value = ''
     recipientKey.value = ''
     await loadAll()
-  }, 'Empfänger hinzugefügt. Neue Backups sind auch für ihn lesbar.')
+  }, t('backup.recipientAdded'))
 }
 
 async function removeRecipient(item: Recipient) {
-  if (!window.confirm(`Empfänger „${item.name}“ entfernen? Künftige Backups sind für diesen Schlüssel nicht mehr lesbar; bestehende bleiben es.`)) return
+  if (!window.confirm(t('backup.removeRecipientConfirm', { name: item.name }))) return
   await guarded(async () => {
     await call(`/recipients/${item.id}`, { method: 'DELETE' })
     await loadAll()
-  }, 'Empfänger entfernt.')
+  }, t('backup.recipientRemoved'))
 }
 
 async function createRecoveryKey() {
@@ -205,7 +207,7 @@ async function createRecoveryKey() {
     URL.revokeObjectURL(url)
     keyPassphrase.value = ''
     await loadAll()
-  }, 'Schlüsseldatei heruntergeladen. Bewahre sie und ihr Passwort getrennt vom Server auf – sie wird nicht gespeichert.')
+  }, t('backup.keyDownloaded'))
 }
 
 async function selectRecoveryKey(event: Event) {
@@ -215,7 +217,7 @@ async function selectRecoveryKey(event: Event) {
 }
 
 function afterRestore() {
-  message.value = 'Wiederherstellung abgeschlossen. Die Seite wird neu geladen …'
+  message.value = t('backup.restoreComplete')
   window.setTimeout(() => window.location.reload(), 1500)
 }
 
@@ -265,109 +267,109 @@ onMounted(() => { void guarded(loadAll) })
 
 <template>
   <section class="backup-settings">
-    <h3>Datensicherung</h3>
-    <p class="muted">Backups sind immer verschlüsselt und können nur mit dem passenden <strong>privaten Wiederherstellungsschlüssel</strong> gelesen werden – der Server speichert keinen Schlüssel zum Entschlüsseln. Sie sind unabhängig von der Architektur (PC, Server, Raspberry Pi) und lassen sich auf einer neuen Instanz einspielen. Übertragung zu Zielen erfolgt nur verschlüsselt (SFTP/SSH oder HTTPS).</p>
+    <h3>{{ t('backup.title') }}</h3>
+    <p class="muted">{{ t('backup.description') }}</p>
     <p v-if="message" class="planning-notice" role="status">{{ message }}</p>
     <p v-if="problem" class="error-message" role="alert">{{ problem }}</p>
 
     <div class="stack">
-      <strong>1. Wiederherstellungsschlüssel und Empfänger</strong>
-      <p v-if="!recipients.length" class="muted">Noch kein Empfänger vorhanden – ohne Empfänger werden keine Backups erstellt.</p>
+      <strong>{{ t('backup.recipients') }}</strong>
+      <p v-if="!recipients.length" class="muted">{{ t('backup.noRecipients') }}</p>
       <div v-for="item in recipients" :key="item.id" class="management-row">
         <div><strong>{{ item.name }}</strong><small><code>{{ item.public_key }}</code></small></div>
-        <button class="text-button danger-text" :disabled="busy" @click="removeRecipient(item)">Entfernen</button>
+        <button class="text-button danger-text" :disabled="busy" @click="removeRecipient(item)">{{ t('backup.remove') }}</button>
       </div>
       <form class="stack backup-target-form" @submit.prevent="createRecoveryKey">
-        <strong>Neuen Schlüssel für diese Instanz erzeugen</strong>
-        <label>Name<input v-model="keyName" maxlength="80" required /></label>
-        <label>Passwort für die Schlüsseldatei (mindestens 12 Zeichen)<input v-model="keyPassphrase" type="password" autocomplete="new-password" maxlength="200" required /></label>
-        <button class="secondary" :disabled="busy">Schlüssel erzeugen und Datei herunterladen</button>
-        <p class="muted">Die Datei (.cpkey) ist die einzige Möglichkeit, Backups zu entschlüsseln. Geht sie verloren, sind die Backups unbrauchbar.</p>
-        <p v-if="lastPublicKey" class="muted">Öffentlicher Schlüssel: <code>{{ lastPublicKey }}</code></p>
+        <strong>{{ t('backup.createKey') }}</strong>
+        <label>{{ t('backup.name') }}<input v-model="keyName" maxlength="80" required /></label>
+        <label>{{ t('backup.keyPassword') }}<input v-model="keyPassphrase" type="password" autocomplete="new-password" maxlength="200" required /></label>
+        <button class="secondary" :disabled="busy">{{ t('backup.generateKey') }}</button>
+        <p class="muted">{{ t('backup.keyWarning') }}</p>
+        <p v-if="lastPublicKey" class="muted">{{ t('backup.publicKey') }} <code>{{ lastPublicKey }}</code></p>
       </form>
       <form class="stack backup-target-form" @submit.prevent="addRecipient">
-        <strong>Schlüssel einer anderen (neuen) Instanz als Empfänger hinzufügen</strong>
-        <label>Name<input v-model="recipientName" maxlength="80" required /></label>
-        <label>Öffentlicher Schlüssel (CPPUB1:…)<input v-model="recipientKey" required autocomplete="off" /></label>
-        <button class="secondary" :disabled="busy">Empfänger hinzufügen</button>
-        <p class="muted">Auf der neuen Instanz: <code>docker compose exec api python -m app.backup_cli keygen /backups/recovery-key.cpkey</code> gibt den öffentlichen Schlüssel aus.</p>
+        <strong>{{ t('backup.addOther') }}</strong>
+        <label>{{ t('backup.name') }}<input v-model="recipientName" maxlength="80" required /></label>
+        <label>{{ t('backup.publicKeyInput') }}<input v-model="recipientKey" required autocomplete="off" /></label>
+        <button class="secondary" :disabled="busy">{{ t('backup.addRecipient') }}</button>
+        <p class="muted">{{ t('backup.keygenIntro') }} <code>docker compose exec api python -m app.backup_cli keygen /backups/recovery-key.cpkey</code></p>
       </form>
     </div>
 
     <form v-if="settings" class="stack" @submit.prevent="saveSettings">
-      <strong>2. Automatische Backups</strong>
-      <label class="check-row"><input v-model="settings.schedule_enabled" type="checkbox" :disabled="!settings.recipient_count" /> Regelmäßig sichern</label>
+      <strong>{{ t('backup.automatic') }}</strong>
+      <label class="check-row"><input v-model="settings.schedule_enabled" type="checkbox" :disabled="!settings.recipient_count" /> {{ t('backup.scheduleEnabled') }}</label>
       <div class="form-row">
-        <label>Rhythmus<select v-model="settings.frequency"><option value="daily">Täglich</option><option value="weekly">Wöchentlich</option></select></label>
-        <label v-if="settings.frequency === 'weekly'">Wochentag<select v-model.number="settings.weekday"><option v-for="(day, index) in weekdays" :key="day" :value="index">{{ day }}</option></select></label>
-        <label>Uhrzeit ({{ settings.timezone }})<input v-model="settings.time_of_day" type="time" required /></label>
+        <label>{{ t('backup.frequency') }}<select v-model="settings.frequency"><option value="daily">{{ t('backup.daily') }}</option><option value="weekly">{{ t('backup.weekly') }}</option></select></label>
+        <label v-if="settings.frequency === 'weekly'">{{ t('backup.weekday') }}<select v-model.number="settings.weekday"><option v-for="(day, index) in weekdays" :key="index" :value="index">{{ day }}</option></select></label>
+        <label>{{ t('backup.time', { timezone: settings.timezone }) }}<input v-model="settings.time_of_day" type="time" required /></label>
       </div>
-      <button class="secondary" :disabled="busy">Zeitplan speichern</button>
+      <button class="secondary" :disabled="busy">{{ t('backup.saveSchedule') }}</button>
     </form>
 
     <div class="stack">
-      <strong>3. Backup-Ziele</strong>
-      <p v-if="!targets.length" class="muted">Noch kein Ziel angelegt. Ohne Ziel können Backups nur heruntergeladen werden.</p>
+      <strong>{{ t('backup.targets') }}</strong>
+      <p v-if="!targets.length" class="muted">{{ t('backup.noTargets') }}</p>
       <div v-for="target in targets" :key="target.id" class="management-row">
-        <div><strong>{{ target.name }}</strong><small>{{ kindLabels[target.kind] }} · {{ target.enabled ? 'aktiv' : 'pausiert' }} · behält {{ target.retention_count || 'alle' }} Backups</small></div>
+        <div><strong>{{ target.name }}</strong><small>{{ t('backup.targetSummary', { kind: kindLabels[target.kind] ?? target.kind, state: target.enabled ? t('backup.active') : t('backup.paused'), count: target.retention_count || t('backup.all') }) }}</small></div>
         <div>
-          <button class="text-button" :disabled="busy || !recipients.length" @click="runNow(target)">Jetzt sichern</button>
-          <button class="text-button" :disabled="busy" @click="testTarget(target)">Testen</button>
-          <button class="text-button" :disabled="busy" @click="editTarget(target)">Bearbeiten</button>
-          <button class="text-button danger-text" :disabled="busy" @click="removeTarget(target)">Entfernen</button>
+          <button class="text-button" :disabled="busy || !recipients.length" @click="runNow(target)">{{ t('backup.run') }}</button>
+          <button class="text-button" :disabled="busy" @click="testTarget(target)">{{ t('backup.test') }}</button>
+          <button class="text-button" :disabled="busy" @click="editTarget(target)">{{ t('backup.edit') }}</button>
+          <button class="text-button danger-text" :disabled="busy" @click="removeTarget(target)">{{ t('backup.remove') }}</button>
         </div>
       </div>
-      <button v-if="!showForm" class="secondary" @click="newTarget">Backup-Ziel hinzufügen</button>
+      <button v-if="!showForm" class="secondary" @click="newTarget">{{ t('backup.addTarget') }}</button>
       <form v-else class="stack backup-target-form" @submit.prevent="saveTarget">
-        <label>Name<input v-model="form.name" maxlength="80" required /></label>
-        <label>Typ<select v-model="form.kind" :disabled="form.id !== null"><option v-for="(label, key) in kindLabels" :key="key" :value="key">{{ label }}</option></select></label>
+        <label>{{ t('backup.name') }}<input v-model="form.name" maxlength="80" required /></label>
+        <label>{{ t('backup.type') }}<select v-model="form.kind" :disabled="form.id !== null"><option v-for="(label, key) in kindLabels" :key="key" :value="key">{{ label }}</option></select></label>
         <label v-for="field in currentFields" :key="field.key">{{ field.label }}
           <textarea v-if="field.key === 'private_key'" v-model="form.config[field.key]" rows="3" autocomplete="off"></textarea>
           <input v-else v-model="form.config[field.key]" :type="field.secret ? 'password' : 'text'" autocomplete="off" />
           <small v-if="field.hint" class="muted">{{ field.hint }}</small>
         </label>
         <div class="form-row">
-          <label>Backups behalten (0 = alle)<input v-model.number="form.retention_count" type="number" min="0" max="1000" required /></label>
-          <label class="check-row"><input v-model="form.enabled" type="checkbox" /> Für automatische Backups verwenden</label>
+          <label>{{ t('backup.retention') }}<input v-model.number="form.retention_count" type="number" min="0" max="1000" required /></label>
+          <label class="check-row"><input v-model="form.enabled" type="checkbox" /> {{ t('backup.useAutomatic') }}</label>
         </div>
-        <div class="form-row"><button class="primary" :disabled="busy">Speichern</button><button type="button" class="text-button" @click="showForm = false">Abbrechen</button></div>
+        <div class="form-row"><button class="primary" :disabled="busy">{{ t('backup.save') }}</button><button type="button" class="text-button" @click="showForm = false">{{ t('backup.cancel') }}</button></div>
       </form>
     </div>
 
     <div class="stack">
-      <strong>4. Backup herunterladen</strong>
-      <label>Nur für diesen öffentlichen Schlüssel verschlüsseln (optional, z. B. neue Instanz; leer = alle Empfänger)<input v-model="oneOffKey" placeholder="CPPUB1:…" autocomplete="off" /></label>
-      <button class="secondary" :disabled="busy || (!recipients.length && !oneOffKey.trim())" @click="downloadBackup">Backup herunterladen</button>
-      <p class="muted">Per Kommandozeile: <code>docker compose exec api python -m app.backup_cli export /backups/manuell.cpbak --recipient CPPUB1:…</code></p>
+      <strong>{{ t('backup.downloadSection') }}</strong>
+      <label>{{ t('backup.oneOffKey') }}<input v-model="oneOffKey" placeholder="CPPUB1:…" autocomplete="off" /></label>
+      <button class="secondary" :disabled="busy || (!recipients.length && !oneOffKey.trim())" @click="downloadBackup">{{ t('backup.download') }}</button>
+      <p class="muted">{{ t('backup.cli') }} <code>docker compose exec api python -m app.backup_cli export /backups/manuell.cpbak --recipient CPPUB1:…</code></p>
     </div>
 
     <div class="stack backup-restore">
-      <strong>5. Wiederherstellen</strong>
-      <p class="muted">Ersetzt <strong>alle</strong> vorhandenen Daten durch den Stand des Backups. Erstelle vorher ein aktuelles Backup. Auf einer ganz neuen Instanz geht das auch per CLI: <code>docker compose exec api python -m app.backup_cli import /backups/datei.cpbak --key /backups/recovery-key.cpkey --yes</code></p>
-      <label>Wiederherstellungsschlüssel (.cpkey)<input type="file" accept=".cpkey" @change="selectRecoveryKey" /></label>
-      <label>Passwort der Schlüsseldatei<input v-model="restorePassphrase" type="password" autocomplete="off" maxlength="200" /></label>
-      <label>Zur Bestätigung „WIEDERHERSTELLEN“ eingeben<input v-model="restoreConfirm" autocomplete="off" /></label>
+      <strong>{{ t('backup.restoreSection') }}</strong>
+      <p class="muted">{{ t('backup.restoreWarning') }} <code>docker compose exec api python -m app.backup_cli import /backups/datei.cpbak --key /backups/recovery-key.cpkey --yes</code></p>
+      <label>{{ t('backup.recoveryKey') }}<input type="file" accept=".cpkey" @change="selectRecoveryKey" /></label>
+      <label>{{ t('backup.restorePassword') }}<input v-model="restorePassphrase" type="password" autocomplete="off" maxlength="200" /></label>
+      <label>{{ t('backup.confirm') }}<input v-model="restoreConfirm" autocomplete="off" /></label>
       <div class="stack">
-        <label>Backup-Datei hochladen (.cpbak)<input type="file" accept=".cpbak" @change="selectRestoreFile" /></label>
-        <button class="secondary danger-text" :disabled="busy || !restoreFile || !recoveryKeyText || !restorePassphrase || restoreConfirm !== 'WIEDERHERSTELLEN'" @click="restoreUpload">Aus Datei wiederherstellen</button>
+        <label>{{ t('backup.upload') }}<input type="file" accept=".cpbak" @change="selectRestoreFile" /></label>
+        <button class="secondary danger-text" :disabled="busy || !restoreFile || !recoveryKeyText || !restorePassphrase || restoreConfirm !== 'WIEDERHERSTELLEN'" @click="restoreUpload">{{ t('backup.restoreFile') }}</button>
       </div>
       <div v-if="targets.length" class="stack">
-        <label>Oder von einem Ziel
-          <select v-model.number="remoteTargetId" @change="remoteFiles = []"><option :value="null">Ziel wählen …</option><option v-for="target in targets" :key="target.id" :value="target.id">{{ target.name }}</option></select>
+        <label>{{ t('backup.orTarget') }}
+          <select v-model.number="remoteTargetId" @change="remoteFiles = []"><option :value="null">{{ t('backup.chooseTarget') }}</option><option v-for="target in targets" :key="target.id" :value="target.id">{{ target.name }}</option></select>
         </label>
-        <button v-if="remoteTargetId !== null" class="secondary" :disabled="busy" @click="loadRemoteFiles">Backups anzeigen</button>
-        <label v-if="remoteFiles.length">Backup<select v-model="remoteFile"><option v-for="file in remoteFiles" :key="file.name" :value="file.name">{{ file.name }} ({{ size(file.size) }})</option></select></label>
-        <button v-if="remoteFiles.length" class="secondary danger-text" :disabled="busy || !recoveryKeyText || !restorePassphrase || restoreConfirm !== 'WIEDERHERSTELLEN'" @click="restoreRemote">Von Ziel wiederherstellen</button>
-        <p v-else-if="remoteTargetId !== null" class="muted">Keine Backups geladen oder vorhanden.</p>
+        <button v-if="remoteTargetId !== null" class="secondary" :disabled="busy" @click="loadRemoteFiles">{{ t('backup.showBackups') }}</button>
+        <label v-if="remoteFiles.length">{{ t('backup.backup') }}<select v-model="remoteFile"><option v-for="file in remoteFiles" :key="file.name" :value="file.name">{{ file.name }} ({{ size(file.size) }})</option></select></label>
+        <button v-if="remoteFiles.length" class="secondary danger-text" :disabled="busy || !recoveryKeyText || !restorePassphrase || restoreConfirm !== 'WIEDERHERSTELLEN'" @click="restoreRemote">{{ t('backup.restoreTarget') }}</button>
+        <p v-else-if="remoteTargetId !== null" class="muted">{{ t('backup.noFiles') }}</p>
       </div>
     </div>
 
     <div v-if="runs.length" class="stack">
-      <strong>Letzte Backups</strong>
+      <strong>{{ t('backup.recent') }}</strong>
       <div v-for="run in runs" :key="run.id" class="management-row">
         <div>
-          <strong>{{ run.status === 'success' ? '✓' : '✗' }} {{ run.target_name }} · {{ run.trigger === 'scheduled' ? 'automatisch' : 'manuell' }}</strong>
-          <small>{{ new Date(run.started_at).toLocaleString('de-DE') }}<span v-if="run.filename"> · {{ run.filename }} ({{ size(run.size_bytes) }})</span><span v-if="run.error"> · {{ run.error }}</span></small>
+          <strong>{{ run.status === 'success' ? '✓' : '✗' }} {{ run.target_name }} · {{ run.trigger === 'scheduled' ? t('backup.scheduled') : t('backup.manual') }}</strong>
+          <small>{{ new Date(run.started_at).toLocaleString(locale) }}<span v-if="run.filename"> · {{ run.filename }} ({{ size(run.size_bytes) }})</span><span v-if="run.error"> · {{ apiErrorDetail(run.error) }}</span></small>
         </div>
       </div>
     </div>

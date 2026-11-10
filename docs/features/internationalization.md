@@ -6,7 +6,7 @@ Personen- und Abteilungsnamen noch andere selbst eingegebene Inhalte.
 
 ::: warning Übersetzung noch nicht vollständig
 Deutsch ist die Standardsprache. Englisch ist verfügbar, aber noch nicht für
-alle Bereiche übersetzt. Insbesondere Planung, Verwaltung, Backup und
+alle Bereiche übersetzt. Insbesondere Dienstplanübersicht, Verwaltung und
 Meldungen der API können weiterhin deutschen oder englischen Originaltext
 enthalten. Die Anwendung weist bei der Auswahl von Englisch darauf hin.
 :::
