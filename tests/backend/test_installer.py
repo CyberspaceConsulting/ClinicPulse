@@ -85,6 +85,38 @@ def test_piped_installer_downloads_verifies_and_starts_release(tmp_path):
     assert "http://localhost:8080" in result.stdout
 
 
+def test_source_installer_builds_local_compose_without_downloading_release(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    repository = tmp_path / "repository"
+    deploy_dir = repository / "deploy"
+    docker_dir = repository / "docker"
+    deploy_dir.mkdir(parents=True)
+    docker_dir.mkdir()
+    installer = deploy_dir / "install.sh"
+    installer.write_text(INSTALLER.read_text(encoding="utf-8"), encoding="utf-8")
+    installer.chmod(0o755)
+    source_compose = docker_dir / "docker-compose.yml"
+    source_compose.write_text("services:\n  web:\n    build: ../frontend\n", encoding="utf-8")
+    install_dir = tmp_path / "installation"
+
+    result = subprocess.run(
+        ["sh", str(installer), str(install_dir)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Using the local source checkout" in result.stdout
+    assert (install_dir / "secrets" / "data_encryption_key").exists()
+    docker_commands = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
+    assert f"compose --file {source_compose} up --build -d" in docker_commands
+    assert "compose pull" not in docker_commands
+    assert not (install_dir / "compose.yaml").exists()
+
+
 def test_repeat_install_preserves_key_and_existing_backups(tmp_path):
     environment, _ = installer_environment(tmp_path)
     install_dir = tmp_path / "installation"
