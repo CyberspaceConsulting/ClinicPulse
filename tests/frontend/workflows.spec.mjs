@@ -386,7 +386,7 @@ test('backup interface translates without changing the restore confirmation cont
   await mockApi(page, 'ADMIN')
   await page.route('**/api/admin/updates**', (route) => route.fulfill({ json: {
     current_version: 'test', channel: 'stable', latest_version: null, update_available: false,
-    status: 'up_to_date', message: '', release_url: null, repository_url: '', checked_at: '',
+    status: 'up_to_date', message: 'ClinicPulse ist auf dem aktuellen Release-Stand.', release_url: null, repository_url: '', checked_at: '',
   } }))
   await page.route('**/api/admin/business-configuration', (route) => route.fulfill({ json: {
     federal_state: 'Berlin', operational_profile: 'hospital', timezone: 'Europe/Berlin', sunday_work_authorized: false,
@@ -397,7 +397,10 @@ test('backup interface translates without changing the restore confirmation cont
   await page.route('**/api/admin/work-rules', (route) => route.fulfill({ json: {
     rest_hours: 11, max_daily_hours: 10, max_weekly_hours: 48,
   } }))
-  await page.route('**/api/admin/audit**', (route) => route.fulfill({ json: { items: [], limit: 25, offset: 0 } }))
+  await page.route('**/api/admin/audit**', (route) => route.fulfill({ json: { items: [
+    { id: 1, created_at: '2026-11-01T10:00:00Z', actor_username: 'admin', action: 'updated', entity_type: 'settings', entity_id: '1' },
+    { id: 2, created_at: '2026-11-01T10:00:00Z', actor_username: 'admin', action: 'custom_action', entity_type: 'custom', entity_id: '2' },
+  ], limit: 25, offset: 0 } }))
   await page.route('**/api/admin/mail-settings', (route) => route.fulfill({ json: {
     public_url: 'https://clinic.example', smtp_host: 'smtp.example', smtp_port: 587, smtp_username: 'user',
     smtp_password_configured: true, from_address: 'sender@example.org', use_ssl: false, use_starttls: true,
@@ -416,9 +419,33 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.locator('.toast-error')).toHaveCount(0)
+  await expect(page.getByText('ClinicPulse is up to date.')).toBeVisible()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.locator('.toast-error')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '☼ Light' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Operations & working time' }).click()
+  await expect(page.getByRole('heading', { name: 'Operating configuration' })).toBeVisible()
+  await expect(page.getByLabel('Facility type')).toHaveValue('hospital')
+  await expect(page.getByLabel('Facility type')).toContainText('Hospital')
+  await expect(page.getByLabel('Minimum rest between shifts (hours)')).toHaveValue('11')
+  await page.getByLabel('Maximum daily working time, net (hours)').fill('9')
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.getByRole('heading', { name: 'Betriebskonfiguration' })).toBeVisible()
+  await expect(page.getByLabel('Höchstarbeitszeit pro Tag, netto (Stunden)')).toHaveValue('9')
+  await page.getByLabel('Sprache').selectOption('en')
+  const rulesRequest = page.waitForRequest((req) => req.url().endsWith('/api/admin/work-rules') && req.method() === 'PUT')
+  await page.getByRole('button', { name: 'Save rules' }).click()
+  expect((await rulesRequest).postDataJSON()).toMatchObject({ rest_hours: 11, max_daily_hours: 9, max_weekly_hours: 48 })
+  await expect(page.locator('span.muted').getByText('Saved', { exact: true })).toBeVisible()
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.locator('span.muted').getByText('Gespeichert', { exact: true })).toBeVisible()
+  await page.getByLabel('Sprache').selectOption('en')
+  await page.getByRole('tab', { name: 'Audit log' }).click()
+  await expect(page.locator('.audit-row').first()).toContainText('updated')
+  await expect(page.locator('.audit-row').nth(1)).toContainText('custom_action')
+  await page.getByRole('tab', { name: 'License' }).click()
+  await expect(page.getByLabel('Updated license token')).toBeVisible()
+  await expect(page.getByText('The token is not displayed or returned. The license server links it idempotently to this installation.')).toBeVisible()
   await page.getByRole('tab', { name: 'Email delivery' }).click()
   await expect(page.getByRole('heading', { name: 'Email delivery (SMTP)' })).toBeVisible()
   await expect(page.getByLabel('SMTP password', { exact: true })).toHaveAttribute('placeholder', 'Keep saved password')
@@ -441,6 +468,11 @@ test('backup interface translates without changing the restore confirmation cont
   await expect(page.getByRole('heading', { name: 'Data backup' })).toBeVisible()
   await expect(page.locator('.backup-settings option').getByText('Monday', { exact: true })).toBeAttached()
   await expect(page.getByText('Team A', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Save schedule' }).click()
+  await expect(page.locator('.backup-settings [role="status"]')).toHaveText('Settings saved.')
+  await page.getByLabel('Language').selectOption('de')
+  await expect(page.locator('.backup-settings [role="status"]')).toHaveText('Einstellungen gespeichert.')
+  await page.getByLabel('Sprache').selectOption('en')
   const restore = page.getByRole('button', { name: 'Restore from file' })
   await page.getByLabel('Recovery key (.cpkey)').setInputFiles({ name: 'test.cpkey', mimeType: 'text/plain', buffer: Buffer.from('test-key') })
   await page.getByLabel('Upload backup file (.cpbak)').setInputFiles({ name: 'test.cpbak', mimeType: 'application/octet-stream', buffer: Buffer.from('test-backup') })

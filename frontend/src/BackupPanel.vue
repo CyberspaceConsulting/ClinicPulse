@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { locale, t } from './i18n'
+import { locale, t, type TranslationKey } from './i18n'
 import { apiErrorDetail } from './i18n/apiErrors'
 
 type Target = { id: number; name: string; kind: string; config: Record<string, string>; enabled: boolean; retention_count: number }
@@ -46,7 +46,9 @@ const recoveryKeyText = ref('')
 const targets = ref<Target[]>([])
 const runs = ref<Run[]>([])
 const busy = ref(false)
-const message = ref('')
+type Notice = { key: TranslationKey; values?: Record<string, string | number> }
+const notice = ref<Notice | null>(null)
+const message = computed(() => notice.value ? t(notice.value.key, notice.value.values) : '')
 const problem = ref('')
 const form = reactive({ id: null as number | null, name: '', kind: 'local', config: {} as Record<string, string>, enabled: true, retention_count: 10 })
 const showForm = ref(false)
@@ -74,13 +76,13 @@ async function call<T>(path: string, options: RequestInit = {}, json = true): Pr
   return response.blob() as unknown as Promise<T>
 }
 
-async function guarded(action: () => Promise<void>, success = '') {
+async function guarded(action: () => Promise<void>, success?: Notice) {
   busy.value = true
-  message.value = ''
+  notice.value = null
   problem.value = ''
   try {
     await action()
-    if (success) message.value = success
+    if (success) notice.value = success
   } catch (err) {
     problem.value = err instanceof Error ? err.message : t('backup.actionFailed')
   } finally {
@@ -109,7 +111,7 @@ async function saveSettings() {
         time_of_day: current.time_of_day,
       }),
     })
-  }, t('backup.settingsSaved'))
+  }, { key: 'backup.settingsSaved' })
 }
 
 function newTarget() {
@@ -128,7 +130,7 @@ async function saveTarget() {
     await call(form.id ? `/targets/${form.id}` : '/targets', { method: form.id ? 'PUT' : 'POST', body })
     showForm.value = false
     await loadAll()
-  }, t('backup.targetSaved'))
+  }, { key: 'backup.targetSaved' })
 }
 
 async function removeTarget(target: Target) {
@@ -136,11 +138,11 @@ async function removeTarget(target: Target) {
   await guarded(async () => {
     await call(`/targets/${target.id}`, { method: 'DELETE' })
     await loadAll()
-  }, t('backup.targetRemoved'))
+  }, { key: 'backup.targetRemoved' })
 }
 
 async function testTarget(target: Target) {
-  await guarded(async () => { await call(`/targets/${target.id}/test`, { method: 'POST' }) }, t('backup.connectionSuccess', { name: target.name }))
+  await guarded(async () => { await call(`/targets/${target.id}/test`, { method: 'POST' }) }, { key: 'backup.connectionSuccess', values: { name: target.name } })
 }
 
 async function runNow(target: Target) {
@@ -148,7 +150,7 @@ async function runNow(target: Target) {
     const run = await call<Run>(`/targets/${target.id}/run`, { method: 'POST' })
     await loadAll()
     if (run.status !== 'success') throw new Error(run.error ? apiErrorDetail(run.error) ?? t('backup.runFailed') : t('backup.runFailed'))
-  }, t('backup.runSuccess', { name: target.name }))
+  }, { key: 'backup.runSuccess', values: { name: target.name } })
 }
 
 async function downloadBackup() {
@@ -168,7 +170,7 @@ async function downloadBackup() {
     link.download = name
     link.click()
     URL.revokeObjectURL(url)
-  }, t('backup.downloaded'))
+  }, { key: 'backup.downloaded' })
 }
 
 async function addRecipient() {
@@ -177,7 +179,7 @@ async function addRecipient() {
     recipientName.value = ''
     recipientKey.value = ''
     await loadAll()
-  }, t('backup.recipientAdded'))
+  }, { key: 'backup.recipientAdded' })
 }
 
 async function removeRecipient(item: Recipient) {
@@ -185,7 +187,7 @@ async function removeRecipient(item: Recipient) {
   await guarded(async () => {
     await call(`/recipients/${item.id}`, { method: 'DELETE' })
     await loadAll()
-  }, t('backup.recipientRemoved'))
+  }, { key: 'backup.recipientRemoved' })
 }
 
 async function createRecoveryKey() {
@@ -207,7 +209,7 @@ async function createRecoveryKey() {
     URL.revokeObjectURL(url)
     keyPassphrase.value = ''
     await loadAll()
-  }, t('backup.keyDownloaded'))
+  }, { key: 'backup.keyDownloaded' })
 }
 
 async function selectRecoveryKey(event: Event) {
@@ -217,7 +219,7 @@ async function selectRecoveryKey(event: Event) {
 }
 
 function afterRestore() {
-  message.value = t('backup.restoreComplete')
+  notice.value = { key: 'backup.restoreComplete' }
   window.setTimeout(() => window.location.reload(), 1500)
 }
 

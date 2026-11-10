@@ -313,14 +313,14 @@ const shiftPosition = ref('Pflegefachkraft')
 const shiftBreak = ref<number | null>(null)
 const shiftBreakStart = ref<number | null>(null)
 const workRules = ref({ rest_hours: 11, max_daily_hours: 10, max_weekly_hours: 48 })
-const workRulesMessage = ref('')
+const workRulesMessage = ref(false)
 const businessConfiguration = ref<BusinessConfiguration>({
   federal_state: '',
   operational_profile: 'hospital',
   timezone: 'Europe/Berlin',
   sunday_work_authorized: false,
 })
-const businessConfigurationMessage = ref('')
+const businessConfigurationMessage = ref(false)
 const requiredStaff = ref(1)
 const shiftStart = ref('07:00')
 const shiftEnd = ref('15:00')
@@ -374,8 +374,8 @@ const archiveEnd = ref('')
 const archiveDepartmentId = ref('')
 const archiveNote = ref('')
 const archiveSettings = ref<{ auto_enabled: boolean; period: string; last_period_end: string | null }>({ auto_enabled: false, period: 'monthly', last_period_end: null })
-const archiveSettingsMessage = ref('')
-const idleTimeoutMessage = ref('')
+const archiveSettingsMessage = ref(false)
+const idleTimeoutMessage = ref(false)
 const canViewArchive = computed(() => ['OBERARZT', 'CHEFARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value))
 const absences = ref<Absence[]>([])
 const absenceKind = ref<Absence['kind']>('vacation')
@@ -402,11 +402,11 @@ const federalStates = [
   'Saarland', 'Sachsen', 'Sachsen-Anhalt', 'Schleswig-Holstein', 'Thüringen',
 ]
 const operationalProfiles = [
-  { value: 'hospital', label: 'Krankenhaus' },
-  { value: 'rescue_service', label: 'Rettungsdienst' },
-  { value: 'ils', label: 'Integrierte Leitstelle (ILS)' },
-  { value: 'care_facility', label: 'Pflegeeinrichtung' },
-  { value: 'other', label: 'Sonstiger Betrieb' },
+  { value: 'hospital', label: 'operations.hospital' },
+  { value: 'rescue_service', label: 'operations.rescue' },
+  { value: 'ils', label: 'operations.dispatch' },
+  { value: 'care_facility', label: 'operations.care' },
+  { value: 'other', label: 'operations.other' },
 ] as const
 
 const weekStart = computed(() => {
@@ -630,12 +630,12 @@ async function checkSetup(restoreSession = true) {
         void refreshLicenseStatus()
       } catch (err) {
         if (!(err instanceof Error) || !err.message.includes('(401)')) {
-          error.value = err instanceof Error ? err.message : 'Sitzung konnte nicht geprüft werden'
+          error.value = err instanceof Error ? err.message : t('errors.sessionCheck')
         }
       }
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Installationsstatus konnte nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('errors.installationStatus')
   } finally {
     setupChecked.value = true
   }
@@ -684,7 +684,7 @@ async function loadData() {
     if (!employeeDepartmentId.value && departments.value.length) employeeDepartmentId.value = String(departments.value[0].id)
     if (!userDepartmentIds.value.length && departments.value.length) userDepartmentIds.value = [departments.value[0].id]
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Daten konnten nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('errors.loadData')
   } finally {
     busy.value = false
   }
@@ -713,7 +713,7 @@ async function loadArchives() {
 }
 
 async function saveIdleTimeout() {
-  idleTimeoutMessage.value = ''
+  idleTimeoutMessage.value = false
   try {
     const result = await api<{ idle_timeout_minutes: number }>('/admin/security-settings', {
       method: 'PUT',
@@ -721,9 +721,9 @@ async function saveIdleTimeout() {
     })
     idleTimeoutMinutes.value = result.idle_timeout_minutes
     scheduleIdleLogout()
-    idleTimeoutMessage.value = 'Gespeichert'
+    idleTimeoutMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Sicherheitseinstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('errors.saveSecurity')
   }
 }
 
@@ -736,13 +736,13 @@ async function loadArchiveSettings() {
 }
 
 async function saveArchiveSettings() {
-  archiveSettingsMessage.value = ''
+  archiveSettingsMessage.value = false
   try {
     archiveSettings.value = await api('/admin/archive-settings', {
       method: 'PUT',
       body: JSON.stringify({ auto_enabled: archiveSettings.value.auto_enabled, period: archiveSettings.value.period }),
     })
-    archiveSettingsMessage.value = t('settings.saved')
+    archiveSettingsMessage.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : t('archive.settingsSaveFailed')
   }
@@ -837,7 +837,7 @@ async function checkForUpdates(refresh = false) {
     updateChannel.value = updateInfo.value.channel
     appVersion.value = updateInfo.value.current_version
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Update-Status konnte nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('errors.updateStatus')
   } finally {
     updateCheckBusy.value = false
   }
@@ -849,7 +849,7 @@ async function refreshLicenseStatus() {
     licenseInfo.value = await api<LicenseInfo>('/license/status')
   } catch (err) {
     if (roleKey.value === 'ADMIN') {
-      error.value = err instanceof Error ? err.message : 'Lizenzstatus konnte nicht geladen werden'
+      error.value = err instanceof Error ? err.message : t('errors.licenseStatus')
     }
   }
 }
@@ -866,10 +866,19 @@ async function loadAuditEvents(reset = false) {
     auditOffset.value = offset + result.items.length
     auditHasMore.value = result.items.length === result.limit
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Audit-Protokoll konnte nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('audit.loadFailed')
   } finally {
     auditBusy.value = false
   }
+}
+
+function auditActionLabel(action: string) {
+  const keys: Record<string, TranslationKey> = {
+    created: 'audit.created', updated: 'audit.updated', deleted: 'audit.deleted',
+    login: 'audit.login', locked: 'audit.locked', unlocked: 'audit.unlocked',
+    restored: 'audit.restored', login_failed: 'audit.loginFailed',
+  }
+  return keys[action] ? t(keys[action]) : action
 }
 
 async function loadMailSettings() {
@@ -956,7 +965,7 @@ async function checkLicenseNow() {
   try {
     licenseInfo.value = await api<LicenseInfo>('/admin/license/check', { method: 'POST' })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Lizenzprüfung fehlgeschlagen'
+    error.value = err instanceof Error ? err.message : t('license.checkFailed')
   } finally {
     licenseCheckBusy.value = false
   }
@@ -972,7 +981,7 @@ async function replaceLicenseToken() {
     })
     licenseTokenInput.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Lizenz-Token konnte nicht ersetzt werden'
+    error.value = err instanceof Error ? err.message : t('license.replaceFailed')
   } finally {
     licenseCheckBusy.value = false
   }
@@ -981,10 +990,10 @@ async function replaceLicenseToken() {
 const clockNow = ref(Date.now())
 let clockTicker: ReturnType<typeof setInterval> | undefined
 const idleRemainingLabel = computed(() => {
-  if (roleKey.value === 'KIOSK') return 'Kein automatisches Abmelden'
+  if (roleKey.value === 'KIOSK') return t('auth.noAutomaticLogout')
   const seconds = Math.max(0, Math.ceil((idleTimeoutMs() - (clockNow.value - idleActivityAt.value)) / 1000))
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-  return `Abmeldung in ${clock} ohne Aktivität`
+  return t('auth.logoutCountdown', { clock })
 })
 const idleWarning = computed(() => roleKey.value !== 'KIOSK' && idleTimeoutMs() - (clockNow.value - idleActivityAt.value) <= 60000)
 const idleActivityAt = ref(Date.now())
@@ -1004,13 +1013,13 @@ function scheduleIdleLogout() {
   const remaining = idleTimeoutMs() - (Date.now() - lastActivityAt)
   if (remaining <= 0) {
     void logout().then(() => {
-      error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+      error.value = t('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
     })
     return
   }
   idleLogoutTimer = setTimeout(async () => {
     await logout()
-    error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+    error.value = t('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
   }, remaining)
 }
 
@@ -1035,7 +1044,7 @@ function checkIdleDeadline() {
     && Date.now() - lastActivityAt >= idleTimeoutMs()
   ) {
     void logout().then(() => {
-      error.value = `Du wurdest wegen ${idleTimeoutMinutes.value} Minuten Inaktivität abgemeldet.`
+      error.value = t('auth.inactiveLogout', { count: idleTimeoutMinutes.value })
     })
     return
   }
@@ -1132,7 +1141,7 @@ async function changeUpdateChannel(event: Event) {
     updateChannel.value = result.channel
     await checkForUpdates(true)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Update-Kanal konnte nicht geändert werden'
+    error.value = err instanceof Error ? err.message : t('errors.updateChannel')
   }
 }
 
@@ -1140,7 +1149,7 @@ async function loadWorkRules() {
   try {
     workRules.value = await api('/admin/work-rules')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Arbeitszeitregeln konnten nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('operations.rulesLoadFailed')
   }
 }
 
@@ -1148,31 +1157,31 @@ async function loadBusinessConfiguration() {
   try {
     businessConfiguration.value = await api<BusinessConfiguration>('/admin/business-configuration')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Betriebskonfiguration konnte nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('operations.loadFailed')
   }
 }
 
 async function saveBusinessConfiguration() {
-  businessConfigurationMessage.value = ''
+  businessConfigurationMessage.value = false
   try {
     businessConfiguration.value = await api<BusinessConfiguration>('/admin/business-configuration', {
       method: 'PUT',
       body: JSON.stringify(businessConfiguration.value),
     })
-    businessConfigurationMessage.value = 'Gespeichert'
+    businessConfigurationMessage.value = true
     void loadRoleCatalog()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Betriebskonfiguration konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('operations.saveFailed')
   }
 }
 
 async function saveWorkRules() {
-  workRulesMessage.value = ''
+  workRulesMessage.value = false
   try {
     workRules.value = await api('/admin/work-rules', { method: 'PUT', body: JSON.stringify(workRules.value) })
-    workRulesMessage.value = 'Gespeichert'
+    workRulesMessage.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Arbeitszeitregeln konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('operations.rulesSaveFailed')
   }
 }
 
@@ -1195,7 +1204,7 @@ async function login() {
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
+    error.value = err instanceof Error ? err.message : t('errors.login')
   } finally {
     busy.value = false
   }
@@ -1203,7 +1212,7 @@ async function login() {
 
 async function acceptInvitation() {
   if (invitationPassword.value !== invitationPasswordConfirm.value) {
-    error.value = 'Die beiden Passwörter stimmen nicht überein.'
+    error.value = t('auth.passwordMismatch')
     return
   }
   busy.value = true
@@ -1219,7 +1228,7 @@ async function acceptInvitation() {
     invitationMessage.value = 'Dein Passwort wurde gesetzt. Du kannst dich jetzt anmelden.'
     window.history.replaceState({}, '', window.location.pathname + window.location.search)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Einladung konnte nicht angenommen werden'
+    error.value = err instanceof Error ? err.message : t('errors.acceptInvitation')
   } finally {
     busy.value = false
   }
@@ -1227,7 +1236,7 @@ async function acceptInvitation() {
 
 async function completeSetup() {
   if (setupPassword.value !== setupPasswordConfirm.value) {
-    error.value = 'Die beiden Passwörter stimmen nicht überein.'
+    error.value = t('auth.passwordMismatch')
     return
   }
   busy.value = true
@@ -1257,7 +1266,7 @@ async function completeSetup() {
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Einrichtung fehlgeschlagen'
+    error.value = err instanceof Error ? err.message : t('errors.setup')
   } finally {
     busy.value = false
   }
@@ -1270,7 +1279,7 @@ async function logout() {
   try {
     await api('/auth/logout', { method: 'POST' })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abmeldung beim Server fehlgeschlagen'
+    error.value = err instanceof Error ? err.message : t('errors.logout')
   }
   authenticated.value = false
   username.value = ''
@@ -1331,7 +1340,7 @@ async function submitEmployee() {
     if (authenticated.value && canView.value) await loadData()
     if (canManageTeam.value) await openManagement()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Mitarbeitende konnten nicht angelegt werden'
+    error.value = err instanceof Error ? err.message : t('errors.createEmployee')
   }
 }
 
@@ -1382,7 +1391,7 @@ async function submitShift() {
     showShiftForm.value = false
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Schicht konnte nicht angelegt werden'
+    error.value = err instanceof Error ? err.message : t('errors.createShift')
   }
 }
 
@@ -1411,14 +1420,14 @@ async function addAssignment(employeeId: number, date: string, shift: ShiftType)
 async function submitAssignment() {
   const shift = shiftTypes.value.find((item) => item.id === Number(selectedShift.value))
   if (!shift) {
-    error.value = 'Bitte zuerst eine Schichtart anlegen.'
+    error.value = t('schedule.shiftTypeRequired')
     return
   }
   try {
     await addAssignment(Number(selectedEmployee.value), selectedDate.value, shift)
     showAssignmentForm.value = false
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht geplant werden'
+    error.value = err instanceof Error ? err.message : t('errors.planShift')
   }
 }
 
@@ -1428,7 +1437,7 @@ async function removeAssignment(id: number) {
     await api(`/assignments/${id}`, { method: 'DELETE' })
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht entfernt werden'
+    error.value = err instanceof Error ? err.message : t('errors.removeShift')
   }
 }
 
@@ -1444,7 +1453,7 @@ async function suggestFor(date: string, shift: ShiftType) {
     const result = await api<{ candidates: Candidate[] }>(`/smart-selection?${params}`)
     smartCandidates.value = result.candidates
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Smart-Auswahl konnte nicht erstellt werden'
+    error.value = err instanceof Error ? err.message : t('errors.smartSelection')
     smartGap.value = null
   }
 }
@@ -1465,7 +1474,7 @@ async function approveCandidate(candidate: Candidate) {
     smartCandidates.value = []
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Vorschlag konnte nicht übernommen werden'
+    error.value = err instanceof Error ? err.message : t('errors.applySuggestion')
   }
 }
 
@@ -1537,7 +1546,7 @@ async function optimizeSelectedDay() {
       }),
     })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Optimierung konnte nicht berechnet werden'
+    error.value = err instanceof Error ? err.message : t('errors.calculateOptimization')
   } finally {
     optimizationBusy.value = false
   }
@@ -1562,7 +1571,7 @@ async function applyOptimizationSuggestion(suggestion: OptimizationSuggestion) {
     }
     await loadData()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Optimierungsvorschlag konnte nicht übernommen werden'
+    error.value = err instanceof Error ? err.message : t('errors.applyOptimization')
   }
 }
 
@@ -1577,7 +1586,7 @@ async function dropEmployee(event: DragEvent, date: string, shift: ShiftType) {
   try {
     await addAssignment(employeeId, date, shift)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Dienst konnte nicht zugewiesen werden'
+    error.value = err instanceof Error ? err.message : t('errors.assignShift')
   }
 }
 
@@ -1596,7 +1605,7 @@ async function saveSettings() {
     newPassword.value = ''
     showProfile.value = false
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Einstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('errors.saveSettings')
   }
 }
 
@@ -1616,7 +1625,7 @@ async function openManagement() {
       if (!employeeDepartmentId.value && organization.length) employeeDepartmentId.value = String(organization[0].id)
       if (roleKey.value === 'PERSONNEL' && userId.value === null) resetUserForm()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Verwaltungsdaten konnten nicht geladen werden'
+      error.value = err instanceof Error ? err.message : t('errors.loadManagement')
     }
   }
 
@@ -1664,7 +1673,7 @@ async function toggleUserLock(user: AccountUser) {
       })
       users.value = users.value.map((item) => (item.id === updated.id ? updated : item))
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Konto konnte nicht geändert werden'
+      error.value = err instanceof Error ? err.message : t('errors.changeAccount')
     }
   }
 
@@ -1676,7 +1685,7 @@ async function toggleUserLock(user: AccountUser) {
           ? { key: 'management.invitationResent', values: { email: String(updated.email) } }
           : { key: 'management.invitationResendFailed' }
       } catch (err) {
-        error.value = err instanceof Error ? err.message : 'Einladung konnte nicht versendet werden'
+        error.value = err instanceof Error ? err.message : t('errors.sendInvitation')
       }
   }
 
@@ -1687,7 +1696,7 @@ async function toggleUserLock(user: AccountUser) {
           teamNotice.value = { key: 'management.invitationRevokedNotice', values: { name: user.username } }
           await openManagement()
         } catch (err) {
-          error.value = err instanceof Error ? err.message : 'Einladung konnte nicht widerrufen werden'
+          error.value = err instanceof Error ? err.message : t('errors.revokeInvitation')
         }
   }
 
@@ -1722,7 +1731,7 @@ async function toggleUserLock(user: AccountUser) {
       resetUserForm()
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Benutzerkonto konnte nicht gespeichert werden'
+      error.value = err instanceof Error ? err.message : t('errors.saveAccount')
     }
   }
 
@@ -1732,7 +1741,7 @@ async function removeUser(user: AccountUser) {
       await api(`/users/${user.id}`, { method: 'DELETE' })
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Benutzerkonto konnte nicht gelöscht werden'
+      error.value = err instanceof Error ? err.message : t('errors.deleteAccount')
     }
   }
 
@@ -1746,7 +1755,7 @@ async function saveDepartment() {
       editingDepartmentId.value = null
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Abteilung konnte nicht gespeichert werden'
+      error.value = err instanceof Error ? err.message : t('errors.saveDepartment')
     }
   }
 
@@ -1761,7 +1770,7 @@ async function removeDepartment(department: Department) {
       await api(`/departments/${department.id}`, { method: 'DELETE' })
       await openManagement()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Abteilung konnte nicht gelöscht werden'
+      error.value = err instanceof Error ? err.message : t('errors.deleteDepartment')
     }
   }
 
@@ -2139,12 +2148,12 @@ onBeforeUnmount(() => {
           role="status"
         >
           <div>
-            <strong v-if="licenseInfo.read_only || licenseInfo.status === 'BLOCKED'">Lizenz eingeschränkt · Dienstplan im Lesemodus</strong>
-            <strong v-else-if="licenseInfo.status === 'GRACE_PERIOD'">Lizenzverlängerung erforderlich</strong>
-            <strong v-else>Lizenzserver derzeit nicht erreichbar</strong>
-            <p>{{ licenseInfo.message ?? licenseInfo.last_error ?? `Lizenzstatus: ${licenseInfo.status}` }}<span v-if="licenseInfo.grace_until"> · Kulanz bis {{ new Date(licenseInfo.grace_until).toLocaleString('de-DE') }}</span></p>
+            <strong v-if="licenseInfo.read_only || licenseInfo.status === 'BLOCKED'">{{ t('license.restricted') }}</strong>
+            <strong v-else-if="licenseInfo.status === 'GRACE_PERIOD'">{{ t('license.renew') }}</strong>
+            <strong v-else>{{ t('license.unavailable') }}</strong>
+            <p>{{ apiErrorDetail(licenseInfo.message ?? licenseInfo.last_error) ?? t('license.status', { status: licenseInfo.status }) }}<span v-if="licenseInfo.grace_until">{{ t('license.graceUntil', { date: new Date(licenseInfo.grace_until).toLocaleString(locale) }) }}</span></p>
           </div>
-          <button class="secondary" :disabled="licenseCheckBusy" @click="void checkLicenseNow()">{{ licenseCheckBusy ? 'Prüfe …' : 'Jetzt prüfen' }}</button>
+          <button class="secondary" :disabled="licenseCheckBusy" @click="void checkLicenseNow()">{{ licenseCheckBusy ? t('license.checking') : t('license.checkNow') }}</button>
         </section>
 
         <template v-if="canView">
@@ -2286,16 +2295,16 @@ onBeforeUnmount(() => {
         <footer class="page-footer">
           <span>ClinicPulse · Version {{ displayVersion }}</span>
           <span>·</span>
-          <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">GitHub-Repository</a>
+          <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a>
           <span>·</span>
-          <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">Dokumentation</a>
+          <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a>
           <template v-if="roleKey === 'ADMIN'">
             <span>·</span>
             <button class="footer-update-button" :disabled="updateCheckBusy" @click="void checkForUpdates(true)">
-              {{ updateCheckBusy ? 'Prüfe Updates …' : 'Update prüfen' }}
+              {{ updateCheckBusy ? t('updates.checking') : t('updates.check') }}
             </button>
-            <label class="update-channel-control">Kanal
-              <select v-model="updateChannel" aria-label="Update-Kanal" @change="changeUpdateChannel">
+            <label class="update-channel-control">{{ t('updates.channel') }}
+              <select v-model="updateChannel" :aria-label="t('updates.channelLabel')" @change="changeUpdateChannel">
                 <option value="stable">Stable</option>
                 <option value="nightly">Nightly</option>
               </select>
@@ -2304,19 +2313,19 @@ onBeforeUnmount(() => {
             <span v-if="updateInfo" class="update-channel-label">{{ updateInfo.channel }}</span>
             <span v-if="updateInfo" class="update-status" :class="`update-${updateInfo.status}`" role="status">
               <template v-if="updateInfo.update_available">
-                <a :href="updateInfo.release_url ?? repositoryUrl" target="_blank" rel="noopener noreferrer">Update {{ updateInfo.latest_version }} verfügbar</a>
+                <a :href="updateInfo.release_url ?? repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('updates.available', { version: updateInfo.latest_version ?? '' }) }}</a>
               </template>
-              <template v-else>{{ updateInfo.message }}</template>
+              <template v-else>{{ apiErrorDetail(updateInfo.message) }}</template>
             </span>
           </template>
         </footer>
         </template>
-        <section v-else class="panel restricted-panel"><h2>Kein Zugriff auf Dienstpläne</h2><p>Dein Konto hat aktuell keine Berechtigung zum Ansehen der Pläne. Bitte wende dich an die Krankenhausleitung.</p></section>
+        <section v-else class="panel restricted-panel"><h2>{{ t('schedule.noAccess') }}</h2><p>{{ t('schedule.noAccessDescription') }}</p></section>
       </main>
     </section>
 
     <div v-if="authenticated && error" class="toast toast-error" role="alert">
-      <span>{{ error }}</span><button type="button" aria-label="Meldung schließen" @click="error = ''">×</button>
+      <span>{{ error }}</span><button type="button" :aria-label="t('planning.closeAlert')" @click="error = ''">×</button>
     </div>
     <div v-if="confirmDialog" class="modal-backdrop confirm-backdrop" @click.self="answerConfirmation(false)" @keydown.esc="answerConfirmation(false)">
       <section class="modal confirm-modal" role="alertdialog" aria-modal="true" :aria-label="t('management.confirmation')">
@@ -2488,24 +2497,24 @@ onBeforeUnmount(() => {
           </nav>
           <section v-show="settingsTab === 'appearance'" class="settings-section"><strong>{{ t('settings.appearance') }}</strong><p class="muted">{{ t('settings.appearanceDescription') }}</p><div class="theme-options"><button :class="{ selected: theme === 'light' }" @click="applyTheme('light')">{{ t('settings.light') }}</button><button :class="{ selected: theme === 'dark' }" @click="applyTheme('dark')">{{ t('settings.dark') }}</button></div></section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'operations'" class="settings-section">
-            <h3>Betriebskonfiguration</h3>
-            <p class="muted">Einrichtungsart und Bundesland werden aus der Lizenz übernommen und im License Manager gepflegt. Der Feiertagskalender folgt dem Bundesland. Profilbezogene Ausnahmen werden nicht automatisch hergeleitet.</p>
+            <h3>{{ t('operations.title') }}</h3>
+            <p class="muted">{{ t('operations.description') }}</p>
             <form class="stack" @submit.prevent="saveBusinessConfiguration">
-              <label>Bundesland<select v-model="businessConfiguration.federal_state" :disabled="businessConfiguration.federal_state_managed" required><option v-for="state in federalStates" :key="state" :value="state">{{ state }}</option></select></label>
-              <label>Einrichtungsart<select v-model="businessConfiguration.operational_profile" :disabled="businessConfiguration.operational_profile_managed" required><option v-for="profileOption in operationalProfiles" :key="profileOption.value" :value="profileOption.value">{{ profileOption.label }}</option></select></label>
-              <label class="permission-toggle"><input v-model="businessConfiguration.sunday_work_authorized" type="checkbox" /> Notwendige Sonn- und Feiertagsarbeit nach ArbZG §10 ist für unseren Betrieb geprüft</label>
-              <p class="muted">Betriebszeitzone: {{ businessConfiguration.timezone }}</p>
-              <div class="form-row"><button class="secondary">Betrieb speichern</button><span v-if="businessConfigurationMessage" class="muted">{{ businessConfigurationMessage }}</span></div>
+              <label>{{ t('operations.state') }}<select v-model="businessConfiguration.federal_state" :disabled="businessConfiguration.federal_state_managed" required><option v-for="state in federalStates" :key="state" :value="state">{{ state }}</option></select></label>
+              <label>{{ t('operations.facilityType') }}<select v-model="businessConfiguration.operational_profile" :disabled="businessConfiguration.operational_profile_managed" required><option v-for="profileOption in operationalProfiles" :key="profileOption.value" :value="profileOption.value">{{ t(profileOption.label) }}</option></select></label>
+              <label class="permission-toggle"><input v-model="businessConfiguration.sunday_work_authorized" type="checkbox" /> {{ t('operations.sunday') }}</label>
+              <p class="muted">{{ t('operations.timezone', { timezone: businessConfiguration.timezone }) }}</p>
+              <div class="form-row"><button class="secondary">{{ t('operations.save') }}</button><span v-if="businessConfigurationMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'operations'" class="settings-section">
-            <h3>Arbeitszeitregeln</h3>
-            <p class="muted">Voreinstellungen nach deutschem ArbZG. Die Mindestruhezeit bleibt bei 11 Stunden; verkürzte Ruhezeiten sind gesperrt, solange der vorgeschriebene Ausgleich nicht überwacht werden kann. Die Durchschnittsgrenze bezieht sich auf geplante Dienste, nicht auf erfasste Ist-Arbeitszeit.</p>
+            <h3>{{ t('operations.rulesTitle') }}</h3>
+            <p class="muted">{{ t('operations.rulesDescription') }}</p>
             <form class="stack" @submit.prevent="saveWorkRules">
-              <label>Mindestruhezeit zwischen Diensten (Stunden)<input v-model.number="workRules.rest_hours" type="number" min="11" max="24" required /></label>
-              <label>Höchstarbeitszeit pro Tag, netto (Stunden)<input v-model.number="workRules.max_daily_hours" type="number" min="1" max="10" required /></label>
-              <label>Max. Durchschnittsarbeitszeit pro Woche im 24-Wochen-Ausgleich (Stunden)<input v-model.number="workRules.max_weekly_hours" type="number" min="1" max="48" required /></label>
-              <div class="form-row"><button class="secondary">Regeln speichern</button><span v-if="workRulesMessage" class="muted">{{ workRulesMessage }}</span></div>
+              <label>{{ t('operations.rest') }}<input v-model.number="workRules.rest_hours" type="number" min="11" max="24" required /></label>
+              <label>{{ t('operations.daily') }}<input v-model.number="workRules.max_daily_hours" type="number" min="1" max="10" required /></label>
+              <label>{{ t('operations.weekly') }}<input v-model.number="workRules.max_weekly_hours" type="number" min="1" max="48" required /></label>
+              <div class="form-row"><button class="secondary">{{ t('operations.saveRules') }}</button><span v-if="workRulesMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'mail'" class="settings-section">
@@ -2533,15 +2542,15 @@ onBeforeUnmount(() => {
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'license'" class="license-settings">
-            <h3>Lizenz</h3>
-            <p v-if="licenseInfo?.institution_name" class="muted">Institution laut Lizenz: <strong>{{ licenseInfo.institution_name }}</strong></p>
-            <p class="muted">Status: <strong>{{ licenseInfo?.status ?? 'Ungeprüft' }}</strong><span v-if="licenseInfo?.max_users"> · Nutzerlimit: {{ licenseInfo.max_users }}</span><span v-if="licenseInfo?.license_expires_at"> · gültig bis {{ new Date(licenseInfo.license_expires_at).toLocaleDateString('de-DE') }}</span></p>
-            <p class="muted">Funktionen: {{ licenseInfo?.features?.join(', ') || 'nicht eingeschränkt' }}</p>
+            <h3>{{ t('settings.license') }}</h3>
+            <p v-if="licenseInfo?.institution_name" class="muted">{{ t('license.institution') }} <strong>{{ licenseInfo.institution_name }}</strong></p>
+            <p class="muted">{{ t('license.statusLabel') }} <strong>{{ licenseInfo?.status ?? t('license.unchecked') }}</strong><span v-if="licenseInfo?.max_users">{{ t('license.userLimit', { count: licenseInfo.max_users }) }}</span><span v-if="licenseInfo?.license_expires_at">{{ t('license.expires', { date: new Date(licenseInfo.license_expires_at).toLocaleDateString(locale) }) }}</span></p>
+            <p class="muted">{{ t('license.features', { features: licenseInfo?.features?.join(', ') || t('license.unlimited') }) }}</p>
             <form class="stack" @submit.prevent="replaceLicenseToken">
-              <label>Aktualisiertes Lizenz-Token<input v-model="licenseTokenInput" type="password" autocomplete="off" maxlength="4096" required /></label>
-              <button class="secondary" :disabled="licenseCheckBusy">{{ licenseCheckBusy ? 'Prüfe …' : 'Lizenz ersetzen und online aktivieren' }}</button>
+              <label>{{ t('license.token') }}<input v-model="licenseTokenInput" type="password" autocomplete="off" maxlength="4096" required /></label>
+              <button class="secondary" :disabled="licenseCheckBusy">{{ licenseCheckBusy ? t('license.checking') : t('license.replace') }}</button>
             </form>
-            <p class="muted">Das Token wird nicht angezeigt oder zurückgegeben. Der Lizenzserver verknüpft es idempotent mit dieser Installation.</p>
+            <p class="muted">{{ t('license.tokenDescription') }}</p>
           </section>
           <BackupPanel v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'backup'" />
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'archive'" class="settings-section">
@@ -2551,7 +2560,7 @@ onBeforeUnmount(() => {
               <label class="permission-toggle"><input v-model="archiveSettings.auto_enabled" type="checkbox" /> {{ t('archive.autoEnabled') }}</label>
               <label>{{ t('archive.period') }}<select v-model="archiveSettings.period" :disabled="!archiveSettings.auto_enabled"><option value="monthly">{{ t('archive.monthly') }}</option><option value="weekly">{{ t('archive.weekly') }}</option></select></label>
               <p v-if="archiveSettings.last_period_end" class="muted">{{ t('archive.lastPeriod', { date: dateLabel(archiveSettings.last_period_end) }) }}</p>
-              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="archiveSettingsMessage" class="muted">{{ archiveSettingsMessage }}</span></div>
+              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="archiveSettingsMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'security'" class="settings-section">
@@ -2559,31 +2568,31 @@ onBeforeUnmount(() => {
             <p class="muted">{{ t('settings.idleDescription') }}</p>
             <form class="stack" @submit.prevent="saveIdleTimeout">
               <label>{{ t('settings.idleMinutes') }}<input v-model.number="idleTimeoutMinutes" type="number" min="1" max="120" required /></label>
-              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="idleTimeoutMessage" class="muted">{{ idleTimeoutMessage }}</span></div>
+              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="idleTimeoutMessage" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'audit'" class="audit-settings">
-            <h3>Audit-Protokoll</h3>
-            <p class="muted">Nachvollziehbare Änderungen und Anmeldeereignisse. Feldinhalte, Passwörter und Lizenz-Tokens werden nicht protokolliert.</p>
-            <label>Filter
+            <h3>{{ t('audit.title') }}</h3>
+            <p class="muted">{{ t('audit.description') }}</p>
+            <label>{{ t('audit.filter') }}
               <select v-model="auditCategory" @change="auditEvents = []; auditOffset = 0; void loadAuditEvents(true)">
-                <option value="">Alle Ereignisse</option>
-                <option value="logins">Anmeldungen &amp; Sperren</option>
-                <option value="accounts">Konten</option>
-                <option value="backups">Backups</option>
+                <option value="">{{ t('audit.all') }}</option>
+                <option value="logins">{{ t('audit.logins') }}</option>
+                <option value="accounts">{{ t('audit.accounts') }}</option>
+                <option value="backups">{{ t('audit.backups') }}</option>
               </select>
             </label>
             <div v-if="auditEvents.length" class="audit-list">
               <article v-for="event in auditEvents" :key="event.id" class="audit-row">
-                <time :datetime="event.created_at">{{ new Date(event.created_at).toLocaleString('de-DE') }}</time>
+                <time :datetime="event.created_at">{{ new Date(event.created_at).toLocaleString(locale) }}</time>
                 <strong>{{ event.actor_username }}</strong>
-                <span>{{ event.action === 'created' ? 'erstellt' : event.action === 'updated' ? 'geändert' : event.action === 'deleted' ? 'gelöscht' : event.action === 'login' ? 'angemeldet' : event.action === 'locked' ? 'Konto gesperrt' : event.action === 'unlocked' ? 'Konto entsperrt' : event.action === 'restored' ? 'Backup wiederhergestellt' : 'Anmeldung fehlgeschlagen' }}</span>
+                <span>{{ auditActionLabel(event.action) }}</span>
                 <code>{{ event.entity_type }} · {{ event.entity_id }}</code>
               </article>
             </div>
-            <p v-else-if="!auditBusy" class="muted">Noch keine protokollierten Ereignisse.</p>
-            <button v-if="auditHasMore" class="secondary audit-more" :disabled="auditBusy" @click="void loadAuditEvents()">{{ auditBusy ? 'Lädt …' : 'Ältere Ereignisse laden' }}</button>
-            <span v-else-if="auditBusy" class="muted">Audit-Ereignisse werden geladen …</span>
+            <p v-else-if="!auditBusy" class="muted">{{ t('audit.empty') }}</p>
+            <button v-if="auditHasMore" class="secondary audit-more" :disabled="auditBusy" @click="void loadAuditEvents()">{{ auditBusy ? t('audit.loading') : t('audit.more') }}</button>
+            <span v-else-if="auditBusy" class="muted">{{ t('audit.loading') }}</span>
           </section>
         </template>
       </section>

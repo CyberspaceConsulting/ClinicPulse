@@ -50,12 +50,24 @@ const knownErrors: Record<string, TranslationKey> = {
   'Wiederherstellungsschlüssel fehlt oder ist ungültig': 'api.backupInvalidKey',
   'Bitte „WIEDERHERSTELLEN“ zur Bestätigung eingeben': 'api.backupConfirm',
   'Für automatische Backups wird mindestens ein Empfänger-Schlüssel benötigt (zuerst Wiederherstellungsschlüssel erzeugen)': 'api.backupRecipientRequired',
+  'ClinicPulse ist auf dem aktuellen Release-Stand.': 'updates.current',
+  'Der optionale GitHub-Zugriffsschlüssel ist nicht lesbar.': 'updates.tokenUnreadable',
+  'Kein öffentlich erreichbares GitHub-Release gefunden.': 'updates.noPublicRelease',
+  'GitHub hat die Update-Abfrage begrenzt oder verweigert.': 'updates.rateLimited',
+  'GitHub ist für die Update-Prüfung nicht erreichbar.': 'updates.unreachable',
+  'GitHub hat eine ungültige Antwort geliefert.': 'updates.invalidResponse',
+  'GitHub hat eine ungültige Release-Antwort geliefert.': 'updates.invalidReleaseResponse',
+  'Release-Versionen müssen dem Format vX.Y.Z entsprechen.': 'updates.invalidVersion',
 }
 
 export function apiErrorDetail(detail: unknown): string | null {
   if (typeof detail === 'string') {
     const key = Object.hasOwn(knownErrors, detail) ? knownErrors[detail] : undefined
     if (key) return t(key)
+    const updateHttpError = /^GitHub-Update-Abfrage fehlgeschlagen \(HTTP (\d+)\)\.$/.exec(detail)
+    if (updateHttpError?.[1]) return t('updates.httpError', { status: updateHttpError[1] })
+    const noChannelRelease = /^Kein veröffentlichtes Release für den (stable|nightly)-Kanal gefunden\.$/.exec(detail)
+    if (noChannelRelease?.[1]) return t('updates.noChannelRelease', { channel: noChannelRelease[1] })
     return locale.value === 'de' ? detail : t('api.serverDetail', { detail })
   }
   if (!Array.isArray(detail)) return null
