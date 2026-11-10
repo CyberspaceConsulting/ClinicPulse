@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { t } from './i18n'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -28,10 +29,10 @@ const strength = computed(() => {
   if (/[a-z]/.test(value) && /[A-Z]/.test(value)) score++
   if (/\d/.test(value)) score++
   if (/[^A-Za-z0-9]/.test(value)) score++
-  if (value.length < 8) return { score: 0, label: 'Mindestens 8 Zeichen erforderlich' }
-  if (score <= 2) return { score: 1, label: 'Schwach' }
-  if (score <= 4) return { score: 2, label: 'Mittel' }
-  return { score: 3, label: 'Stark' }
+  if (value.length < 8) return { score: 0, label: t('password.minimum') }
+  if (score <= 2) return { score: 1, label: t('password.weak') }
+  if (score <= 4) return { score: 2, label: t('password.medium') }
+  return { score: 3, label: t('password.strong') }
 })
 
 watch(() => props.modelValue, (value) => {
@@ -53,7 +54,7 @@ async function checkBreach(value: string) {
       body: JSON.stringify({ password: value }),
       signal: activeController.signal,
     })
-    if (!response.ok) throw new Error(`Prüfung fehlgeschlagen (${response.status})`)
+    if (!response.ok) throw new Error(t('password.checkFailed', { status: response.status }))
     const result = await response.json() as { compromised_count: number }
     if (props.modelValue !== value) return
     breachCount.value = result.compromised_count
@@ -72,7 +73,7 @@ onBeforeUnmount(() => {
 
 <template>
   <label class="password-input">
-    {{ label }}<span v-if="optional" class="optional"> (optional)</span>
+    {{ label }}<span v-if="optional" class="optional">{{ t('password.optional') }}</span>
     <input
       type="password"
       :value="modelValue"
@@ -83,13 +84,13 @@ onBeforeUnmount(() => {
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
     <span v-if="modelValue" class="password-strength" :class="`strength-${strength.score}`" aria-live="polite">
-      Stärke: {{ strength.label }}
+      {{ t('password.strength', { strength: strength.label }) }}
     </span>
-    <span v-else class="password-breach muted">Mindestens 8 Zeichen; eine längere und abwechslungsreiche Passphrase ist sicherer.</span>
-    <span v-if="breachStatus === 'checking'" class="password-breach muted">Prüfe auf bekannte Datenpannen …</span>
-    <span v-else-if="breachStatus === 'safe'" class="password-breach password-safe">Nicht in bekannten Datenpannen gefunden</span>
-    <span v-else-if="breachStatus === 'compromised'" class="password-breach password-compromised">In Datenpannen gefunden ({{ breachCount }} Mal). Bitte ein anderes Passwort wählen.</span>
-    <span v-else-if="breachStatus === 'unavailable'" class="password-breach muted">Datenpannen-Prüfung momentan nicht verfügbar; die lokale Stärkeanzeige funktioniert weiterhin.</span>
-    <small class="muted">Das Passwort wird nicht an HIBP gesendet. Für den Abgleich wird nur ein gekürztes SHA-1-Präfix übertragen.</small>
+    <span v-else class="password-breach muted">{{ t('password.hint') }}</span>
+    <span v-if="breachStatus === 'checking'" class="password-breach muted">{{ t('password.checking') }}</span>
+    <span v-else-if="breachStatus === 'safe'" class="password-breach password-safe">{{ t('password.safe') }}</span>
+    <span v-else-if="breachStatus === 'compromised'" class="password-breach password-compromised">{{ t('password.compromised', { count: breachCount }) }}</span>
+    <span v-else-if="breachStatus === 'unavailable'" class="password-breach muted">{{ t('password.unavailable') }}</span>
+    <small class="muted">{{ t('password.privacy') }}</small>
   </label>
 </template>

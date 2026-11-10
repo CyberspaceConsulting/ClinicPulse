@@ -21,8 +21,8 @@ updates:
     assignees:
       - the1andoni
 
-  - package-ecosystem: pip
-    directory: /backend
+  - package-ecosystem: uv
+    directory: /
     schedule:
       interval: daily
     assignees:

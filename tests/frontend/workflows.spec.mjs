@@ -87,6 +87,20 @@ async function login(page) {
   await expect(page.getByText('Frühdienst').first()).toBeVisible()
 }
 
+test('password guidance uses the stored locale on the setup screen', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/setup/status', (route) => route.fulfill({ json: { setup_required: true, institution_name: null } }))
+  await page.route('**/api/password/check', (route) => route.fulfill({ json: { compromised_count: 2 } }))
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await expect(page.getByText('At least 8 characters; a longer and more varied passphrase is safer.')).toBeVisible()
+  await page.getByLabel('Passwort (mindestens 8 Zeichen)').fill('test-password-123')
+  await expect(page.getByText(/Found in data breaches \(2 times\)/)).toBeVisible()
+  await expect(page.getByText(/Strength:/)).toBeVisible()
+})
+
 test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page }) => {
   await mockApi(page)
   await page.goto('/')

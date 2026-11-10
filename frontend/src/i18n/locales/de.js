@@ -1,0 +1,15 @@
+export default {
+  'password.optional': ' (optional)',
+  'password.minimum': 'Mindestens 8 Zeichen erforderlich',
+  'password.weak': 'Schwach',
+  'password.medium': 'Mittel',
+  'password.strong': 'Stark',
+  'password.strength': 'Stärke: {strength}',
+  'password.hint': 'Mindestens 8 Zeichen; eine längere und abwechslungsreiche Passphrase ist sicherer.',
+  'password.checking': 'Prüfe auf bekannte Datenpannen …',
+  'password.safe': 'Nicht in bekannten Datenpannen gefunden',
+  'password.compromised': 'In Datenpannen gefunden ({count} Mal). Bitte ein anderes Passwort wählen.',
+  'password.unavailable': 'Datenpannen-Prüfung momentan nicht verfügbar; die lokale Stärkeanzeige funktioniert weiterhin.',
+  'password.privacy': 'Das Passwort wird nicht an HIBP gesendet. Für den Abgleich wird nur ein gekürztes SHA-1-Präfix übertragen.',
+  'password.checkFailed': 'Prüfung fehlgeschlagen ({status})',
+}

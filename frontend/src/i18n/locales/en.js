@@ -1,0 +1,15 @@
+export default {
+  'password.optional': ' (optional)',
+  'password.minimum': 'At least 8 characters required',
+  'password.weak': 'Weak',
+  'password.medium': 'Medium',
+  'password.strong': 'Strong',
+  'password.strength': 'Strength: {strength}',
+  'password.hint': 'At least 8 characters; a longer and more varied passphrase is safer.',
+  'password.checking': 'Checking for known data breaches …',
+  'password.safe': 'Not found in known data breaches',
+  'password.compromised': 'Found in data breaches ({count} times). Please choose another password.',
+  'password.unavailable': 'The data breach check is currently unavailable; the local strength indicator still works.',
+  'password.privacy': 'The password is not sent to HIBP. Only a shortened SHA-1 prefix is sent for the check.',
+  'password.checkFailed': 'Check failed ({status})',
+}

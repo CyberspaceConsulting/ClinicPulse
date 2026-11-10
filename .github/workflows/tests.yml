@@ -38,6 +38,12 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Verify Python lock and export
+        run: |
+          python -m pip install uv==0.13.7
+          uv lock --check
+          make export
+          git diff --exit-code -- backend/requirements.txt
       - run: ./tests/run-tests.sh
       - name: PostgreSQL encryption, migration and restore tests
         working-directory: backend
@@ -59,6 +65,9 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+      - name: Check translation catalogs
+        working-directory: frontend
+        run: npm run test:i18n
       - name: Install Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
