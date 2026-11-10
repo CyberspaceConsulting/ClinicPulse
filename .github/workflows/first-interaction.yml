@@ -78,10 +78,7 @@ jobs:
 
             <br>
 
-            - **Tests run offline.** Stub HTTP with fixtures or `monkeypatch`. Never call Spotify, YouTube or lrclib from a test.
             - **The API is a contract.** The web app and the Android client depend on the current endpoint paths and response shapes. Add new endpoints or fields instead of renaming or removing existing ones.
-            - **No Spotify credentials.** `spotdl`, `spotipy` and the Spotify Web API were removed on purpose. Metadata comes from the public embed endpoints.
-            - **Don't hand-edit `requirements.txt`.** Change `pyproject.toml`, then run `uv lock && make export`.
             - **Don't silence the linter** with `# noqa` or wider ignore rules. Fix the code instead.
             - **UI text goes in the locale files** (`frontend/src/i18n/locales/en.js`), never hard-coded in components.
             - **Don't bump the version.** The maintainer does that at release time.
