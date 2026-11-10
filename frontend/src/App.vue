@@ -693,8 +693,8 @@ async function loadData() {
 
 }
 
-const kindLabels = { vacation: 'Urlaub', sick: 'Krank', other: 'Sonstiges' } as const
-const statusLabels = { pending: 'Offen', approved: 'Genehmigt', rejected: 'Abgelehnt' } as const
+const kindLabels = computed(() => ({ vacation: t('absence.vacation'), sick: t('absence.sick'), other: t('absence.other') }))
+const statusLabels = computed(() => ({ pending: t('absence.pending'), approved: t('absence.approved'), rejected: t('absence.rejected') }))
 const canRequestAbsence = computed(() => roleKey.value === 'EMPLOYEE' && !licenseReadOnly.value)
 const canRecordAbsence = computed(() => canEditPlan.value)
 
@@ -702,7 +702,7 @@ async function loadAbsences() {
   try {
     absences.value = await api<Absence[]>('/absences')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abwesenheiten konnten nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('absence.loadFailed')
   }
 }
 
@@ -807,7 +807,7 @@ async function submitAbsence() {
     absenceNote.value = ''
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abwesenheit konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('absence.saveFailed')
   }
 }
 
@@ -817,7 +817,7 @@ async function decideAbsence(absence: Absence, decision: 'approved' | 'rejected'
     await api(`/absences/${absence.id}/decision`, { method: 'POST', body: JSON.stringify({ decision }) })
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Entscheidung konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('absence.decisionFailed')
   }
 }
 
@@ -827,7 +827,7 @@ async function removeAbsence(absence: Absence) {
     await api(`/absences/${absence.id}`, { method: 'DELETE' })
     await loadAbsences()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Abwesenheit konnte nicht gelöscht werden'
+    error.value = err instanceof Error ? err.message : t('absence.deleteFailed')
   }
 }
 
@@ -2054,37 +2054,37 @@ onBeforeUnmount(() => {
       <main v-else-if="showAbsences" class="content">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">PERSONAL</p>
-            <h1>Abwesenheiten</h1>
-            <p class="muted">Urlaub, Krankheit und sonstige Abwesenheiten im Überblick.</p>
+            <p class="eyebrow">{{ t('absence.personnel') }}</p>
+            <h1>{{ t('page.absences') }}</h1>
+            <p class="muted">{{ t('absence.description') }}</p>
           </div>
         </div>
         <div class="absence-layout">
           <section v-if="canRequestAbsence || canRecordAbsence" class="panel absence-panel">
           <form class="stack absence-form" @submit.prevent="submitAbsence">
-              <label v-if="!canRequestAbsence">Mitarbeitende<select v-model="absenceEmployeeId" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
-              <label>Art<select v-model="absenceKind"><option value="vacation">Urlaub</option><option value="sick">Krank</option><option value="other">Sonstiges</option></select></label>
-              <div class="form-row"><label>Von<input v-model="absenceStart" type="date" required /></label><label>Bis<input v-model="absenceEnd" type="date" :min="absenceStart" required /></label></div>
-              <label>Notiz (optional)<input v-model="absenceNote" maxlength="500" /></label>
-              <p v-if="absenceKind === 'sick'" class="muted">Krankmeldungen müssen nicht genehmigt werden.</p>
-            <button class="primary full">{{ canRequestAbsence && absenceKind !== 'sick' ? 'Antrag stellen' : absenceKind === 'sick' && canRequestAbsence ? 'Krank melden' : 'Abwesenheit eintragen' }}</button>
+              <label v-if="!canRequestAbsence">{{ t('absence.employee') }}<select v-model="absenceEmployeeId" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
+              <label>{{ t('absence.kind') }}<select v-model="absenceKind"><option value="vacation">{{ t('absence.vacation') }}</option><option value="sick">{{ t('absence.sick') }}</option><option value="other">{{ t('absence.other') }}</option></select></label>
+              <div class="form-row"><label>{{ t('absence.from') }}<input v-model="absenceStart" type="date" required /></label><label>{{ t('absence.to') }}<input v-model="absenceEnd" type="date" :min="absenceStart" required /></label></div>
+              <label>{{ t('absence.optionalNote') }}<input v-model="absenceNote" maxlength="500" /></label>
+              <p v-if="absenceKind === 'sick'" class="muted">{{ t('absence.sickNotice') }}</p>
+            <button class="primary full">{{ canRequestAbsence && absenceKind !== 'sick' ? t('absence.submit') : absenceKind === 'sick' && canRequestAbsence ? t('absence.reportSick') : t('absence.record') }}</button>
             </form>
           </section>
           <section class="panel absence-panel absence-list">
           <div v-for="absence in absences" :key="absence.id" class="management-row absence-row">
             <div>
               <strong>{{ absence.employee_name }} · {{ kindLabels[absence.kind] }}</strong>
-              <small>{{ dateLabel(absence.start_date) }} – {{ dateLabel(absence.end_date) }} · {{ absence.kind === 'sick' ? 'Keine Genehmigung nötig' : statusLabels[absence.status] }}</small>
-              <small v-if="absence.requested_by">{{ absence.kind === 'sick' ? 'Gemeldet' : 'Beantragt' }} von {{ absence.requested_by }}<span v-if="absence.created_at"> am {{ new Date(absence.created_at).toLocaleString('de-DE') }}</span></small>
-              <small v-if="absence.kind !== 'sick' && absence.decided_by">{{ absence.status === 'rejected' ? 'Abgelehnt' : 'Genehmigt' }} von {{ absence.decided_by }}<span v-if="absence.decided_at"> am {{ new Date(absence.decided_at).toLocaleString('de-DE') }}</span></small>
-              <small v-if="absence.note">Notiz: {{ absence.note }}</small>
+              <small>{{ dateLabel(absence.start_date) }} – {{ dateLabel(absence.end_date) }} · {{ absence.kind === 'sick' ? t('absence.noApproval') : statusLabels[absence.status] }}</small>
+              <small v-if="absence.requested_by">{{ t(absence.kind === 'sick' ? 'absence.reportedBy' : 'absence.requestedBy', { name: absence.requested_by }) }}<span v-if="absence.created_at">{{ t('absence.onDate', { date: new Date(absence.created_at).toLocaleString(locale) }) }}</span></small>
+              <small v-if="absence.kind !== 'sick' && absence.decided_by">{{ t(absence.status === 'rejected' ? 'absence.rejectedBy' : 'absence.approvedBy', { name: absence.decided_by }) }}<span v-if="absence.decided_at">{{ t('absence.onDate', { date: new Date(absence.decided_at).toLocaleString(locale) }) }}</span></small>
+              <small v-if="absence.note">{{ t('absence.note', { note: absence.note }) }}</small>
             </div>
             <div v-if="!licenseReadOnly">
-              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && roleKey === 'OBERARZT' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">Genehmigen</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">Ablehnen</button></template>
-              <button v-if="(roleKey === 'EMPLOYEE' && absence.status === 'pending') || canRecordAbsence" class="text-button danger-text" @click="removeAbsence(absence)">{{ roleKey === 'EMPLOYEE' ? 'Zurückziehen' : 'Löschen' }}</button>
+              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && roleKey === 'OBERARZT' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">{{ t('absence.approve') }}</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">{{ t('absence.reject') }}</button></template>
+              <button v-if="(roleKey === 'EMPLOYEE' && absence.status === 'pending') || canRecordAbsence" class="text-button danger-text" @click="removeAbsence(absence)">{{ roleKey === 'EMPLOYEE' ? t('absence.withdraw') : t('absence.delete') }}</button>
             </div>
           </div>
-          <p v-if="!absences.length" class="notification-empty">Keine Abwesenheiten</p>
+          <p v-if="!absences.length" class="notification-empty">{{ t('absence.empty') }}</p>
           </section>
         </div>
       </main>

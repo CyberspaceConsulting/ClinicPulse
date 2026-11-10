@@ -115,6 +115,22 @@ test('English login and navigation use the stored locale', async ({ page }) => {
   await expect(page).toHaveTitle('ClinicPulse – Schedule')
 })
 
+test('English absence request keeps user data and translates labels and status', async ({ page }) => {
+  await mockApi(page, 'EMPLOYEE')
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('alex')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: /Absences/ }).click()
+  await page.getByLabel('From', { exact: true }).fill('2026-11-16')
+  await page.getByLabel('To', { exact: true }).fill('2026-11-17')
+  await page.getByRole('button', { name: 'Submit request' }).click()
+  await expect(page.getByText('Alex Beispiel · Vacation')).toBeVisible()
+  await expect(page.getByText(/Pending/).last()).toBeVisible()
+  await expect(page.getByText('Requested by alex')).toBeVisible()
+})
+
 test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page }) => {
   await mockApi(page)
   await page.goto('/')
