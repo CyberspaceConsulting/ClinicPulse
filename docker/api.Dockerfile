@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-LABEL org.opencontainers.image.source="https://github.com/the1andoni/ClinicPulse"
+LABEL org.opencontainers.image.source="https://github.com/CyberspaceConsulting/ClinicPulse"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

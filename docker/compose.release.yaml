@@ -19,8 +19,8 @@ services:
       retries: 10
     restart: unless-stopped
 
-  api:
-    image: ghcr.io/the1andoni/clinicpulse-api:__IMAGE_TAG__
+  backend:
+    image: ghcr.io/cyberspaceconsulting/clinicpulse-backend:__IMAGE_TAG__
     environment:
       DB_HOST: db
       DB_NAME: clinicpulse
@@ -52,11 +52,11 @@ services:
     restart: unless-stopped
 
   web:
-    image: ghcr.io/the1andoni/clinicpulse-web:__IMAGE_TAG__
+    image: ghcr.io/cyberspaceconsulting/clinicpulse-web:__IMAGE_TAG__
     ports:
       - "${CLINICPULSE_PORT:-8080}:80"
     depends_on:
-      - api
+      - backend
     networks:
       - application
     restart: unless-stopped

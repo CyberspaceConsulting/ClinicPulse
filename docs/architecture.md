@@ -31,4 +31,4 @@ Vue 3 mit TypeScript und Vite. Build und Typprüfung: `npm run build`.
 
 ## Tests
 
-Backend-Tests mit pytest in `tests/backend/`, Browser-Tests mit Playwright in `tests/frontend/`. Siehe [TEST.md](https://github.com/the1andoni/ClinicPulse/blob/main/TEST.md).
+Backend-Tests mit pytest in `tests/backend/`, Browser-Tests mit Playwright in `tests/frontend/`. Siehe [TEST.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/TEST.md).
