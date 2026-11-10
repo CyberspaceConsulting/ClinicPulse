@@ -709,7 +709,7 @@ async function loadArchives() {
   try {
     planArchives.value = await api<PlanArchiveSummary[]>('/archives')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archiv konnte nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('archive.loadFailed')
   }
 }
 
@@ -732,7 +732,7 @@ async function loadArchiveSettings() {
   try {
     archiveSettings.value = await api('/admin/archive-settings')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archiv-Einstellungen konnten nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('archive.settingsLoadFailed')
   }
 }
 
@@ -743,9 +743,9 @@ async function saveArchiveSettings() {
       method: 'PUT',
       body: JSON.stringify({ auto_enabled: archiveSettings.value.auto_enabled, period: archiveSettings.value.period }),
     })
-    archiveSettingsMessage.value = 'Gespeichert'
+    archiveSettingsMessage.value = t('settings.saved')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archiv-Einstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('archive.settingsSaveFailed')
   }
 }
 
@@ -775,7 +775,7 @@ async function createArchive() {
     archiveNote.value = ''
     await loadArchives()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Archivierung fehlgeschlagen'
+    error.value = err instanceof Error ? err.message : t('archive.createFailed')
   }
 }
 
@@ -878,7 +878,7 @@ async function loadMailSettings() {
     mailSettings.value = await api<MailSettings>('/admin/mail-settings')
     mailSettingsLoaded.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'E-Mail-Einstellungen konnten nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('mail.loadFailed')
   }
 }
 
@@ -902,10 +902,10 @@ async function saveMailSettings(): Promise<boolean> {
     mailSettings.value = saved
     mailPassword.value = ''
     clearMailPassword.value = false
-    mailSettingsMessage.value = 'E-Mail-Einstellungen gespeichert.'
+    mailSettingsMessage.value = t('mail.settingsSaved')
     return true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'E-Mail-Einstellungen konnten nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('mail.saveFailed')
     return false
   }
 }
@@ -919,9 +919,9 @@ async function testMailDelivery() {
       method: 'POST',
       body: JSON.stringify({ recipient: mailTestRecipient.value.trim() }),
     })
-    mailTestMessage.value = `Testmail an ${mailTestRecipient.value.trim()} wurde versendet.`
+    mailTestMessage.value = t('mail.testSent', { recipient: mailTestRecipient.value.trim() })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Testmail konnte nicht versendet werden'
+    error.value = err instanceof Error ? err.message : t('mail.testFailed')
   } finally {
     mailTestBusy.value = false
   }
@@ -1078,7 +1078,7 @@ async function openProfile() {
     profilePhone.value = ownProfile.phone ?? ''
     teamProfiles.value = colleagues
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Profil konnte nicht geladen werden'
+    error.value = err instanceof Error ? err.message : t('profile.loadFailed')
   }
 }
 
@@ -1087,7 +1087,7 @@ function selectProfileImage(event: Event) {
   const file = input.files?.[0]
   if (!file) return
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 256_000) {
-    error.value = 'Bitte ein PNG-, JPEG- oder WebP-Bild bis maximal 256 KB auswählen.'
+    error.value = t('profile.invalidImage')
     input.value = ''
     return
   }
@@ -1096,7 +1096,7 @@ function selectProfileImage(event: Event) {
     if (typeof reader.result === 'string') profileImageData.value = reader.result
   })
   reader.addEventListener('error', () => {
-    error.value = 'Profilbild konnte nicht gelesen werden.'
+    error.value = t('profile.readImageFailed')
   })
   reader.readAsDataURL(file)
 }
@@ -1119,7 +1119,7 @@ async function saveProfile() {
     })
     teamProfiles.value = await api<TeamProfile[]>('/profile/department')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Profil konnte nicht gespeichert werden'
+    error.value = err instanceof Error ? err.message : t('profile.saveFailed')
   }
 }
 
@@ -2329,51 +2329,51 @@ onBeforeUnmount(() => {
       <section class="modal" :class="{ 'modal-wide': showSettings && !showProfile && !showEmployeeForm && !showShiftForm && !showAssignmentForm && !showManagement }" role="dialog" aria-modal="true">
         <button class="modal-close" :aria-label="t('form.close')" @click="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">×</button>
         <template v-if="showArchive">
-          <p class="eyebrow">NACHWEIS</p><h2>Dienstplan-Archiv</h2>
-          <p class="muted">Archivierte Stände sind unveränderlich und zeigen, wer wann welchen Dienst hatte – auch nach späteren Änderungen am Plan.</p>
+          <p class="eyebrow">{{ t('archive.eyebrow') }}</p><h2>{{ t('archive.title') }}</h2>
+          <p class="muted">{{ t('archive.description') }}</p>
           <form v-if="canEditPlan" class="stack" @submit.prevent="createArchive">
-            <label>Abteilung<select v-model="archiveDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
-            <div class="form-row"><label>Von<input v-model="archiveStart" type="date" required /></label><label>Bis<input v-model="archiveEnd" type="date" :min="archiveStart" required /></label></div>
-            <label>Notiz (optional)<input v-model="archiveNote" maxlength="200" /></label>
-            <button class="primary full">Zeitraum archivieren</button>
+            <label>{{ t('form.department') }}<select v-model="archiveDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <div class="form-row"><label>{{ t('absence.from') }}<input v-model="archiveStart" type="date" required /></label><label>{{ t('absence.to') }}<input v-model="archiveEnd" type="date" :min="archiveStart" required /></label></div>
+            <label>{{ t('absence.optionalNote') }}<input v-model="archiveNote" maxlength="200" /></label>
+            <button class="primary full">{{ t('archive.create') }}</button>
           </form>
           <div v-for="archive in planArchives" :key="archive.id" class="management-row">
-            <div><strong>{{ archive.department_name }} · {{ dateLabel(archive.start_date) }} – {{ dateLabel(archive.end_date) }}</strong><small>{{ archive.entry_count }} Dienste · archiviert {{ new Date(archive.created_at).toLocaleString('de-DE') }} von {{ archive.created_by }}<span v-if="archive.note"> · {{ archive.note }}</span></small></div>
+            <div><strong>{{ archive.department_name }} · {{ dateLabel(archive.start_date) }} – {{ dateLabel(archive.end_date) }}</strong><small>{{ t(archive.entry_count === 1 ? 'archive.entryOne' : 'archive.entryOther', { count: archive.entry_count, date: new Date(archive.created_at).toLocaleString(locale), user: archive.created_by }) }}<span v-if="archive.note"> · {{ archive.note }}</span></small></div>
             <div><a class="text-button" :href="`/api/archives/${archive.id}/pdf`" download>PDF</a></div>
           </div>
-          <p v-if="!planArchives.length" class="notification-empty">Noch nichts archiviert</p>
+          <p v-if="!planArchives.length" class="notification-empty">{{ t('archive.empty') }}</p>
         </template>
         <template v-else-if="showProfile">
-          <p class="eyebrow">BENUTZERKONTO</p><h2>Mein Profil</h2>
+          <p class="eyebrow">{{ t('profile.eyebrow') }}</p><h2>{{ t('profile.title') }}</h2>
           <div class="profile-editor">
-            <img v-if="profileImageData" class="profile-editor-image" :src="profileImageData" alt="Profilbild-Vorschau" />
+            <img v-if="profileImageData" class="profile-editor-image" :src="profileImageData" :alt="t('profile.imagePreview')" />
             <div v-else class="profile-editor-placeholder">{{ username.slice(0, 1).toUpperCase() }}</div>
             <strong>{{ username }}</strong><span class="muted">{{ roleLabel(roleKey) }}</span>
           </div>
           <form class="stack" @submit.prevent="saveProfile">
             <template v-if="roleKey !== 'ADMIN'">
-              <label>Vorname<input v-model="profileFirstName" maxlength="80" required /></label>
-              <label>Nachname<input v-model="profileLastName" maxlength="80" required /></label>
-              <label>Geburtsdatum<input v-model="profileBirthDate" type="date" /></label>
-              <label>Adresse<input v-model="profileAddress" maxlength="300" autocomplete="street-address" /></label>
-              <label>Telefon<input v-model="profilePhone" type="tel" maxlength="50" /></label>
+              <label>{{ t('form.firstName') }}<input v-model="profileFirstName" maxlength="80" required /></label>
+              <label>{{ t('form.lastName') }}<input v-model="profileLastName" maxlength="80" required /></label>
+              <label>{{ t('management.birthDate') }}<input v-model="profileBirthDate" type="date" /></label>
+              <label>{{ t('management.address') }}<input v-model="profileAddress" maxlength="300" autocomplete="street-address" /></label>
+              <label>{{ t('management.phone') }}<input v-model="profilePhone" type="tel" maxlength="50" /></label>
             </template>
-            <label>Profilbild (PNG, JPEG oder WebP, maximal 256 KB)<input type="file" accept="image/png,image/jpeg,image/webp" @change="selectProfileImage" /></label>
-            <button v-if="profileImageData" type="button" class="text-button danger-text" @click="profileImageData = null">Profilbild entfernen</button>
-            <label>Profilbild-Sichtbarkeit<select v-model="profilePhotoVisibility" :disabled="roleKey === 'ADMIN' || departmentId === null"><option value="private">Nur für mich</option><option value="department">Für meine Abteilung</option></select></label>
-            <p class="muted">Abteilungsprofile werden nur angemeldeten Benutzern derselben Abteilung angezeigt. Dein Bild wird nicht für externe Dienste freigegeben.</p>
-            <button class="primary full">Profil speichern</button>
+            <label>{{ t('profile.image') }}<input type="file" accept="image/png,image/jpeg,image/webp" @change="selectProfileImage" /></label>
+            <button v-if="profileImageData" type="button" class="text-button danger-text" @click="profileImageData = null">{{ t('profile.removeImage') }}</button>
+            <label>{{ t('profile.visibility') }}<select v-model="profilePhotoVisibility" :disabled="roleKey === 'ADMIN' || departmentId === null"><option value="private">{{ t('profile.private') }}</option><option value="department">{{ t('profile.department') }}</option></select></label>
+            <p class="muted">{{ t('profile.visibilityDescription') }}</p>
+            <button class="primary full">{{ t('profile.save') }}</button>
           </form>
           <form class="stack account-settings-form" @submit.prevent="saveSettings">
-            <strong>Benutzerkonto-Einstellungen</strong>
-            <label>Benutzername<input v-model="changedUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
-            <PasswordInput v-model="newPassword" label="Neues Passwort" optional />
-            <label>Aktuelles Passwort zur Bestätigung<input v-model="currentPassword" type="password" autocomplete="current-password" required /></label>
-            <button class="secondary full">Kontodaten und Passwort speichern</button>
-            <p class="settings-note">Beim Speichern werden bisherige Sitzungs-Token ungültig. Dein Browser erhält automatisch ein neues Token.</p>
+            <strong>{{ t('profile.accountSettings') }}</strong>
+            <label>{{ t('auth.username') }}<input v-model="changedUsername" autocomplete="username" minlength="3" maxlength="64" required /></label>
+            <PasswordInput v-model="newPassword" :label="t('auth.newPassword')" optional />
+            <label>{{ t('profile.currentPassword') }}<input v-model="currentPassword" type="password" autocomplete="current-password" required /></label>
+            <button class="secondary full">{{ t('profile.saveAccount') }}</button>
+            <p class="settings-note">{{ t('profile.tokenNotice') }}</p>
           </form>
           <section v-if="teamProfiles.length" class="team-profiles">
-            <h3>Geteilte Profile aus deiner Abteilung</h3>
+            <h3>{{ t('profile.teamProfiles') }}</h3>
             <article v-for="teammate in teamProfiles" :key="teammate.username" class="team-profile-card">
               <img v-if="teammate.profile_image_data" :src="teammate.profile_image_data" alt="" />
               <span v-else class="avatar">{{ teammate.username.slice(0, 1).toUpperCase() }}</span>
@@ -2510,27 +2510,27 @@ onBeforeUnmount(() => {
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'mail'" class="settings-section">
-            <h3>E-Mail-Versand (SMTP)</h3>
-            <p class="muted">Konfiguriere den Mailserver deiner Klinik für Team-Einladungen. Das SMTP-Passwort wird verschlüsselt in der lokalen Datenbank gespeichert und nie wieder angezeigt. Ohne Konfiguration bleiben neu eingeladene Konten gesperrt.</p>
-            <p v-if="mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? 'Konfiguriert' : 'Noch nicht eingerichtet' }}</strong> · Passwort: <strong>{{ mailSettings.smtp_password_configured ? 'Gespeichert' : 'Nicht gespeichert' }}</strong></p>
+            <h3>{{ t('mail.title') }}</h3>
+            <p class="muted">{{ t('mail.description') }}</p>
+            <p v-if="mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? t('mail.configured') : t('mail.notConfigured') }}</strong> · {{ t('mail.password') }}: <strong>{{ mailSettings.smtp_password_configured ? t('mail.saved') : t('mail.notSaved') }}</strong></p>
             <form class="stack" @submit.prevent="void saveMailSettings()">
-              <label>Öffentliche HTTPS-Adresse dieser Instanz<input v-model="mailSettings.public_url" type="url" placeholder="https://dienstplan.klinik.example" required /></label>
+              <label>{{ t('mail.publicUrl') }}<input v-model="mailSettings.public_url" type="url" placeholder="https://dienstplan.klinik.example" required /></label>
               <div class="form-row">
-                <label>SMTP-Server<input v-model="mailSettings.smtp_host" maxlength="255" autocomplete="off" required /></label>
-                <label>Port<input v-model.number="mailSettings.smtp_port" type="number" min="1" max="65535" required /></label>
+                <label>{{ t('mail.server') }}<input v-model="mailSettings.smtp_host" maxlength="255" autocomplete="off" required /></label>
+                <label>{{ t('mail.port') }}<input v-model.number="mailSettings.smtp_port" type="number" min="1" max="65535" required /></label>
               </div>
-              <label>SMTP-Benutzername (optional)<input v-model="mailSettings.smtp_username" maxlength="255" autocomplete="username" /></label>
-              <label>SMTP-Passwort<input v-model="mailPassword" type="password" maxlength="512" autocomplete="new-password" :disabled="clearMailPassword" :placeholder="mailSettings.smtp_password_configured ? 'Gespeichertes Passwort beibehalten' : 'Passwort eingeben, falls erforderlich'" /></label>
-              <label v-if="mailSettings.smtp_password_configured" class="permission-toggle"><input v-model="clearMailPassword" type="checkbox" /> Gespeichertes SMTP-Passwort löschen</label>
-              <label>Absenderadresse<input v-model="mailSettings.from_address" type="email" maxlength="255" required /></label>
-              <label class="permission-toggle"><input v-model="mailSettings.use_ssl" type="checkbox" /> Implizites TLS verwenden (üblicherweise Port 465)</label>
-              <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> STARTTLS verwenden (empfohlen)</label>
-              <div class="form-row"><button class="primary">E-Mail-Einstellungen speichern</button><span v-if="mailSettingsMessage" class="muted">{{ mailSettingsMessage }}</span></div>
+              <label>{{ t('mail.username') }}<input v-model="mailSettings.smtp_username" maxlength="255" autocomplete="username" /></label>
+              <label>{{ t('mail.smtpPassword') }}<input v-model="mailPassword" type="password" maxlength="512" autocomplete="new-password" :disabled="clearMailPassword" :placeholder="mailSettings.smtp_password_configured ? t('mail.keepPassword') : t('mail.enterPassword')" /></label>
+              <label v-if="mailSettings.smtp_password_configured" class="permission-toggle"><input v-model="clearMailPassword" type="checkbox" /> {{ t('mail.clearPassword') }}</label>
+              <label>{{ t('mail.sender') }}<input v-model="mailSettings.from_address" type="email" maxlength="255" required /></label>
+              <label class="permission-toggle"><input v-model="mailSettings.use_ssl" type="checkbox" /> {{ t('mail.ssl') }}</label>
+              <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> {{ t('mail.starttls') }}</label>
+              <div class="form-row"><button class="primary">{{ t('mail.save') }}</button><span v-if="mailSettingsMessage" class="muted">{{ mailSettingsMessage }}</span></div>
             </form>
             <form class="stack" @submit.prevent="void testMailDelivery()">
-              <h4>Verbindung testen</h4>
-              <label>Test-E-Mail-Adresse<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
-              <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? 'Sende Testmail …' : 'Einstellungen speichern und Testmail senden' }}</button><span v-if="mailTestMessage" class="muted" role="status">{{ mailTestMessage }}</span></div>
+              <h4>{{ t('mail.test') }}</h4>
+              <label>{{ t('mail.testAddress') }}<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
+              <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? t('mail.sending') : t('mail.saveAndTest') }}</button><span v-if="mailTestMessage" class="muted" role="status">{{ mailTestMessage }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'license'" class="license-settings">
@@ -2546,13 +2546,13 @@ onBeforeUnmount(() => {
           </section>
           <BackupPanel v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'backup'" />
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'archive'" class="settings-section">
-            <h3>Automatische Archivierung</h3>
-            <p class="muted">Optional: Abgeschlossene Zeiträume werden automatisch für alle Abteilungen unveränderlich archiviert und stehen im Archiv als PDF bereit. Ohne Aktivierung wird nur manuell archiviert. Automatische Sicherungskopien (Backups) stellst du im Reiter „Backup“ ein.</p>
+            <h3>{{ t('archive.autoTitle') }}</h3>
+            <p class="muted">{{ t('archive.autoDescription') }}</p>
             <form class="stack" @submit.prevent="saveArchiveSettings">
-              <label class="permission-toggle"><input v-model="archiveSettings.auto_enabled" type="checkbox" /> Automatisch archivieren</label>
-              <label>Zeitraum<select v-model="archiveSettings.period" :disabled="!archiveSettings.auto_enabled"><option value="monthly">Monatlich (nach Monatsende)</option><option value="weekly">Wöchentlich (Montag bis Sonntag)</option></select></label>
-              <p v-if="archiveSettings.last_period_end" class="muted">Zuletzt abgedeckt bis: {{ dateLabel(archiveSettings.last_period_end) }}</p>
-              <div class="form-row"><button class="secondary">Speichern</button><span v-if="archiveSettingsMessage" class="muted">{{ archiveSettingsMessage }}</span></div>
+              <label class="permission-toggle"><input v-model="archiveSettings.auto_enabled" type="checkbox" /> {{ t('archive.autoEnabled') }}</label>
+              <label>{{ t('archive.period') }}<select v-model="archiveSettings.period" :disabled="!archiveSettings.auto_enabled"><option value="monthly">{{ t('archive.monthly') }}</option><option value="weekly">{{ t('archive.weekly') }}</option></select></label>
+              <p v-if="archiveSettings.last_period_end" class="muted">{{ t('archive.lastPeriod', { date: dateLabel(archiveSettings.last_period_end) }) }}</p>
+              <div class="form-row"><button class="secondary">{{ t('settings.save') }}</button><span v-if="archiveSettingsMessage" class="muted">{{ archiveSettingsMessage }}</span></div>
             </form>
           </section>
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'security'" class="settings-section">

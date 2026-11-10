@@ -193,6 +193,60 @@ test('team management displays translated labels and preserves account and depar
   await expect(dialog.getByLabel('First name')).toHaveValue('Unverändert')
 })
 
+test('English profile editing keeps user data and submits unchanged API values', async ({ page }) => {
+  await mockApi(page)
+  const profile = { username: 'planer', role_key: 'OBERARZT', department_id: 1, profile_image_data: null,
+    profile_photo_visibility: 'department', first_name: 'Alex', last_name: 'Beispiel', remember_me: false }
+  await page.route('**/api/profile/me', (route) => route.fulfill({ json: profile }))
+  await page.route('**/api/profile/department', (route) => route.fulfill({ json: [
+    { username: 'Kollege', role_key: 'EMPLOYEE', profile_image_data: null, department_id: 1 },
+  ] }))
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('planer')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: 'Open your profile' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'My profile' })).toBeVisible()
+  await expect(dialog.getByLabel('First name')).toHaveValue('Alex')
+  await expect(dialog.getByText('Kollege', { exact: true })).toBeVisible()
+  await dialog.getByLabel('First name').fill('Alex Neu')
+  await dialog.getByLabel('Profile image visibility').selectOption('private')
+  const request = page.waitForRequest((req) => req.url().endsWith('/api/profile/me') && req.method() === 'PUT')
+  await dialog.getByRole('button', { name: 'Save profile' }).click()
+  expect((await request).postDataJSON()).toMatchObject({ first_name: 'Alex Neu', last_name: 'Beispiel', profile_photo_visibility: 'private' })
+  await dialog.getByLabel('Profile image (PNG, JPEG or WebP, maximum 256 KB)').setInputFiles({ name: 'invalid.txt', mimeType: 'text/plain', buffer: Buffer.from('not an image') })
+  await expect(page.getByRole('alert').last()).toContainText('Choose a PNG, JPEG or WebP image up to 256 KB.')
+})
+
+test('English archive preserves names and archive request values', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/archives', (route) => {
+    if (route.request().method() === 'POST') return route.fulfill({ json: { id: 2 } })
+    return route.fulfill({ json: [{ id: 1, created_at: '2026-11-01T10:00:00Z', created_by: 'planer',
+      start_date: '2026-10-01', end_date: '2026-10-31', department_id: 1, department_name: 'Chirurgie',
+      note: 'Notiz', entry_count: 1, content_sha256: 'abc' }] })
+  })
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('planer')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: /Archive/ }).first().click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'Schedule archive' })).toBeVisible()
+  await expect(dialog.locator('.management-row')).toContainText('Chirurgie')
+  await expect(dialog.locator('.management-row')).toContainText('1 shift · archived')
+  await expect(dialog.locator('.management-row')).toContainText('Notiz')
+  await dialog.getByLabel('From', { exact: true }).fill('2026-10-01')
+  await dialog.getByLabel('To', { exact: true }).fill('2026-10-31')
+  await dialog.getByLabel('Note (optional)').fill('Eigene Notiz')
+  const request = page.waitForRequest((req) => req.url().endsWith('/api/archives') && req.method() === 'POST')
+  await dialog.getByRole('button', { name: 'Archive period' }).click()
+  expect((await request).postDataJSON()).toEqual({ start_date: '2026-10-01', end_date: '2026-10-31', department_id: 1, note: 'Eigene Notiz' })
+})
+
 test('English absence request keeps user data and translates labels and status', async ({ page }) => {
   await mockApi(page, 'EMPLOYEE')
   await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
@@ -260,6 +314,10 @@ test('English planning preview and approval retain custom names', async ({ page 
 
 test('backup interface translates without changing the restore confirmation contract', async ({ page }) => {
   await mockApi(page, 'ADMIN')
+  await page.route('**/api/admin/mail-settings', (route) => route.fulfill({ json: {
+    public_url: 'https://clinic.example', smtp_host: 'smtp.example', smtp_port: 587, smtp_username: 'user',
+    smtp_password_configured: true, from_address: 'sender@example.org', use_ssl: false, use_starttls: true,
+  } }))
   await page.route('**/api/admin/backup/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/settings')) return route.fulfill({ json: { schedule_enabled: false, frequency: 'weekly', weekday: 0, time_of_day: '12:00', recipient_count: 1, timezone: 'Europe/Berlin' } })
@@ -275,9 +333,24 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByRole('button', { name: '☼ Light' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Email delivery' }).click()
+  await expect(page.getByRole('heading', { name: 'Email delivery (SMTP)' })).toBeVisible()
+  await expect(page.getByLabel('SMTP password', { exact: true })).toHaveAttribute('placeholder', 'Keep saved password')
+  await page.getByLabel('SMTP server').fill('custom.example')
+  await page.getByLabel('Delete saved SMTP password').check()
+  await expect(page.getByLabel('SMTP password', { exact: true })).toBeDisabled()
+  await page.getByLabel('Delete saved SMTP password').uncheck()
+  const mailRequest = page.waitForRequest((req) => req.url().endsWith('/api/admin/mail-settings') && req.method() === 'PUT')
+  await page.getByRole('button', { name: 'Save email settings' }).click()
+  expect((await mailRequest).postDataJSON()).toMatchObject({ smtp_host: 'custom.example', smtp_password: null, clear_smtp_password: false, use_ssl: false, use_starttls: true })
+  await expect(page.getByText('Email settings saved.')).toBeVisible()
   await page.getByRole('tab', { name: 'Security' }).click()
   await expect(page.getByRole('heading', { name: 'Automatic sign-out' })).toBeVisible()
   await expect(page.getByLabel('Inactivity before sign-out (minutes)')).toBeVisible()
+  await page.getByRole('tab', { name: 'Archiving' }).click()
+  await expect(page.getByRole('heading', { name: 'Automatic archiving' })).toBeVisible()
+  await expect(page.getByLabel('Archive automatically')).toBeVisible()
+  await expect(page.getByLabel('Period')).toHaveValue('monthly')
   await page.getByRole('tab', { name: 'Backup' }).click()
   await expect(page.getByRole('heading', { name: 'Data backup' })).toBeVisible()
   await expect(page.locator('.backup-settings option').getByText('Monday', { exact: true })).toBeAttached()
