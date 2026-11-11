@@ -13,6 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/stale@v11
+        id: stale
         with:
           stale-issue-message: 'This issue is stale because it has been open 60 days with no activity. Remove stale label or comment or this will be closed in 7 days.'
           stale-pr-message: 'This PR is stale because it has been open 60 days with no activity. Remove stale label or comment or this will be closed in 7 days.'
+      - name: Summarize stale issue and PR processing
+        if: always()
+        env:
+          STALE_STATUS: ${{ steps.stale.outcome }}
+        run: |
+          printf '## Stale issues and pull requests\n\nStale processing step: **%s**. See its logs for the items processed.\n' "${STALE_STATUS:-not run}" >> "$GITHUB_STEP_SUMMARY"

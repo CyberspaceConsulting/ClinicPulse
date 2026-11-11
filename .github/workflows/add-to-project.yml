@@ -19,7 +19,22 @@ jobs:
         if: ${{ env.ADD_TO_PROJECT_PAT == '' }}
         run: echo "::warning::ADD_TO_PROJECT_PAT secret is not set; skipping."
       - uses: actions/add-to-project@v2
+        id: add
         if: ${{ env.ADD_TO_PROJECT_PAT != '' }}
         with:
           project-url: https://github.com/orgs/CyberspaceConsulting/projects/1
           github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
+      - name: Summarize project automation
+        if: always()
+        env:
+          ADD_STATUS: ${{ steps.add.outcome }}
+        run: |
+          {
+            echo '## Project automation'
+            echo
+            if [ -z "$ADD_TO_PROJECT_PAT" ]; then
+              echo 'Project assignment skipped: the optional token is not configured.'
+            else
+              printf 'Project assignment step: **%s**.\n' "${ADD_STATUS:-not run}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

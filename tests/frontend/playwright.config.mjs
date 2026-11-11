@@ -10,7 +10,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  reporter: process.env.CI ? 'github' : 'list',
+  reporter: process.env.CI
+    ? [['github'], ['junit', { outputFile: fileURLToPath(new URL('../../frontend/test-reports/browser.xml', import.meta.url)) }]]
+    : 'list',
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',

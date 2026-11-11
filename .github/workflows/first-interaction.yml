@@ -19,6 +19,7 @@ jobs:
 
     steps:
       - uses: actions/first-interaction@v3
+        id: greeting
         with:
           issue_message: |
             ## 👋 Welcome to ClinicPulse, and thanks for opening your first issue!
@@ -93,3 +94,9 @@ jobs:
             Reviews are a conversation, so expect a round or two of feedback. That's normal, not a sign something is wrong.
 
             Thanks again, and welcome aboard!
+      - name: Summarize first interaction
+        if: always()
+        env:
+          GREETING_STATUS: ${{ steps.greeting.outcome }}
+        run: |
+          printf '## First interaction\n\nGreeting action: **%s**. A message is sent only for a first-time contributor; see the logs for details.\n' "${GREETING_STATUS:-not run}" >> "$GITHUB_STEP_SUMMARY"

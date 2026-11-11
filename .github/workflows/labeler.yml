@@ -15,5 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/labeler@v7
+        id: labeler
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Summarize labeling
+        if: always()
+        env:
+          LABEL_STATUS: ${{ steps.labeler.outcome }}
+        run: |
+          printf '## Pull request labeling\n\nLabeler step: **%s**. See its logs for matching rules and labels.\n' "${LABEL_STATUS:-not run}" >> "$GITHUB_STEP_SUMMARY"
