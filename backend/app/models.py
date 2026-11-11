@@ -22,7 +22,14 @@ class Department(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     manager_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("user_accounts.id", ondelete="SET NULL", use_alter=True), nullable=True, index=True
+        ForeignKey(
+            "user_accounts.id",
+            name="fk_departments_manager_user_id",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
     )
 
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")
@@ -93,8 +100,8 @@ class AdminAccount(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     username: Mapped[str] = mapped_column(EncryptedText())
-    first_name: Mapped[str] = mapped_column(EncryptedText())
-    last_name: Mapped[str] = mapped_column(EncryptedText())
+    first_name: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     username_lookup: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_salt: Mapped[str] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(String(128))
