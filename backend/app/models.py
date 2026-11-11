@@ -21,6 +21,9 @@ class Department(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    manager_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="SET NULL", use_alter=True), nullable=True, index=True
+    )
 
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")
     shift_types: Mapped[list["ShiftType"]] = relationship(back_populates="department")
@@ -90,6 +93,8 @@ class AdminAccount(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     username: Mapped[str] = mapped_column(EncryptedText())
+    first_name: Mapped[str] = mapped_column(EncryptedText())
+    last_name: Mapped[str] = mapped_column(EncryptedText())
     username_lookup: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_salt: Mapped[str] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(String(128))
@@ -114,6 +119,7 @@ class UserAccount(Base):
     can_view: Mapped[bool] = mapped_column(default=True)
     can_edit: Mapped[bool] = mapped_column(default=False)
     can_approve: Mapped[bool] = mapped_column(default=False)
+    can_manage_department: Mapped[bool] = mapped_column(default=False, server_default="false")
     email: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     first_name: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     last_name: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
@@ -127,7 +133,7 @@ class UserAccount(Base):
     token_version: Mapped[int] = mapped_column(Integer, default=0)
     is_locked: Mapped[bool] = mapped_column(default=False)
 
-    department: Mapped[Department | None] = relationship()
+    department: Mapped[Department | None] = relationship(foreign_keys=[department_id])
     departments: Mapped[list[Department]] = relationship(
         secondary=user_department_access,
         order_by=Department.id,

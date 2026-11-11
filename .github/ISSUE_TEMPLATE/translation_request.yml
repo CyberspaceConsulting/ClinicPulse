@@ -1,0 +1,66 @@
+name: Translation Request
+description: Request a language or report a translation issue in ClinicPulse
+labels: ["localisation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ClinicPulse currently offers German and English; some English interface text is still incomplete. See the [localization guide](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/docs/development/localization.md) before proposing a contribution.
+
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: Request type
+      options:
+        - Request support for a new language
+        - Report an incorrect or unnatural translation
+        - Report missing translated text
+        - Offer to contribute or review translations
+    validations:
+      required: true
+
+  - type: input
+    id: language
+    attributes:
+      label: Language and locale
+      description: Include a region if relevant.
+      placeholder: "e.g. French (fr), Portuguese (Portugal, pt-PT)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_text
+    attributes:
+      label: Affected text or translation
+      description: For a correction or missing text, include the screen or workflow and the current and suggested wording.
+      placeholder: |
+        Screen/workflow:
+        Current text (or missing):
+        Suggested translation:
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Explain any regional wording or context that would help review the translation.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I can provide translations for review.
+        - label: I can review translations for accuracy.
+        - label: I am requesting this language but cannot contribute directly.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for this language or translation report.
+          required: true

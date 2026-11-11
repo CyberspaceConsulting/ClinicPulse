@@ -11,6 +11,7 @@
 | Aktion                                    | Berechtigt                          |
 | ----------------------------------------- | ----------------------------------- |
 | Krankenhausleitung anlegen und verwalten  | nur Administrator                   |
+| Administratorkonten anlegen und verwalten | nur Administrator                   |
 | Personaler-Rolle vergeben                 | nur Leitung                         |
 | Konten für Mitarbeitende anlegen/verwalten | Personaler (ausschließlich Mitarbeiter-Konten) und Leitung |
 

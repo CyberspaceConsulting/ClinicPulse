@@ -59,6 +59,8 @@ def test_rejects_expired_grace_period(client, license_key):
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": token,
             "federal_state": "Nordrhein-Westfalen",
@@ -74,6 +76,8 @@ def test_cached_status_signature_and_offline_window(client):
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -173,6 +177,8 @@ def test_expired_license_token_is_still_sent_for_manager_status(client, license_
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": token,
             "federal_state": "Nordrhein-Westfalen",
@@ -232,6 +238,8 @@ def test_status_response_must_match_request_nonce(client, license_key, monkeypat
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",

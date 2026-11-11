@@ -1,0 +1,67 @@
+name: Feature Request
+description: Suggest an improvement to ClinicPulse
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share the problem you are trying to solve and how the proposed change would help ClinicPulse users.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What is difficult or missing in the current workflow?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or workflow you would like to see.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Shift planning and staffing
+        - Departments, employees, and accounts
+        - Absences and approvals
+        - Schedule optimization
+        - Working-time rules
+        - Backups and restore
+        - User interface and accessibility
+        - Localization and translations
+        - API and integrations
+        - Installation and deployment
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe workarounds or other approaches you have considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add mockups or examples using fictional or anonymized data. Do not include real patient or employee information.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true

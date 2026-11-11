@@ -17,7 +17,7 @@ PROFILE_CATALOG: dict[str, dict[str, object]] = {
         "access_roles": _PHYSICIAN_ACCESS,
         "management_label": "Krankenhausleitung",
         "functions": (
-            "Pflegefachkraft", "Arzt", "Assistenzarzt", "Pflegeassistenz", "Hebamme", "Medizinische Fachangestellte",
+            "Pflegefachkraft", "Arzt", "Assistenzarzt", "Oberarzt", "Pflegeassistenz", "Hebamme", "Medizinische Fachangestellte",
         ),
     },
     "rescue_service": {
