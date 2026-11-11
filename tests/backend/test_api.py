@@ -193,6 +193,11 @@ def test_create_and_list_staff_shifts_and_assignments(client):
         headers=admin_headers,
     )
     second_employee_id = second_employee_response.json()["id"]
+    nonmatching_employee_id = client.post(
+        "/api/employees",
+        json={"first_name": "Taylor", "last_name": "Beispiel", "role": "Assistant", "department_id": department_id},
+        headers=admin_headers,
+    ).json()["id"]
     planner_response = client.post(
         "/api/users",
         headers=admin_headers,
@@ -249,7 +254,9 @@ def test_create_and_list_staff_shifts_and_assignments(client):
         headers=headers,
     )
     assert suggestions.status_code == 200
-    assert [candidate["employee_id"] for candidate in suggestions.json()["candidates"]] == [second_employee_id]
+    assert [candidate["employee_id"] for candidate in suggestions.json()["candidates"]] == [
+        second_employee_id, nonmatching_employee_id,
+    ]
     approved = client.post(
         "/api/smart-selection/approve",
         headers=headers,
@@ -261,6 +268,43 @@ def test_create_and_list_staff_shifts_and_assignments(client):
         },
     )
     assert approved.status_code == 201
+
+    edited_shift = client.put(
+        f"/api/shift-types/{shift_id}",
+        headers=headers,
+        json={
+            "name": "Early",
+            "start_time": "07:00:00",
+            "end_time": "15:00:00",
+            "color": "#2563eb",
+            "staffing_requirements": [
+                {"position": "Nurse", "required_staff": 10},
+                {"position": "Physician", "required_staff": 3},
+            ],
+            "department_id": department_id,
+        },
+    )
+    assert edited_shift.status_code == 200
+    assert edited_shift.json()["required_staff"] == 13
+    assert edited_shift.json()["staffing_requirements"] == [
+        {"position": "Nurse", "required_staff": 10},
+        {"position": "Physician", "required_staff": 3},
+    ]
+    assert client.delete(f"/api/shift-types/{shift_id}", headers=headers).status_code == 409
+    wrong_role_assignment = client.post("/api/assignments", headers=headers, json={
+        "employee_id": nonmatching_employee_id,
+        "shift_type_id": shift_id,
+        "starts_at": "2031-02-05T07:00:00+00:00",
+        "ends_at": "2031-02-05T15:00:00+00:00",
+    })
+    assert wrong_role_assignment.status_code == 409
+    multi_role_preview = client.post("/api/optimization/preview", headers=headers, json={
+        "target_date": "2031-02-05",
+        "department_id": department_id,
+    })
+    assert len(multi_role_preview.json()["suggestions"]) == 2
+    assert {item["employee_role"] for item in multi_role_preview.json()["suggestions"]} == {"Nurse"}
+    assert len(multi_role_preview.json()["unfilled_slots"]) == 11
 
     overlapping = client.post(
         "/api/assignments",
@@ -1110,7 +1154,7 @@ def test_hospital_management_manages_accounts_but_cannot_edit_schedules(client):
         },
     )
     assert manager.status_code == 201
-    assert manager.json()["can_view"] is True
+    assert manager.json()["can_view"] is False
     client.post("/api/auth/login", json={"username": "management", "password": "management-password-123"})
     headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
     assert client.get("/api/roles", headers=headers).status_code == 200
@@ -1207,12 +1251,99 @@ def test_employee_self_service_absence_workflow(client):
         "starts_at": "2030-03-05T07:00:00+00:00", "ends_at": "2030-03-05T15:00:00+00:00",
     })
     assert blocked.status_code == 409
+    own_assignment = client.post("/api/assignments", headers=planner, json={
+        "employee_id": other_id, "shift_type_id": shift_id,
+        "starts_at": "2030-03-12T07:00:00+00:00", "ends_at": "2030-03-12T15:00:00+00:00",
+    })
+    assert own_assignment.status_code == 201
+    own_assignment = client.post("/api/assignments", headers=planner, json={
+        "employee_id": employee_id, "shift_type_id": shift_id,
+        "starts_at": "2030-03-13T07:00:00+00:00", "ends_at": "2030-03-13T15:00:00+00:00",
+    })
+    assert own_assignment.status_code == 201
+    employee_assignments = client.get(
+        "/api/assignments?from=2030-03-01&to=2030-03-31",
+        headers=employee,
+    )
+    assert employee_assignments.status_code == 200
+    assert {item["employee_id"] for item in employee_assignments.json()} == {employee_id}
     candidates = client.get("/api/smart-selection", headers=planner, params={
         "shift_type_id": shift_id, "starts_at": "2030-03-05T07:00:00+00:00", "ends_at": "2030-03-05T15:00:00+00:00",
     }).json()["candidates"]
     assert [item["employee_id"] for item in candidates] == [other_id]
     assert client.delete(f"/api/absences/{absence_id}", headers=employee).status_code == 409
     assert client.get("/api/absences", headers=_login_headers(client, "erika", "secure-password-123")).json()[-1]["id"] == absence_id
+
+
+def test_admin_cannot_read_schedules_or_absences_and_hospital_management_is_opt_in(client):
+    admin = auth_header(client)
+    department_id = client.post(
+        "/api/departments", headers=admin, json={"name": "Administration access"}
+    ).json()["id"]
+    planner = client.post("/api/users", headers=admin, json={
+        "first_name": "Test", "last_name": "Planner",
+        "username": "admin-schedule-planner", "password": "admin-schedule-planner-password",
+        "role_key": "OBERARZT", "department_id": department_id,
+        "can_view": True, "can_edit": True,
+    })
+    assert planner.status_code == 201
+    planner_headers = _login_headers(client, "admin-schedule-planner", "admin-schedule-planner-password")
+    shift = client.post("/api/shift-types", headers=planner_headers, json={
+        "name": "Administration test shift",
+        "start_time": "07:00:00",
+        "end_time": "15:00:00",
+        "department_id": department_id,
+    })
+    assert shift.status_code == 201
+    assert client.get("/api/shift-types", headers=admin).status_code == 403
+    assert client.get("/api/assignments?from=2031-02-01&to=2031-02-01", headers=admin).status_code == 403
+    assert client.get("/api/absences", headers=admin).status_code == 403
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Test", "last_name": "Viewer",
+        "username": "schedule-viewer", "password": "schedule-viewer-password",
+        "role_key": "OBERARZT", "department_id": department_id, "can_view": True,
+    }).status_code == 201
+    viewer_headers = _login_headers(client, "schedule-viewer", "schedule-viewer-password")
+    assert client.get(
+        "/api/smart-selection",
+        headers=viewer_headers,
+        params={
+            "shift_type_id": shift.json()["id"],
+            "starts_at": "2031-02-01T07:00:00+00:00",
+            "ends_at": "2031-02-01T15:00:00+00:00",
+        },
+    ).status_code == 403
+
+    manager = client.post("/api/users", headers=admin, json={
+        "first_name": "Hospital", "last_name": "Manager",
+        "username": "hospital-manager", "password": "hospital-manager-password",
+        "role_key": "HOSPITAL_MANAGEMENT", "can_view": False,
+    })
+    assert manager.status_code == 201
+    manager_headers = _login_headers(client, "hospital-manager", "hospital-manager-password")
+    assert client.get("/api/shift-types", headers=manager_headers).status_code == 403
+    assert client.get("/api/absences", headers=manager_headers).status_code == 403
+    manager_data = manager.json()
+    manager_data.update({
+        "first_name": "Hospital",
+        "last_name": "Manager",
+        "username": "hospital-manager",
+        "role_key": "HOSPITAL_MANAGEMENT",
+        "can_view": True,
+        "can_edit": False,
+        "can_approve": False,
+        "department_ids": [],
+        "department_id": None,
+        "employee_id": None,
+        "email": None,
+        "new_password": None,
+    })
+    assert client.put(
+        f"/api/users/{manager_data['id']}", headers=admin, json=manager_data
+    ).status_code == 200
+    manager_headers = _login_headers(client, "hospital-manager", "hospital-manager-password")
+    assert client.get("/api/shift-types", headers=manager_headers).status_code == 200
+    assert client.get("/api/absences", headers=manager_headers).status_code == 200
 
 
 def test_minimum_rest_period_blocks_assignments_and_suggestions(client):

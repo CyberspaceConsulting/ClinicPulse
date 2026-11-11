@@ -54,6 +54,7 @@ class _Candidate:
     slot_index: int
     employee: models.Employee
     shift: models.ShiftType
+    position: str
     starts_at: datetime
     ends_at: datetime
     role_match: bool
@@ -146,39 +147,64 @@ def optimize_day(
             models.Assignment.shift_type_id,
             models.Assignment.starts_at,
             models.Assignment.ends_at,
+            models.Employee.role,
             models.ShiftType.break_minutes,
             models.ShiftType.break_start_minutes,
         )
         .join(models.ShiftType)
+        .join(models.Employee)
         .where(
             models.Assignment.starts_at >= day_start,
             models.Assignment.starts_at < day_end,
         )
     ))
-    existing_counts: dict[int, int] = {}
+    existing_counts: dict[tuple[int, str], int] = {}
+    existing_counts_by_shift: dict[int, int] = {}
     for row in existing_assignments:
-        existing_counts[row.shift_type_id] = existing_counts.get(row.shift_type_id, 0) + 1
+        key = (row.shift_type_id, row.role.strip().casefold())
+        existing_counts[key] = existing_counts.get(key, 0) + 1
+        existing_counts_by_shift[row.shift_type_id] = existing_counts_by_shift.get(row.shift_type_id, 0) + 1
 
-    slots: list[tuple[models.ShiftType, datetime, datetime]] = []
+    slots: list[tuple[models.ShiftType, str, datetime, datetime]] = []
     for shift in shifts:
         starts_at, ends_at = _shift_interval(target_date, shift, business_tz)
-        vacancies = max(0, shift.required_staff - existing_counts.get(shift.id, 0))
-        slots.extend((shift, starts_at, ends_at) for _ in range(vacancies))
+        requirements = shift.staffing_requirements or [
+            models.ShiftStaffingRequirement(
+                position=shift.position,
+                required_staff=shift.required_staff,
+            )
+        ]
+        for requirement in requirements:
+            existing_count = (
+                existing_counts.get((shift.id, requirement.position.strip().casefold()), 0)
+                if len(requirements) > 1
+                else existing_counts_by_shift.get(shift.id, 0)
+            )
+            vacancies = max(
+                0,
+                requirement.required_staff - existing_count,
+            )
+            slots.extend((shift, requirement.position, starts_at, ends_at) for _ in range(vacancies))
     if not slots:
         return OptimizationPreview((), (), "OPTIMAL")
     if len(slots) > MAX_OPEN_SLOTS:
         raise OptimizationTooLarge("Limit optimization to a maximum of 150 open positions per day")
     possible_combinations = sum(
         len(employees_by_department.get(shift.department_id, ()))
-        for shift, _starts_at, _ends_at in slots
+        for shift, _position, _starts_at, _ends_at in slots
     )
     if possible_combinations > MAX_CANDIDATE_VARIABLES:
         raise OptimizationTooLarge("Select a smaller department for day optimization")
 
     candidate_cache: dict[tuple[int, int], bool] = {}
     candidates: list[_Candidate] = []
-    for slot_index, (shift, starts_at, ends_at) in enumerate(slots):
+    for slot_index, (shift, position, starts_at, ends_at) in enumerate(slots):
         for employee in employees_by_department.get(shift.department_id, ()):
+            if (
+                len(shift.staffing_requirements) > 1
+                and employee.role.strip().casefold() != position.strip().casefold()
+            ):
+                continue
             cache_key = (employee.id, shift.id)
             eligible = candidate_cache.get(cache_key)
             if eligible is None:
@@ -200,9 +226,10 @@ def optimize_day(
                     slot_index=slot_index,
                     employee=employee,
                     shift=shift,
+                    position=position,
                     starts_at=starts_at,
                     ends_at=ends_at,
-                    role_match=employee.role.strip().casefold() == shift.position.strip().casefold(),
+                    role_match=employee.role.strip().casefold() == position.strip().casefold(),
                 ))
     if len(candidates) > MAX_CANDIDATE_VARIABLES:
         raise OptimizationTooLarge("Optimization has too many eligible employee-position combinations")
@@ -354,8 +381,8 @@ def optimize_day(
     status_code = solver.Solve(model)
     if status_code not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return OptimizationPreview((), tuple(
-            OpenSlot(shift.id, shift.name, shift.position)
-            for shift, _starts_at, _ends_at in slots
+            OpenSlot(shift.id, shift.name, position)
+            for shift, position, _starts_at, _ends_at in slots
         ), "UNKNOWN")
 
     suggestions = tuple(
@@ -373,7 +400,7 @@ def optimize_day(
         if solver.Value(candidate_variables[index])
     )
     unfilled = tuple(
-        OpenSlot(slots[index][0].id, slots[index][0].name, slots[index][0].position)
+        OpenSlot(slots[index][0].id, slots[index][0].name, slots[index][1])
         for index, variable in enumerate(unfilled_variables)
         if solver.Value(variable)
     )

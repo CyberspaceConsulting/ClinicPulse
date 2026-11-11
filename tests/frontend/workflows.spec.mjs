@@ -53,6 +53,7 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures =
     if (path === '/api/account-creation/mail-mode') return reply({ enabled: true })
     if (path === '/api/role-catalog') return reply({ functions: ['Pflege'], access_roles: [] })
     if (path === '/api/license/status') return reply({ status: 'PAID', read_only: false, suppress_warnings: false })
+    if (path === '/api/users') return reply([])
     if (path === '/api/departments') return reply([{ id: 1, name: 'Chirurgie' }])
     if (path === '/api/employees') return reply([employee])
     if (path === '/api/shift-types') return reply([shift])
@@ -85,13 +86,13 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures =
   return failures
 }
 
-async function login(page) {
+async function login(page, { hasVisibleShift = true } = {}) {
   await page.goto('/')
   await page.getByLabel('Benutzername').fill('planer')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
-  await expect(page.getByText('Frühdienst').first()).toBeVisible()
+  if (hasVisibleShift) await expect(page.getByText('Frühdienst').first()).toBeVisible()
 }
 
 test('password guidance uses the stored locale on the setup screen', async ({ page }) => {
@@ -133,6 +134,7 @@ test('mobile administrator toolbar remains usable when an error is displayed', a
   await expect(page.locator('.toast-error')).toContainText('Unexpected test request')
   await expect(page.getByLabel('Language')).toBeVisible()
   await expect(page.locator('.mobile-navigation').getByRole('button', { name: 'Team management' })).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5000 })
   await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible()
   await expect(page.locator('.toast-error')).toBeVisible()
@@ -489,6 +491,7 @@ test('update selector shows the installed image and uses main and test channels'
   await page.getByLabel('Benutzername').fill('admin')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Schließen', exact: true }).click()
   await expect(page.locator('.page-footer')).toContainText('Version v-0.2.1-alpha')
   const selector = page.getByLabel('Update-Kanal')
   await expect(selector).toHaveValue('test')
@@ -544,6 +547,7 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
   await expect(page.locator('.toast-error')).toHaveCount(0)
   await expect(page.getByText('ClinicPulse is up to date.')).toBeVisible()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -788,7 +792,7 @@ test('offene Stelle kann im Tagesplan besetzt werden', async ({ page }) => {
 
 test('Mitarbeitende können eine Abwesenheit beantragen', async ({ page }) => {
   await mockApi(page, 'EMPLOYEE')
-  await login(page)
+  await login(page, { hasVisibleShift: false })
   await page.getByRole('button', { name: /Abwesenheiten/ }).click()
   await page.getByLabel('Von', { exact: true }).fill('2026-11-16')
   await page.getByLabel('Bis', { exact: true }).fill('2026-11-17')
@@ -813,8 +817,8 @@ test('berechtigte Planer können einen Antrag genehmigen', async ({ page }) => {
 test('nur erlaubte Abteilung und Aktionen werden angezeigt', async ({ page }) => {
   await mockApi(page, 'CHEFARZT')
   await login(page)
-  await expect(page.locator('button[title="Chirurgie"]')).toHaveCount(1)
-  await expect(page.locator('button[title="Radiologie"]')).toHaveCount(0)
+  await expect(page.locator('.breadcrumb strong')).toHaveText('Chirurgie')
+  await expect(page.locator('.breadcrumb')).not.toContainText('Radiologie')
   await expect(page.getByRole('button', { name: /Dienst eintragen/ })).toHaveCount(0)
   await page.getByRole('button', { name: 'Tagesdetails öffnen' }).click()
   await expect(page.getByText('Offene Stelle', { exact: true })).toBeVisible()

@@ -56,6 +56,20 @@ class ShiftType(Base):
 
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="shift_type")
     department: Mapped[Department | None] = relationship(back_populates="shift_types")
+    staffing_requirements: Mapped[list["ShiftStaffingRequirement"]] = relationship(
+        back_populates="shift_type", cascade="all, delete-orphan", order_by="ShiftStaffingRequirement.id"
+    )
+
+
+class ShiftStaffingRequirement(Base):
+    __tablename__ = "shift_staffing_requirements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shift_type_id: Mapped[int] = mapped_column(ForeignKey("shift_types.id", ondelete="CASCADE"), index=True)
+    position: Mapped[str] = mapped_column(String(80))
+    required_staff: Mapped[int] = mapped_column(Integer)
+
+    shift_type: Mapped[ShiftType] = relationship(back_populates="staffing_requirements")
 
 
 class Assignment(Base):

@@ -272,6 +272,8 @@ def require_view(principal: Principal = Depends(require_principal)) -> Principal
 def require_plan_view(principal: Principal = Depends(require_view)) -> Principal:
     if principal.role_key == "ADMIN":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Dienstpläne sind für den Administrator nicht einsehbar")
+    if not principal.can_view:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule view permission required")
     return principal
 
 
