@@ -15,6 +15,7 @@ export default defineConfig({
         link: '/getting-started/',
         items: [
           { text: 'Installation', link: '/getting-started/installation' },
+          { text: 'Updates', link: '/getting-started/update' },
           { text: 'Docker Compose', link: '/getting-started/docker-compose' },
           { text: 'Umgebungsvariablen', link: '/getting-started/environment-variables' },
           { text: 'Ersteinrichtung', link: '/getting-started/first-setup' },
