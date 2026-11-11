@@ -8,12 +8,14 @@
 
 ## Wer darf wen anlegen?
 
-| Aktion                                    | Berechtigt                          |
-| ----------------------------------------- | ----------------------------------- |
-| Krankenhausleitung anlegen und verwalten  | nur Administrator                   |
-| Administratorkonten anlegen und verwalten | nur Administrator                   |
-| Personaler-Rolle vergeben                 | nur Leitung                         |
-| Konten für Mitarbeitende anlegen/verwalten | Personaler (ausschließlich Mitarbeiter-Konten) und Leitung |
+| Aktion                                      | Berechtigt |
+| ------------------------------------------- | ---------- |
+| Krankenhausleitung anlegen und verwalten    | nur Administrator |
+| Administratorkonten anlegen und verwalten   | nur Administrator |
+| Personaler-Rolle vergeben                   | Leitung |
+| Mitarbeiterkonten anlegen und verwalten     | Personaler sowie Leitung oder Stellvertretung der betreffenden Abteilung |
+
+Eine Abteilungsleitung oder Stellvertretung darf nur Mitarbeiterkonten für die eigene Abteilung verwalten. Die Person muss in der Abteilung eingetragen sein und eine dort als leitungsberechtigt markierte Qualifikation haben. Die Systemrolle „Oberarzt“ allein verleiht keine Kontoverwaltungsrechte. Die getrennte Mitarbeiterverwaltung weist einer Person eine Abteilung und eine oder mehrere abteilungsspezifische Qualifikationen zu.
 
 ## Einladungen
 

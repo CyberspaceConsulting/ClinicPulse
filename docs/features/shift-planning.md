@@ -13,7 +13,7 @@ Ein Schichttyp beschreibt eine wiederkehrende Schicht:
 | Abteilung             | optional                                                   |
 | Pause / Pausenbeginn  | 0–240 Minuten bzw. 0–360 Minuten nach Schichtbeginn        |
 
-Eine Schichtart kann mehrere Funktionen mit jeweils eigener Soll-Besetzung enthalten. Dazu gehört auch „Oberarzt“ als eigene Funktion; diese Stelle wird bei der Soll-Besetzung berücksichtigt und kann nur mit Mitarbeitenden besetzt werden, deren Funktion „Oberarzt“ ist. Bei manueller Besetzung werden für qualifikationsgebundene Stellen nur passende Mitarbeitende angeboten. Bestehende Schichtarten mit einer Funktion werden entsprechend weitergeführt. Oberärzte und Dienstplaner können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).
+Eine Schichtart kann mehrere abteilungsspezifische Qualifikationen mit jeweils eigener Soll-Besetzung enthalten. Die Soll-Besetzung wird für jede Qualifikation einzeln berücksichtigt. Bei manueller Besetzung werden nur Mitarbeitende mit einer passenden Qualifikation aus derselben Abteilung angeboten; eine Person mit mehreren Qualifikationen kann für jede davon eingeplant werden. Bestehende Schichtarten mit einer Funktion werden entsprechend weitergeführt. Dienstplanverantwortliche der Abteilung können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).
 
 Wird keine Pause angegeben, setzt ClinicPulse die gesetzliche Mindestpause (siehe [Arbeitszeitregeln](work-rules.md)).
 
@@ -31,7 +31,7 @@ Verstöße werden als HTTP 409 mit einer Erklärung abgelehnt, siehe [Fehlerbehe
 
 ## Berechtigungen
 
-Ansehen, Bearbeiten und Freigeben sind getrennte Rechte. Die Smart-Auswahl und Planungsvorschläge sind Dienstplanern mit Bearbeitungsrecht vorbehalten. Dienstpläne und Abwesenheiten sind für den Administrator nicht einsehbar. Die Krankenhausleitung erhält diese Leserechte nur, wenn „Dienstplan ansehen“ für ihr Konto aktiviert ist. Oberärzte sehen nur die ihnen zugewiesenen Abteilungen; Mitarbeitende sehen im Dienstplan nur ihre eigenen Dienste und keine offenen Besetzungslücken. Chefärzte sind schreibgeschützt.
+Ansehen, Bearbeiten und Freigeben sind getrennte Rechte. Die Smart-Auswahl und Planungsvorschläge sind Dienstplanverantwortlichen mit Bearbeitungsrecht vorbehalten. Leitung und Stellvertretung erhalten diese Rechte für ihre zugewiesene Abteilung. Die Systemrolle „Oberarzt“ allein verleiht keine Abteilungsverwaltungsrechte. Dienstpläne und Abwesenheiten sind für den Administrator nicht einsehbar. Die Krankenhausleitung erhält diese Leserechte nur, wenn „Dienstplan ansehen“ für ihr Konto aktiviert ist. Mitarbeitende sehen im Dienstplan nur ihre eigenen Dienste und keine offenen Besetzungslücken. Chefärzte sind schreibgeschützt.
 
 ## Krankheitsvertretung
 

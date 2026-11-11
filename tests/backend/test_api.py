@@ -1033,9 +1033,7 @@ def test_department_planner_cannot_read_or_plan_for_another_department(client):
     })
     assert cross_department_assignment.status_code == 403
     scoped_users = client.get("/api/users", headers=headers)
-    assert scoped_users.status_code == 200
-    assert all(user["role_key"] == "EMPLOYEE" for user in scoped_users.json())
-    assert all(user["department_id"] == departments["Chirurgie"] for user in scoped_users.json())
+    assert scoped_users.status_code == 403
     assert client.put(
         f"/api/users/{other_employee_account.json()['id']}",
         headers=headers,
@@ -2239,7 +2237,7 @@ def test_department_leader_can_manage_only_their_department(client):
             "first_name": "Regulär", "last_name": "Oberarzt", "username": "regular-physician",
             "password": "regular-physician-password",
             "role_key": "OBERARZT", "department_id": own_department,
-            "can_view": False,
+            "can_view": True,
         },
     )
     assert regular_physician.status_code == 201
@@ -2250,6 +2248,7 @@ def test_department_leader_can_manage_only_their_department(client):
     assert session["can_manage_department"] is False
     assert [item["id"] for item in client.get("/api/departments").json()] == [own_department]
     assert len(client.get("/api/employees").json()) >= 1
+    assert client.get("/api/users").status_code == 403
     regular_user = client.post(
         "/api/users",
         json={
@@ -2259,7 +2258,7 @@ def test_department_leader_can_manage_only_their_department(client):
             "department_ids": [own_department], "employee_id": second_own_employee["id"],
         },
     )
-    assert regular_user.status_code == 201
+    assert regular_user.status_code == 403
     assert client.put(
         f"/api/departments/{own_department}", json={"name": "Keine Abteilungsleitung"}
     ).status_code == 403
@@ -2595,3 +2594,128 @@ def test_admin_accounts_can_manage_department_leaders_and_edit_their_names(clien
     assert saved.status_code == 200
     assert saved.json()["first_name"] == "Zweite"
     assert saved.json()["last_name"] == "Administrator"
+
+
+def test_department_qualifications_drive_manual_and_optimized_staffing(client):
+    admin = auth_header(client)
+    department = client.post("/api/departments", headers=admin, json={"name": "Qualifikationen"}).json()
+    department_id = department["id"]
+    department = client.put(f"/api/departments/{department_id}", headers=admin, json={
+        "name": department["name"],
+        "qualifications": [
+            {"name": "Oberarzt", "leadership_eligible": True},
+            {"name": "Chirurg", "leadership_eligible": False},
+            {"name": "Pflege", "leadership_eligible": False},
+        ],
+    }).json()
+    role_ids = {item["name"]: item["id"] for item in department["qualifications"]}
+    physician = client.post("/api/employees", headers=admin, json={
+        "first_name": "Ada", "last_name": "Chirurgin", "role": "Oberarzt",
+        "department_id": department_id,
+        "qualification_ids": [role_ids["Oberarzt"], role_ids["Chirurg"]],
+    }).json()
+    nurse = client.post("/api/employees", headers=admin, json={
+        "first_name": "Nils", "last_name": "Pfleger", "role": "Pflege",
+        "department_id": department_id, "qualification_ids": [role_ids["Pflege"]],
+    }).json()
+    assert {item["name"] for item in physician["qualifications"]} == {"Oberarzt", "Chirurg"}
+
+    planner = client.post("/api/users", headers=admin, json={
+        "first_name": "Plan", "last_name": "Person", "username": "qualification-planner",
+        "password": "qualification-planner-password", "role_key": "OBERARZT",
+        "department_id": department_id, "can_view": True, "can_edit": True,
+    })
+    assert planner.status_code == 201
+    planner_headers = _login_headers(client, "qualification-planner", "qualification-planner-password")
+    shift = client.post("/api/shift-types", headers=planner_headers, json={
+        "name": "Oberarztbesetzung", "start_time": "08:00:00", "end_time": "16:00:00",
+        "position": "Oberarzt", "required_staff": 1, "department_id": department_id,
+    }).json()
+
+    preview = client.post("/api/optimization/preview", headers=planner_headers, json={
+        "target_date": "2031-02-04", "department_id": department_id,
+    })
+    assert preview.status_code == 200
+    assert [item["employee_id"] for item in preview.json()["suggestions"]] == [physician["id"]]
+    assert preview.json()["unfilled_slots"] == []
+
+    starts_at = "2031-02-04T08:00:00+00:00"
+    ends_at = "2031-02-04T16:00:00+00:00"
+    rejected = client.post("/api/assignments", headers=planner_headers, json={
+        "employee_id": nurse["id"], "shift_type_id": shift["id"],
+        "starts_at": starts_at, "ends_at": ends_at,
+    })
+    assert rejected.status_code == 409
+    accepted = client.post("/api/assignments", headers=planner_headers, json={
+        "employee_id": physician["id"], "shift_type_id": shift["id"],
+        "starts_at": starts_at, "ends_at": ends_at,
+    })
+    assert accepted.status_code == 201
+
+
+def test_deputy_is_qualification_gated_and_receives_department_permissions(client):
+    admin = auth_header(client)
+    department = client.post("/api/departments", headers=admin, json={"name": "Vertretung"}).json()
+    department_id = department["id"]
+    department = client.put(f"/api/departments/{department_id}", headers=admin, json={
+        "name": department["name"],
+        "qualifications": [
+            {"name": "Teamleitung", "leadership_eligible": True},
+            {"name": "Arzt", "leadership_eligible": False},
+        ],
+    }).json()
+    role_ids = {item["name"]: item["id"] for item in department["qualifications"]}
+
+    accounts = []
+    for first_name, role, username in (
+        ("Lea", "Teamleitung", "deputy-lea"),
+        ("Mia", "Teamleitung", "deputy-mia"),
+        ("Tom", "Arzt", "deputy-tom"),
+    ):
+        employee = client.post("/api/employees", headers=admin, json={
+            "first_name": first_name, "last_name": "Team", "role": role,
+            "department_id": department_id, "qualification_ids": [role_ids[role]],
+        }).json()
+        account = client.post("/api/users", headers=admin, json={
+            "first_name": first_name, "last_name": "Team", "username": username,
+            "password": f"{username}-password", "role_key": "EMPLOYEE",
+            "department_id": department_id, "employee_id": employee["id"],
+            "can_view": True,
+        })
+        assert account.status_code == 201
+        accounts.append(account.json())
+
+    rejected = client.put(f"/api/departments/{department_id}/leader", headers=admin, json={
+        "deputy_user_id": accounts[2]["id"],
+    })
+    assert rejected.status_code == 422
+    saved = client.put(f"/api/departments/{department_id}/leader", headers=admin, json={
+        "manager_user_id": accounts[0]["id"], "deputy_user_id": accounts[1]["id"],
+    })
+    assert saved.status_code == 200
+    assert saved.json()["manager_user_id"] == accounts[0]["id"]
+    assert saved.json()["deputy_user_id"] == accounts[1]["id"]
+
+    deputy = _login_headers(client, "deputy-mia", "deputy-mia-password")
+    session = client.get("/api/auth/session", headers=deputy).json()
+    assert session["can_manage_department"] is True
+    assert session["can_edit"] is True
+    assert session["can_approve"] is True
+    assert [item["id"] for item in client.get("/api/departments", headers=deputy).json()] == [department_id]
+    assert len(client.get("/api/users", headers=deputy).json()) == 3
+    assert client.put(
+        f"/api/departments/{department_id}",
+        headers=deputy,
+        json={"name": "Vertretung verwaltet"},
+    ).status_code == 200
+    managed_employee = client.post("/api/employees", headers=deputy, json={
+        "first_name": "Nia", "last_name": "Team", "role": "Arzt",
+        "department_id": department_id, "qualification_ids": [role_ids["Arzt"]],
+    })
+    assert managed_employee.status_code == 201
+    created_user = client.post("/api/users", headers=deputy, json={
+        "first_name": "Nia", "last_name": "Team", "username": "deputy-created-user",
+        "password": "deputy-created-user-password", "role_key": "EMPLOYEE",
+        "department_id": department_id, "employee_id": managed_employee.json()["id"],
+    })
+    assert created_user.status_code == 201

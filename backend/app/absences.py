@@ -42,7 +42,7 @@ def _departments(principal: Principal) -> tuple[int, ...]:
 def _in_scope(principal: Principal, employee: models.Employee) -> bool:
     if principal.role_key in READ_ALL_ROLES:
         return True
-    if principal.role_key == "EMPLOYEE":
+    if principal.role_key == "EMPLOYEE" and not principal.can_approve:
         return principal.employee_id == employee.id
     return employee.department_id in _departments(principal)
 
@@ -76,7 +76,7 @@ def _has_assignments(db: Session, absence: models.Absence) -> bool:
 
 
 def _require_planner(principal: Principal) -> None:
-    if principal.role_key != "OBERARZT" or not principal.can_edit:
+    if not principal.can_edit:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Absence management permission required")
 
 
@@ -86,14 +86,16 @@ def list_absences(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ) -> list[AbsenceRead]:
-    if principal.role_key not in {"EMPLOYEE", "OBERARZT", "HOSPITAL_MANAGEMENT"} or (
+    if principal.role_key == "ADMIN" or (
+        principal.role_key not in {"EMPLOYEE", "OBERARZT", "HOSPITAL_MANAGEMENT"} and not principal.can_approve
+    ) or (
         principal.role_key != "EMPLOYEE" and not principal.can_view
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Absence view permission required")
     query = select(models.Absence).join(models.Employee).order_by(models.Absence.start_date.desc())
     if status_filter:
         query = query.where(models.Absence.status == status_filter)
-    if principal.role_key == "EMPLOYEE":
+    if principal.role_key == "EMPLOYEE" and not principal.can_approve:
         query = query.where(models.Absence.employee_id == principal.employee_id)
     elif principal.role_key not in READ_ALL_ROLES:
         query = query.where(models.Employee.department_id.in_(_departments(principal)))

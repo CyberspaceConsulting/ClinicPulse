@@ -15,6 +15,13 @@ user_department_access = Table(
     Column("department_id", ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
 )
 
+employee_qualification_access = Table(
+    "employee_qualification_access",
+    Base.metadata,
+    Column("employee_id", ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True),
+    Column("qualification_id", ForeignKey("department_qualifications.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class Department(Base):
     __tablename__ = "departments"
@@ -22,11 +29,46 @@ class Department(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     manager_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("user_accounts.id", ondelete="SET NULL", use_alter=True), nullable=True, index=True
+        ForeignKey(
+            "user_accounts.id",
+            name="fk_departments_manager_user_id",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
+    deputy_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "user_accounts.id",
+            name="fk_departments_deputy_user_id",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
     )
 
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")
     shift_types: Mapped[list["ShiftType"]] = relationship(back_populates="department")
+    qualifications: Mapped[list["DepartmentQualification"]] = relationship(
+        back_populates="department", cascade="all, delete-orphan", order_by="DepartmentQualification.name"
+    )
+
+
+class DepartmentQualification(Base):
+    __tablename__ = "department_qualifications"
+    __table_args__ = (Index("ix_department_qualifications_department_name", "department_id", "name", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    department_id: Mapped[int] = mapped_column(ForeignKey("departments.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    leadership_eligible: Mapped[bool] = mapped_column(default=False, server_default="false")
+
+    department: Mapped[Department] = relationship(back_populates="qualifications")
+    employees: Mapped[list["Employee"]] = relationship(
+        secondary=employee_qualification_access, back_populates="qualifications"
+    )
 
 
 class Employee(Base):
@@ -41,6 +83,13 @@ class Employee(Base):
 
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="employee")
     department: Mapped[Department | None] = relationship(back_populates="employees")
+    qualifications: Mapped[list[DepartmentQualification]] = relationship(
+        secondary=employee_qualification_access, back_populates="employees"
+    )
+
+    @property
+    def qualification_names(self) -> list[str]:
+        return [qualification.name for qualification in self.qualifications] or [self.role]
 
 
 class ShiftType(Base):
@@ -93,8 +142,8 @@ class AdminAccount(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     username: Mapped[str] = mapped_column(EncryptedText())
-    first_name: Mapped[str] = mapped_column(EncryptedText())
-    last_name: Mapped[str] = mapped_column(EncryptedText())
+    first_name: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     username_lookup: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_salt: Mapped[str] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(String(128))

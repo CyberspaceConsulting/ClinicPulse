@@ -6,9 +6,10 @@ import LanguageSelector from './LanguageSelector.vue'
 import { locale, t, type TranslationKey } from './i18n'
 import { ApiError, TranslatedError, apiErrorDetail, errorMessage } from './i18n/apiErrors'
 
-type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; profile_image_data?: string | null }
+type DepartmentQualification = { id: number; name: string; leadership_eligible: boolean }
+type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; qualifications?: DepartmentQualification[]; profile_image_data?: string | null }
 type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
-type Department = { id: number; name: string; manager_user_id: number | null }
+type Department = { id: number; name: string; manager_user_id?: number | null; deputy_user_id?: number | null; qualifications?: DepartmentQualification[] }
 type BusinessConfiguration = {
   federal_state: string
   operational_profile: 'hospital' | 'rescue_service' | 'ils' | 'care_facility' | 'other'
@@ -218,11 +219,12 @@ const canApprove = ref(true)
 const canManage = ref(true)
 const canManageDepartment = ref(false)
 const canManageTeam = computed(() =>
-  ['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL', 'OBERARZT'].includes(roleKey.value),
+  ['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(roleKey.value)
+  || canManageDepartment.value,
 )
 const canManageStaff = computed(() =>
   ['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(roleKey.value)
-  || (roleKey.value === 'OBERARZT' && canManageDepartment.value),
+  || canManageDepartment.value,
 )
 const loginUsername = ref('admin')
 const password = ref('')
@@ -314,6 +316,15 @@ const settingsTabs = computed(() => roleKey.value === 'ADMIN'
     ]
   : [{ key: 'appearance', label: t('settings.appearance') }])
 const showManagement = ref(false)
+const managementTab = ref('departments')
+const managementTabs = computed(() => [
+  ...(canManage.value || canManageDepartment.value ? [{ key: 'departments', label: t('management.departmentsTab') }] : []),
+  { key: 'overview', label: t('management.overviewTab') },
+  ...(canManageStaff.value ? [{ key: 'employees', label: t('management.employeesTab') }] : []),
+  ...(['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(roleKey.value) || canManageDepartment.value
+    ? [{ key: 'accounts', label: t('management.accountsTab') }]
+    : []),
+])
 const sidebarCollapsed = ref(localStorage.getItem('clinicpulse-sidebar-collapsed') === '1')
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -360,6 +371,17 @@ function catalogFunctionLabel(value: string) {
   return key ? t(key) : value
 }
 const employeeDepartmentId = ref('')
+const selectedDepartmentQualifications = computed(() =>
+  departments.value.find((department) => String(department.id) === employeeDepartmentId.value)?.qualifications ?? [],
+)
+const selectedEmployeeQualifications = computed(() =>
+  selectedDepartmentQualifications.value.filter((qualification) =>
+    employeeQualificationIds.value.includes(qualification.id)),
+)
+const employeeQualificationIds = ref<number[]>([])
+const selectedOverviewDepartmentId = ref<number | null>(null)
+const qualificationName = ref('')
+const qualificationLeadershipEligible = ref(false)
 const employeeCreateAccount = ref(false)
 const employeeLoginUsername = ref('')
 const employeeEmail = ref('')
@@ -371,6 +393,10 @@ const shiftBreakStart = ref<number | null>(null)
 const shiftRequirements = ref<{ position: string; required_staff: number }[]>([
   { position: 'Pflegefachkraft', required_staff: 1 },
 ])
+const shiftDepartmentId = ref('')
+const shiftDepartmentQualifications = computed(() =>
+  departments.value.find((department) => String(department.id) === shiftDepartmentId.value)?.qualifications ?? [],
+)
 const workRules = ref({ rest_hours: 11, max_daily_hours: 10, max_weekly_hours: 48 })
 const workRulesMessage = ref(false)
 const businessConfiguration = ref<BusinessConfiguration>({
@@ -417,7 +443,7 @@ const profileAddress = ref('')
 const profilePhone = ref('')
 const userPassword = ref('')
 const userEmail = ref('')
-const userRoleKey = ref('OBERARZT')
+const userRoleKey = ref('EMPLOYEE')
 const userDepartmentIds = ref<number[]>([])
 const userCanView = ref(true)
 const userCanEdit = ref(false)
@@ -448,7 +474,8 @@ const canViewArchive = computed(() =>
 )
 const canViewAbsences = computed(() =>
   roleKey.value === 'EMPLOYEE'
-  || (canView.value && ['OBERARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value)),
+  || (canView.value && ['OBERARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value))
+  || canApprove.value,
 )
 const absences = ref<Absence[]>([])
 const absenceKind = ref<Absence['kind']>('vacation')
@@ -520,7 +547,6 @@ const nextAssignments = ref<Assignment[]>([])
 const notificationsLoading = ref(false)
 const vacationAlertQueue = ref<Absence[]>([])
 const vacationAlert = computed(() => vacationAlertQueue.value[0] ?? null)
-let pendingVacationCheck: Promise<void> | null = null
 const dashboardNextAssignment = computed(() =>
   nextAssignments.value
     .filter((assignment) => new Date(assignment.starts_at).getTime() >= Date.now())
@@ -559,7 +585,7 @@ const selectedPlanName = computed(() =>
     : departments.value.find((department) => department.id === selectedPlanId.value)?.name ?? t('page.schedule'),
 )
 const licenseReadOnly = computed(() => licenseInfo.value?.read_only ?? true)
-const canEditPlan = computed(() => roleKey.value === 'OBERARZT' && canEdit.value && !licenseReadOnly.value)
+const canEditPlan = computed(() => canEdit.value && !licenseReadOnly.value)
 const hasScheduleAccess = computed(() => roleKey.value !== 'ADMIN' && canView.value)
 
 watch(pageTitle, (title) => {
@@ -617,7 +643,7 @@ watch(userRoleKey, (role) => {
     userCanView.value = false
     userCanEdit.value = false
     userCanApprove.value = false
-  } else if (role === 'KIOSK' || role === 'EMPLOYEE') {
+  } else if (role === 'KIOSK') {
     userCanView.value = true
     userCanEdit.value = false
     userCanApprove.value = false
@@ -1610,11 +1636,17 @@ function applyTheme(value: string) {
 
 async function submitEmployee() {
   try {
+    const qualifications = selectedEmployeeQualifications.value
+    if (!qualifications.length) {
+      error.value = new TranslatedError('form.noQualifiedEmployees')
+      return
+    }
     const body = {
         first_name: employeeFirstName.value.trim(),
         last_name: employeeLastName.value.trim(),
-        role: (employeeRole.value === 'Individuell' ? employeeCustomRole.value : employeeRole.value).trim(),
+        role: qualifications[0]?.name ?? '',
         department_id: Number(employeeDepartmentId.value),
+        qualification_ids: employeeQualificationIds.value,
         create_account: employeeCreateAccount.value,
         username: employeeCreateAccount.value ? employeeLoginUsername.value.trim() : null,
         email: employeeCreateAccount.value ? employeeEmail.value.trim() || null : null,
@@ -1634,6 +1666,7 @@ async function submitEmployee() {
   employeeLastName.value = ''
     employeeRole.value = defaultEmployeeRole.value
     employeeCustomRole.value = ''
+    employeeQualificationIds.value = []
     employeeCreateAccount.value = false
     employeeLoginUsername.value = ''
     employeeEmail.value = ''
@@ -1657,10 +1690,10 @@ function editEmployee(employee: Employee) {
   employeeId.value = employee.id
   employeeFirstName.value = employee.first_name ?? employee.name.split(' ')[0] ?? ''
   employeeLastName.value = employee.last_name ?? employee.name.split(' ').slice(1).join(' ')
-  const commonRoles = roleCatalog.value.functions
-  employeeRole.value = commonRoles.includes(employee.role) ? employee.role : 'Individuell'
-  employeeCustomRole.value = commonRoles.includes(employee.role) ? '' : employee.role
+  employeeRole.value = employeeQualifications(employee)[0]?.name ?? employee.role
+  employeeCustomRole.value = ''
   employeeDepartmentId.value = employee.department_id === null ? '' : String(employee.department_id)
+  employeeQualificationIds.value = employeeQualifications(employee).map((qualification) => qualification.id)
   employeeCreateAccount.value = false
   showEmployeeForm.value = true
 }
@@ -1672,6 +1705,7 @@ function newEmployee() {
   employeeRole.value = defaultEmployeeRole.value
   employeeCustomRole.value = ''
   employeeDepartmentId.value = String(selectedPlanId.value ?? departments.value[0]?.id ?? '')
+  employeeQualificationIds.value = selectedDepartmentQualifications.value.slice(0, 1).map((qualification) => qualification.id)
   employeeCreateAccount.value = false
   employeeLoginUsername.value = ''
   employeeEmail.value = ''
@@ -1681,6 +1715,11 @@ function newEmployee() {
 
 async function submitShift() {
   try {
+    if (!shiftDepartmentId.value || shiftRequirements.value.some((item) =>
+      !shiftDepartmentQualifications.value.some((qualification) => qualification.name === item.position))) {
+      error.value = new TranslatedError('errors.createShift')
+      return
+    }
     const existing = editingShiftId.value === null
       ? undefined
       : shiftTypes.value.find((item) => item.id === editingShiftId.value)
@@ -1699,7 +1738,7 @@ async function submitShift() {
         })),
         break_minutes: shiftBreak.value,
         break_start_minutes: shiftBreakStart.value,
-        department_id: existing?.department_id ?? selectedPlanId.value ?? departmentId.value,
+        department_id: Number(shiftDepartmentId.value),
       }),
     })
     editingShiftId.value = null
@@ -1719,7 +1758,11 @@ function startNewShift() {
   shiftName.value = ''
   shiftStart.value = '07:00'
   shiftEnd.value = '15:00'
-  shiftRequirements.value = [{ position: defaultEmployeeRole.value, required_staff: 1 }]
+  shiftDepartmentId.value = String(selectedPlanId.value ?? departmentId.value ?? departments.value[0]?.id ?? '')
+  shiftRequirements.value = [{
+    position: shiftDepartmentQualifications.value[0]?.name ?? '',
+    required_staff: 1,
+  }]
   shiftBreak.value = null
   shiftBreakStart.value = null
   showShiftForm.value = true
@@ -1728,6 +1771,7 @@ function startNewShift() {
 function editShift(shift: ShiftType) {
   editingShiftId.value = shift.id
   shiftName.value = shift.name
+  shiftDepartmentId.value = String(shift.department_id ?? selectedPlanId.value ?? departmentId.value ?? '')
   shiftStart.value = shift.start_time.slice(0, 5)
   shiftEnd.value = shift.end_time.slice(0, 5)
   shiftRequirements.value = shift.staffing_requirements?.length
@@ -1739,7 +1783,10 @@ function editShift(shift: ShiftType) {
 }
 
 function addShiftRequirement() {
-  shiftRequirements.value.push({ position: defaultEmployeeRole.value, required_staff: 1 })
+  shiftRequirements.value.push({
+    position: shiftDepartmentQualifications.value[0]?.name ?? '',
+    required_staff: 1,
+  })
 }
 
 function removeShiftRequirement(index: number) {
@@ -1776,13 +1823,27 @@ function openPositionsFor(date: string, shift: ShiftType) {
   }
   return requirements.flatMap((requirement) => {
     const matching = assigned.filter((assignment) =>
-      employees.value.find((employee) => employee.id === assignment.employee_id)?.role.trim().toLocaleLowerCase()
-      === requirement.position.trim().toLocaleLowerCase())
+      employeeHasQualification(
+        employees.value.find((employee) => employee.id === assignment.employee_id),
+        requirement.position,
+      ))
     return Array.from(
       { length: Math.max(0, requirement.required_staff - matching.length) },
       () => requirement.position,
     )
   })
+}
+
+function employeeHasQualification(employee: Employee | undefined, position: string) {
+  const expected = position.trim().toLocaleLowerCase()
+  const qualifications = employeeQualifications(employee)
+  return employee !== undefined && (qualifications.length
+    ? qualifications.some((qualification) => qualification.name.trim().toLocaleLowerCase() === expected)
+    : employee.role.trim().toLocaleLowerCase() === expected)
+}
+
+function employeeQualifications(employee: Employee | undefined) {
+  return employee?.qualifications ?? []
 }
 
 const selectedAssignmentShift = computed(() =>
@@ -1801,8 +1862,7 @@ const assignableEmployees = computed(() => {
     ? selectedAssignmentPosition.value
     : openPositions[0]
   return position
-    ? employees.value.filter((employee) =>
-        employee.role.trim().toLocaleLowerCase() === position.trim().toLocaleLowerCase())
+    ? employees.value.filter((employee) => employeeHasQualification(employee, position))
     : []
 })
 watch(assignableEmployees, (available) => {
@@ -1822,10 +1882,11 @@ function staffingSummary(shift: ShiftType) {
 }
 
 function assignmentPosition(assignment: Assignment, shift: ShiftType) {
-  const employeeRole = employees.value.find((employee) => employee.id === assignment.employee_id)?.role
+  const employee = employees.value.find((item) => item.id === assignment.employee_id)
   return requirementsFor(shift).find((item) =>
-    item.position.trim().toLocaleLowerCase() === employeeRole?.trim().toLocaleLowerCase())?.position
-    ?? employeeRole
+    employeeHasQualification(employees.value.find((employee) => employee.id === assignment.employee_id), item.position))?.position
+    ?? employee?.qualifications?.[0]?.name
+    ?? employee?.role
     ?? shift.position
 }
 
@@ -2049,6 +2110,7 @@ async function openManagement() {
     showDashboard.value = false
     void loadRoleCatalog()
     showManagement.value = true
+    managementTab.value = managementTabs.value[0]?.key ?? 'overview'
     if (!canManageTeam.value) return
     try {
       await loadMailMode()
@@ -2060,8 +2122,9 @@ async function openManagement() {
       users.value = managedUsers
       departments.value = organization
       allEmployees.value = staff
+      selectedOverviewDepartmentId.value ??= organization[0]?.id ?? null
       if (!employeeDepartmentId.value && organization.length) employeeDepartmentId.value = String(organization[0].id)
-      if (['PERSONNEL', 'OBERARZT'].includes(roleKey.value) && userId.value === null) resetUserForm()
+      if ((roleKey.value === 'PERSONNEL' || canManageDepartment.value) && userId.value === null) resetUserForm()
     } catch (err) {
       error.value = err instanceof Error ? err : new TranslatedError('errors.loadManagement')
     }
@@ -2077,7 +2140,7 @@ function resetUserForm() {
     userPhone.value = ''
     userPassword.value = ''
     userEmail.value = ''
-    userRoleKey.value = ['PERSONNEL', 'OBERARZT'].includes(roleKey.value) ? 'EMPLOYEE' : 'OBERARZT'
+    userRoleKey.value = 'EMPLOYEE'
     userDepartmentIds.value = departments.value.length ? [departments.value[0].id] : []
     userEmployeeId.value = null
     userCanView.value = userRoleKey.value !== 'HOSPITAL_MANAGEMENT'
@@ -2156,8 +2219,8 @@ async function toggleUserLock(user: AccountUser) {
           ? []
           : userDepartmentIds.value,
         can_view: userCanView.value,
-        can_edit: userRoleKey.value === 'CHEFARZT' || userRoleKey.value === 'EMPLOYEE' ? false : userCanEdit.value,
-        can_approve: userRoleKey.value === 'CHEFARZT' || userRoleKey.value === 'EMPLOYEE' ? false : userCanApprove.value,
+        can_edit: userRoleKey.value === 'KIOSK' || userRoleKey.value === 'PERSONNEL' || userRoleKey.value === 'HOSPITAL_MANAGEMENT' ? false : userCanEdit.value,
+        can_approve: userRoleKey.value === 'KIOSK' || userRoleKey.value === 'PERSONNEL' || userRoleKey.value === 'HOSPITAL_MANAGEMENT' ? false : userCanApprove.value,
         employee_id: userRoleKey.value === 'EMPLOYEE' ? userEmployeeId.value : null,
         ...(userId.value ? { new_password: userPassword.value || null } : { password: mailEnabled.value && userEmail.value.trim() ? null : userPassword.value || null }),
       }
@@ -2187,11 +2250,15 @@ async function removeUser(user: AccountUser) {
     }
   }
 
-async function setDepartmentLeader(department: Department, value: string) {
+async function setDepartmentLeader(
+  department: Department,
+  field: 'manager_user_id' | 'deputy_user_id',
+  value: string,
+) {
   try {
     const updated = await api<Department>(`/departments/${department.id}/leader`, {
       method: 'PUT',
-      body: JSON.stringify({ manager_user_id: value ? Number(value) : null }),
+      body: JSON.stringify({ [field]: value ? Number(value) : null }),
     })
     departments.value = departments.value.map((item) => item.id === updated.id ? updated : item)
     storeSession(await api<SessionInfo>('/auth/session'))
@@ -2202,9 +2269,13 @@ async function setDepartmentLeader(department: Department, value: string) {
 
 async function saveDepartment() {
     try {
-      await api(editingDepartmentId.value ? `/departments/${editingDepartmentId.value}` : '/departments', {
+      const current = departments.value.find((department) => department.id === editingDepartmentId.value)
+      await api<Department>(editingDepartmentId.value ? `/departments/${editingDepartmentId.value}` : '/departments', {
         method: editingDepartmentId.value ? 'PUT' : 'POST',
-        body: JSON.stringify({ name: departmentName.value.trim() }),
+        body: JSON.stringify({
+          name: departmentName.value.trim(),
+          ...(editingDepartmentId.value ? { qualifications: current?.qualifications ?? [] } : {}),
+        }),
       })
       departmentName.value = ''
       editingDepartmentId.value = null
@@ -2213,6 +2284,56 @@ async function saveDepartment() {
       error.value = err instanceof Error ? err : new TranslatedError('errors.saveDepartment')
     }
   }
+
+async function saveDepartmentQualifications(department: Department, qualifications: DepartmentQualification[]) {
+  try {
+    const updated = await api<Department>(`/departments/${department.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: department.name, qualifications }),
+    })
+    departments.value = departments.value.map((item) => item.id === updated.id ? updated : item)
+    qualificationName.value = ''
+    qualificationLeadershipEligible.value = false
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveDepartment')
+  }
+}
+
+function addDepartmentQualification(department: Department) {
+  const name = qualificationName.value.trim()
+  const qualifications = department.qualifications ?? []
+  if (!name || qualifications.some((item) => item.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    error.value = new TranslatedError('errors.saveDepartment')
+    return
+  }
+  void saveDepartmentQualifications(department, [
+    ...qualifications,
+    { id: 0, name, leadership_eligible: qualificationLeadershipEligible.value },
+  ])
+}
+
+function updateDepartmentQualification(department: Department, qualification: DepartmentQualification, eligible: boolean) {
+  void saveDepartmentQualifications(department, (department.qualifications ?? []).map((item) =>
+    item.id === qualification.id ? { ...item, leadership_eligible: eligible } : item))
+}
+
+function removeDepartmentQualification(department: Department, qualification: DepartmentQualification) {
+  void saveDepartmentQualifications(department, (department.qualifications ?? []).filter((item) => item.id !== qualification.id))
+}
+
+function eligibleDepartmentLeaders(department: Department) {
+  const qualifications = department.qualifications ?? []
+  const eligibleEmployeeIds = new Set(allEmployees.value
+    .filter((employee) => employee.department_id === department.id && employeeQualifications(employee).some((qualification) =>
+      qualification.leadership_eligible))
+    .map((employee) => employee.id))
+  const seniorRole = qualifications.find((qualification) =>
+    qualification.name.trim().toLocaleLowerCase() === 'oberarzt')
+  return users.value.filter((user) =>
+    (user.role_key === 'EMPLOYEE' && user.employee_id !== null && eligibleEmployeeIds.has(user.employee_id)
+      || user.role_key === 'OBERARZT' && (!seniorRole || seniorRole.leadership_eligible))
+    && (user.department_ids ?? []).includes(department.id))
+}
 
 function editDepartment(department: Department) {
     editingDepartmentId.value = department.id
@@ -2231,8 +2352,8 @@ async function removeDepartment(department: Department) {
 
 function systemRoleSelectable(key: string) {
   if (key === 'ADMIN') return roleKey.value === 'ADMIN'
-  if (roleKey.value === 'PERSONNEL') return key === 'EMPLOYEE'
-  if (roleKey.value === 'OBERARZT') return key === 'EMPLOYEE'
+  if (['OBERARZT', 'CHEFARZT'].includes(key)) return userRoleKey.value === key
+  if (roleKey.value === 'PERSONNEL' || canManageDepartment.value) return key === 'EMPLOYEE'
   if (key === 'HOSPITAL_MANAGEMENT') return roleKey.value === 'ADMIN'
   if (key === 'PERSONNEL') return roleKey.value !== 'EMPLOYEE'
   return true
@@ -2343,31 +2464,25 @@ function openNotificationsPage() {
   void loadNotificationHistory()
 }
 
-function checkPendingVacationRequests(): Promise<void> {
-  if (!authenticated.value || roleKey.value !== 'OBERARZT' || !canApprove.value) return Promise.resolve()
-  if (pendingVacationCheck) return pendingVacationCheck
-  pendingVacationCheck = (async () => {
-    try {
-      const pending = await api<Absence[]>('/absences?status=pending')
-      const key = `clinicpulse-vacation-alerts:${username.value}`
-      const saved = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown
-      if (!Array.isArray(saved) || saved.some((id) => !Number.isInteger(id))) {
-        throw new Error('Stored vacation notification state is invalid')
-      }
-      const seen = new Set<number>(saved)
-      const newRequests = pending.filter((absence) =>
-        absence.kind === 'vacation' && !seen.has(absence.id))
-      if (!newRequests.length) return
-      for (const absence of newRequests) seen.add(absence.id)
-      localStorage.setItem(key, JSON.stringify([...seen].slice(-100)))
-      vacationAlertQueue.value.push(...newRequests)
-    } catch (err) {
-      error.value = err instanceof Error ? err : new TranslatedError('notifications.loadFailed')
+async function checkPendingVacationRequests() {
+  if (!authenticated.value || !canApprove.value) return
+  try {
+    const pending = await api<Absence[]>('/absences?status=pending')
+    const key = `clinicpulse-vacation-alerts:${username.value}`
+    const saved = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown
+    if (!Array.isArray(saved) || saved.some((id) => !Number.isInteger(id))) {
+      throw new Error('Stored vacation notification state is invalid')
     }
-  })()
-  return pendingVacationCheck.finally(() => {
-    pendingVacationCheck = null
-  })
+    const seen = new Set<number>(saved)
+    const newRequests = pending.filter((absence) =>
+      absence.kind === 'vacation' && !seen.has(absence.id))
+    if (!newRequests.length) return
+    for (const absence of newRequests) seen.add(absence.id)
+    localStorage.setItem(key, JSON.stringify([...seen].slice(-100)))
+    vacationAlertQueue.value.push(...newRequests)
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('notifications.loadFailed')
+  }
 }
 
 function dismissVacationAlert() {
@@ -2379,9 +2494,9 @@ function reviewVacationRequests() {
   void openAbsences()
 }
 
-watch([authenticated, roleKey, canApprove], ([isAuthenticated, role, canApproveAbsences]) => {
+watch([authenticated, canApprove], ([isAuthenticated, canApproveAbsences]) => {
   clearInterval(vacationNotificationTicker)
-  if (!isAuthenticated || role !== 'OBERARZT' || !canApproveAbsences) return
+  if (!isAuthenticated || !canApproveAbsences) return
   void checkPendingVacationRequests()
   vacationNotificationTicker = setInterval(() => void checkPendingVacationRequests(), 60_000)
 })
@@ -2503,8 +2618,7 @@ onBeforeUnmount(() => {
         <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
       </div>
       <p class="nav-caption nav-caption-spaced">{{ t('nav.workspace') }}</p>
-      <button v-if="roleKey === 'ADMIN' || hasScheduleAccess" class="nav-item" :title="t('dashboard.title')" :class="{ active: showDashboard }" @click="void openDashboard()"><span>⌂</span> {{ t('dashboard.title') }}</button>
-      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showDashboard && !showPlanning }" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
+      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
       <button v-if="roleKey === 'EMPLOYEE'" class="nav-item" :title="t('schedule.nextShifts')" :class="{ active: showNextShifts }" @click="void openNextShifts()"><span>◷</span> {{ t('schedule.nextShifts') }}</button>
       <button v-if="canEditPlan" class="nav-item" :title="t('page.planning')" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> {{ t('page.planning') }}</button>
       <button v-if="canViewAbsences" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
@@ -2524,7 +2638,6 @@ onBeforeUnmount(() => {
 
     <section class="workspace">
       <nav class="mobile-navigation" :aria-label="t('nav.mobileNavigation')">
-        <button v-if="roleKey === 'ADMIN' || hasScheduleAccess" @click="void openDashboard()">{{ t('dashboard.title') }}</button>
         <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null">{{ t('page.schedule') }}</button>
         <button v-if="roleKey === 'EMPLOYEE'" @click="void openNextShifts()">{{ t('schedule.nextShifts') }}</button>
         <button v-if="canEditPlan" @click="openPlanning()">{{ t('page.planning') }}</button>
@@ -2702,7 +2815,7 @@ onBeforeUnmount(() => {
               <small v-if="absence.note">{{ t('absence.note', { note: absence.note }) }}</small>
             </div>
             <div v-if="!licenseReadOnly">
-              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && roleKey === 'OBERARZT' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">{{ t('absence.approve') }}</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">{{ t('absence.reject') }}</button></template>
+              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">{{ t('absence.approve') }}</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">{{ t('absence.reject') }}</button></template>
               <button v-if="(roleKey === 'EMPLOYEE' && absence.status === 'pending') || canRecordAbsence" class="text-button danger-text" @click="removeAbsence(absence)">{{ roleKey === 'EMPLOYEE' ? t('absence.withdraw') : t('absence.delete') }}</button>
             </div>
           </div>
@@ -2928,7 +3041,7 @@ onBeforeUnmount(() => {
         </template>
         <section v-else class="panel restricted-panel"><h2>{{ t('schedule.noAccess') }}</h2><p>{{ t('schedule.noAccessDescription') }}</p></section>
       </main>
-      <footer class="page-footer">
+      <footer v-if="hasScheduleAccess || roleKey === 'ADMIN'" class="page-footer">
         <span>ClinicPulse · Version {{ displayVersion }}</span>
         <span>·</span>
         <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a>
@@ -2967,7 +3080,7 @@ onBeforeUnmount(() => {
       </section>
     </div>
     <div v-if="showEmployeeForm || showShiftForm || showAssignmentForm || showSettings || showManagement || showProfile || showArchive" class="modal-backdrop" @click.self="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">
-      <section class="modal" :class="{ 'modal-wide': showSettings && !showProfile && !showEmployeeForm && !showShiftForm && !showAssignmentForm && !showManagement }" role="dialog" aria-modal="true">
+      <section class="modal" :class="{ 'modal-wide': (showSettings || showManagement) && !showProfile && !showEmployeeForm && !showShiftForm && !showAssignmentForm }" role="dialog" aria-modal="true">
         <button class="modal-close" :aria-label="t('form.close')" @click="showEmployeeForm = false; showShiftForm = false; showAssignmentForm = false; showSettings = false; showManagement = false; showProfile = false; showArchive = false">×</button>
         <template v-if="showArchive">
           <p class="eyebrow">{{ t('archive.eyebrow') }}</p><h2>{{ t('archive.title') }}</h2>
@@ -3027,9 +3140,11 @@ onBeforeUnmount(() => {
           <form class="stack" @submit.prevent="submitEmployee">
             <label>{{ t('form.firstName') }}<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
             <label>{{ t('form.lastName') }}<input v-model="employeeLastName" maxlength="80" required /></label>
-            <label>{{ t('form.scheduleRole') }}<select v-model="employeeRole"><option v-for="fn in roleCatalog.functions" :key="fn" :value="fn">{{ catalogFunctionLabel(fn) }}</option><option value="Individuell">{{ t('form.custom') }}</option></select></label>
-            <label v-if="employeeRole === 'Individuell'">{{ t('form.customRole') }}<input v-model="employeeCustomRole" maxlength="80" required /></label>
-            <label>{{ t('form.department') }}<select v-model="employeeDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <label>{{ t('form.department') }}<select v-model="employeeDepartmentId" required @change="employeeQualificationIds = []"><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <fieldset class="department-picker"><legend>{{ t('management.qualificationsForDepartment', { department: departments.find((department) => String(department.id) === employeeDepartmentId)?.name ?? '' }) }}</legend>
+              <label v-for="qualification in selectedDepartmentQualifications" :key="qualification.id" class="permission-toggle"><input v-model="employeeQualificationIds" type="checkbox" :value="qualification.id" /> {{ qualification.name }}</label>
+              <p v-if="!selectedDepartmentQualifications.length" class="muted">{{ t('management.createQualificationFirst') }}</p>
+            </fieldset>
             <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> {{ t('form.createAccess') }}</label>
             <template v-if="employeeCreateAccount && !employeeId">
               <label>{{ t('auth.username') }}<input v-model="employeeLoginUsername" minlength="3" maxlength="64" required /></label>
@@ -3049,14 +3164,16 @@ onBeforeUnmount(() => {
           <p class="eyebrow">{{ t('form.shiftManagement') }}</p><h2>{{ t(editingShiftId === null ? 'form.createShiftType' : 'form.editShiftType') }}</h2>
           <form class="stack" @submit.prevent="submitShift">
             <label>{{ t('form.name') }}<input v-model="shiftName" maxlength="80" :placeholder="t('form.shiftExample')" required autofocus /></label>
+            <label>{{ t('management.department') }}<select v-model="shiftDepartmentId" required @change="shiftRequirements = [{ position: shiftDepartmentQualifications[0]?.name ?? '', required_staff: 1 }]"><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
             <fieldset class="staffing-requirements">
               <legend>{{ t('form.staffingRequirements') }}</legend>
               <div v-for="(requirement, index) in shiftRequirements" :key="index" class="staffing-requirement">
-                <label>{{ t('form.requiredPosition') }}<input v-model="requirement.position" maxlength="80" :placeholder="t('form.positionExample')" required /></label>
+                <label>{{ t('form.requiredPosition') }}<select v-model="requirement.position" required><option v-for="qualification in shiftDepartmentQualifications" :key="qualification.id" :value="qualification.name">{{ qualification.name }}</option></select></label>
                 <label>{{ t('form.requiredEmployees') }}<input v-model.number="requirement.required_staff" type="number" min="1" max="100" required /></label>
                 <button type="button" class="text-button danger-text" :aria-label="t('form.removeRequirement')" :disabled="shiftRequirements.length === 1" @click="removeShiftRequirement(index)">×</button>
               </div>
-              <button type="button" class="text-button" @click="addShiftRequirement">{{ t('form.addRequirement') }}</button>
+              <button type="button" class="text-button" :disabled="!shiftDepartmentQualifications.length" @click="addShiftRequirement">{{ t('form.addRequirement') }}</button>
+              <p v-if="!shiftDepartmentQualifications.length" class="muted">{{ t('management.createQualificationFirst') }}</p>
             </fieldset>
             <div class="form-row"><label>{{ t('form.start') }}<input v-model="shiftStart" type="time" required /></label><label>{{ t('form.end') }}<input v-model="shiftEnd" type="time" required /></label></div>
             <label>{{ t('form.breakMinutes') }}<input v-model.number="shiftBreak" type="number" min="0" max="240" :placeholder="t('form.automatic')" /></label>
@@ -3091,26 +3208,55 @@ onBeforeUnmount(() => {
               </div>
             </section>
             <p v-if="licenseReadOnly" class="muted">{{ t('management.licenseBlocked') }}</p>
-            <form v-if="(canManage || editingDepartmentId !== null) && !licenseReadOnly" class="inline-form" @submit.prevent="saveDepartment">
-              <input v-model="departmentName" maxlength="100" :placeholder="t('management.departmentName')" required />
-              <button class="secondary">{{ editingDepartmentId ? t('management.saveChange') : t('management.createDepartment') }}</button>
-              <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">{{ t('management.cancel') }}</button>
-            </form>
-            <template v-if="canManage || canManageDepartment">
-              <div v-for="department in departments" :key="department.id" class="management-row">
-                <strong>{{ department.name }}</strong><div v-if="!licenseReadOnly"><label v-if="roleKey === 'ADMIN'">{{ t('management.departmentLead') }}<select :value="department.manager_user_id ?? ''" @change="void setDepartmentLeader(department, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('management.noDepartmentLead') }}</option><option v-for="user in users.filter((item) => item.role_key === 'OBERARZT' && (item.department_ids ?? []).includes(department.id))" :key="user.id" :value="user.id">{{ user.first_name }} {{ user.last_name }} · {{ user.username }}</option></select></label><button class="text-button" @click="editDepartment(department)">{{ t('management.edit') }}</button><button class="text-button danger-text" @click="removeDepartment(department)">{{ t('management.delete') }}</button></div>
+            <nav class="settings-tabs" role="tablist" :aria-label="t('form.teamManagement')">
+              <button v-for="tab in managementTabs" :key="tab.key" role="tab" type="button" :aria-selected="managementTab === tab.key" :class="{ active: managementTab === tab.key }" @click="managementTab = tab.key">{{ tab.label }}</button>
+            </nav>
+            <section v-if="canManage || canManageDepartment" v-show="managementTab === 'departments'">
+              <form v-if="(canManage || (canManageDepartment && editingDepartmentId !== null)) && !licenseReadOnly" class="inline-form" @submit.prevent="saveDepartment">
+                <input v-model="departmentName" maxlength="100" :placeholder="t('management.departmentName')" required />
+                <button class="secondary">{{ editingDepartmentId ? t('management.saveChange') : t('management.createDepartment') }}</button>
+                <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">{{ t('management.cancel') }}</button>
+              </form>
+              <article v-for="department in departments" :key="department.id" class="settings-section">
+                <div class="management-row"><strong>{{ department.name }}</strong><div>
+                  <button v-if="canManage || canManageDepartment" class="text-button" @click="editDepartment(department)">{{ t('management.edit') }}</button>
+                  <button v-if="canManage" class="text-button danger-text" @click="removeDepartment(department)">{{ t('management.delete') }}</button>
+                </div></div>
+                <div v-if="!licenseReadOnly" class="form-row">
+                  <label>{{ t('management.departmentLead') }}<select :value="department.manager_user_id ?? ''" @change="void setDepartmentLeader(department, 'manager_user_id', ($event.target as HTMLSelectElement).value)"><option value="">{{ t('management.noLeader') }}</option><option v-for="user in eligibleDepartmentLeaders(department)" :key="user.id" :value="user.id">{{ user.first_name }} {{ user.last_name }} · {{ user.username }}</option></select></label>
+                  <label>{{ t('management.deputy') }}<select :value="department.deputy_user_id ?? ''" @change="void setDepartmentLeader(department, 'deputy_user_id', ($event.target as HTMLSelectElement).value)"><option value="">{{ t('management.noDeputy') }}</option><option v-for="user in eligibleDepartmentLeaders(department)" :key="user.id" :value="user.id" :disabled="user.id === department.manager_user_id">{{ user.first_name }} {{ user.last_name }} · {{ user.username }}</option></select></label>
+                </div>
+                <h4>{{ t('management.qualificationsAndLeadership') }}</h4>
+                <div v-for="qualification in department.qualifications" :key="qualification.id" class="management-row">
+                  <strong>{{ qualification.name }}</strong>
+                  <label class="permission-toggle"><input type="checkbox" :checked="qualification.leadership_eligible" :disabled="licenseReadOnly" @change="updateDepartmentQualification(department, qualification, ($event.target as HTMLInputElement).checked)" /> {{ t('management.leadershipEligible') }}</label>
+                  <button v-if="(canManage || canManageDepartment) && !licenseReadOnly" class="text-button danger-text" @click="removeDepartmentQualification(department, qualification)">{{ t('management.removeQualification') }}</button>
+                </div>
+                <form v-if="!licenseReadOnly" class="inline-form" @submit.prevent="addDepartmentQualification(department)">
+                  <input v-model="qualificationName" maxlength="80" :placeholder="t('management.newQualification')" required />
+                  <label class="permission-toggle"><input v-model="qualificationLeadershipEligible" type="checkbox" /> {{ t('management.eligibleForLeadership') }}</label>
+                  <button class="secondary">{{ t('management.addQualification') }}</button>
+                </form>
+              </article>
+            </section>
+            <section v-show="managementTab === 'overview'">
+              <h3>{{ t('management.overview') }}</h3>
+              <label>{{ t('management.department') }}<select v-model.number="selectedOverviewDepartmentId"><option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option></select></label>
+              <div v-for="employee in allEmployees.filter((item) => item.department_id === selectedOverviewDepartmentId)" :key="employee.id" class="management-row">
+                <div><strong>{{ employee.name }}</strong><small>{{ employeeQualifications(employee).map((qualification) => qualification.name).join(', ') || employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name }}</small></div>
               </div>
-            </template>
-            <section v-if="canManageStaff">
+            </section>
+            <section v-if="canManageStaff" v-show="managementTab === 'employees'">
               <h3>{{ t('management.employees') }}</h3>
               <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
               <div v-for="employee in allEmployees" :key="employee.id" class="management-row">
-                <div><strong>{{ employee.name }}</strong><small>{{ employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? t('management.noDepartment') }}</small></div>
+                <div><strong>{{ employee.name }}</strong><small>{{ employeeQualifications(employee).map((qualification) => qualification.name).join(', ') || employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? t('management.noDepartment') }}</small></div>
                 <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">{{ t('management.edit') }}</button>
               </div>
             </section>
-            <h3>{{ t('management.accounts') }}</h3>
-            <form v-if="!licenseReadOnly" class="stack user-form" @submit.prevent="saveUser">
+            <section v-if="['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(roleKey) || canManageDepartment" v-show="managementTab === 'accounts'">
+              <h3>{{ t('management.accounts') }}</h3>
+              <form v-if="!licenseReadOnly" class="stack user-form" @submit.prevent="saveUser">
               <strong>{{ userId ? t('management.editAccount') : t('management.createAccount') }}</strong>
               <label>{{ t('form.firstName') }}<input v-model="userFirstName" maxlength="80" required /></label>
               <label>{{ t('form.lastName') }}<input v-model="userLastName" maxlength="80" required /></label>
@@ -3124,20 +3270,21 @@ onBeforeUnmount(() => {
               <PasswordInput v-model="userPassword" :label="userId ? t('management.newPassword') : mailEnabled ? t('management.initialPassword') : t('management.temporaryPassword')" :optional="!!userId || mailEnabled" :required="!userId && !mailEnabled" />
               <p v-if="mailEnabled && userEmail && !userId" class="muted">{{ t('management.invitationNotice') }}</p>
               <p v-if="!mailEnabled" class="muted">{{ t('management.temporaryPasswordNotice') }}</p>
-              <label>{{ t('management.systemRole') }}<select v-model="userRoleKey"><option v-if="systemRoleSelectable('ADMIN')" value="ADMIN">{{ t('role.admin') }}</option><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? t('role.kioskDescription') : option.key === 'EMPLOYEE' ? t('role.employeeDescription') : roleLabel(option.key) }}</option></template></select></label>
+              <label>{{ t('management.accountType') }}<select v-model="userRoleKey"><option v-if="systemRoleSelectable('ADMIN')" value="ADMIN">{{ t('role.admin') }}</option><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? t('role.kioskDescription') : option.key === 'EMPLOYEE' ? t('role.employeeDescription') : roleLabel(option.key) }}</option></template></select></label>
               <fieldset v-if="!['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>{{ t('management.accessibleSchedules') }}</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
               <label v-if="userRoleKey === 'EMPLOYEE'">{{ t('management.linkedPerson') }}<select v-model="userEmployeeId" required><option :value="null" disabled>{{ t('management.choose') }}</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
               <template v-if="userRoleKey !== 'PERSONNEL'">
-                <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.viewSchedule') }}</label>
-                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'HOSPITAL_MANAGEMENT' || userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.editShifts') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
-                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'HOSPITAL_MANAGEMENT' || userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.approveSuggestions') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
+                <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK'" /> {{ t('management.viewSchedule') }}</label>
+                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="['HOSPITAL_MANAGEMENT', 'KIOSK', 'PERSONNEL'].includes(userRoleKey)" /> {{ t('management.editShifts') }}</label>
+                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="['HOSPITAL_MANAGEMENT', 'KIOSK', 'PERSONNEL'].includes(userRoleKey)" /> {{ t('management.approveSuggestions') }}</label>
               </template>
               <div class="form-row"><button class="primary">{{ userId ? t('management.saveAccount') : t('management.createAccount') }}</button><button v-if="userId" type="button" class="secondary" @click="resetUserForm">{{ t('management.cancel') }}</button></div>
             </form>
             <div v-for="user in users" :key="user.id" class="management-row account-row">
               <div><strong>{{ user.username }}</strong><small>{{ roleLabel(user.role_key) }} · {{ user.email || t('management.noEmail') }} · {{ user.invitation_status === 'pending' ? t('management.invitationPending') : user.invitation_status === 'delivery_failed' ? t('management.invitationFailed') : user.invitation_status === 'revoked' ? t('management.invitationRevoked') : user.is_locked ? t('management.locked') : t('management.active') }} · {{ user.department_ids?.map((id) => departments.find((item) => item.id === id)?.name).filter(Boolean).join(', ') || t('management.allDepartments') }}</small></div>
               <div><button class="text-button" @click="editUser(user)">{{ t('management.edit') }}</button><button v-if="mailEnabled && ['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">{{ t('management.resendInvitation') }}</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">{{ t('management.revoke') }}</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? t('management.unlock') : t('management.lock') }}</button><button class="text-button danger-text" @click="removeUser(user)">{{ t('management.delete') }}</button></div>
-            </div>
+              </div>
+            </section>
           </section>
         </template>
         <template v-else-if="showSettings">
