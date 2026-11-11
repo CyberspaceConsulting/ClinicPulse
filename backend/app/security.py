@@ -32,6 +32,7 @@ class Principal:
     remember_me: bool = False
     department_ids: tuple[int, ...] = ()
     employee_id: int | None = None
+    must_change_password: bool = False
 
 
 def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -152,6 +153,8 @@ def authenticate(db: Session, username: str, password: str) -> tuple[AdminAccoun
             user.role_key == "HOSPITAL_MANAGEMENT",
             False,
             tuple(user.department_ids or ([user.department_id] if user.department_id is not None else [])),
+            user.employee_id,
+            user.must_change_password,
         ),
         f"u:{user.id}",
         user.token_version,
@@ -219,7 +222,13 @@ def require_principal(
                 remember_me,
                 tuple(user.department_ids or ([user.department_id] if user.department_id is not None else [])),
                 user.employee_id,
+                user.must_change_password,
             )
+            if user.must_change_password and (request.method, request.url.path) not in {
+                ("GET", "/api/auth/session"),
+                ("PUT", "/api/settings/account"),
+            }:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password change required")
             db.info["audit_actor"] = principal.username
             if credentials is None and principal.role_key != "KIOSK" and now - last_activity >= timedelta(minutes=idle_timeout_minutes(db)):
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired due to inactivity")

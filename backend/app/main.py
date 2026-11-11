@@ -41,6 +41,7 @@ from .schemas import (
     EmployeeUpdate,
     InvitationAccept,
     LoginRequest,
+    MailMode,
     MailSettingsRead,
     MailSettingsUpdate,
     MailTestRequest,
@@ -235,6 +236,10 @@ def migrate_existing_database() -> None:
             connection.exec_driver_sql(
                 "ALTER TABLE user_accounts ADD COLUMN invitation_status VARCHAR(24) NOT NULL DEFAULT 'active'"
             )
+        if "must_change_password" not in user_columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE user_accounts ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+            )
         if "profile_image_data" not in user_columns:
             connection.exec_driver_sql("ALTER TABLE user_accounts ADD COLUMN profile_image_data TEXT")
         if "profile_photo_visibility" not in user_columns:
@@ -258,6 +263,7 @@ def migrate_existing_database() -> None:
             ("mail_from_address", "VARCHAR(255) NOT NULL DEFAULT ''"),
             ("mail_use_ssl", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("mail_use_starttls", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("mail_enabled", "BOOLEAN NOT NULL DEFAULT TRUE"),
         )
         for column, definition in mail_columns:
             if column not in settings_columns:
@@ -670,6 +676,32 @@ def _mail_configuration(db: Session) -> MailConfiguration:
     return environment_mail_configuration()
 
 
+def _mail_enabled(db: Session) -> bool:
+    settings = db.get(models.ApplicationSetting, 1)
+    return settings.mail_enabled if settings is not None else True
+
+
+@app.get("/api/account-creation/mail-mode", response_model=MailMode)
+def get_mail_mode(_: Principal = Depends(require_team_manage), db: Session = Depends(get_db)) -> MailMode:
+    return MailMode(enabled=_mail_enabled(db))
+
+
+@app.put("/api/admin/mail-mode", response_model=MailMode)
+def set_mail_mode(
+    changes: MailMode,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> MailMode:
+    db.info["audit_actor"] = principal.username
+    settings = db.get(models.ApplicationSetting, 1)
+    if settings is None:
+        settings = models.ApplicationSetting(id=1, update_channel="stable")
+        db.add(settings)
+    settings.mail_enabled = changes.enabled
+    db.commit()
+    return changes
+
+
 def _mail_settings_response(configuration: MailConfiguration) -> MailSettingsRead:
     return MailSettingsRead(
         public_url=configuration.public_url,
@@ -733,6 +765,8 @@ def test_mail_settings(
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
+    if not _mail_enabled(db):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email delivery is disabled")
     try:
         send_test_email(request.recipient, _mail_configuration(db))
     except (OSError, RuntimeError, ValueError, smtplib.SMTPException) as exc:
@@ -1088,7 +1122,7 @@ def login(
     db.commit()
     remember_me = credentials.stay_signed_in or principal.role_key == "KIOSK"
     set_session_cookie(response, root.signing_key, request, subject, version, remember_me)
-    return SessionResponse(**create_token_response(
+    return SessionResponse(must_change_password=principal.must_change_password, **create_token_response(
         principal.username,
         principal.role_key,
         principal.department_id,
@@ -1101,7 +1135,7 @@ def login(
 
 @app.get("/api/auth/session", response_model=SessionResponse)
 def current_session(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)) -> SessionResponse:
-    return SessionResponse(idle_timeout_minutes=idle_timeout_minutes(db), **create_token_response(
+    return SessionResponse(idle_timeout_minutes=idle_timeout_minutes(db), must_change_password=principal.must_change_password, **create_token_response(
         principal.username,
         principal.role_key,
         principal.department_id,
@@ -1263,6 +1297,11 @@ def update_account_settings(
     password_hash = account.password_hash if account is not None else user.password_hash
     if not verify_password(salt, password_hash, changes.current_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+    if principal.must_change_password:
+        if not changes.new_password or verify_password(salt, password_hash, changes.new_password):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A different new password is required")
+        if changes.username != principal.username:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username cannot be changed during the required password change")
     duplicate_root = root is not None and root.username == changes.username and principal.role_key != "ADMIN"
     duplicate_user = db.scalar(select(models.UserAccount.id).where(
         models.UserAccount.username_lookup == username_lookup_digest(changes.username),
@@ -1288,6 +1327,7 @@ def update_account_settings(
         user.username = changes.username
         if changes.new_password:
             user.password_salt, user.password_hash = hash_password(changes.new_password)
+            user.must_change_password = False
         user.token_version += 1
         token_version = user.token_version
         signing_key = root.signing_key
@@ -1534,6 +1574,10 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username is already in use")
     if user.email is None and user.password is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A password or invitation email is required")
+    mail_enabled = _mail_enabled(db)
+    if not mail_enabled and user.password is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="An initial password is required when email delivery is disabled")
+    invite = mail_enabled and user.email is not None
     salt, password_hash = hash_password(user.password or secrets.token_urlsafe(32))
     record = models.UserAccount(
         username=user.username,
@@ -1546,7 +1590,8 @@ def create_user(
         birth_date=user.birth_date.isoformat() if user.birth_date else None,
         address=user.address,
         phone=user.phone,
-        invitation_status="pending" if user.email else "active",
+        invitation_status="pending" if invite else "active",
+        must_change_password=not mail_enabled,
         employee_id=employee_id,
         department_id=user.department_id if user.role_key not in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else None,
         departments=list(db.scalars(
@@ -1555,7 +1600,7 @@ def create_user(
         can_view=True if user.role_key == "HOSPITAL_MANAGEMENT" else False if user.role_key == "PERSONNEL" else user.can_view,
         can_edit=False if user.role_key in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else user.can_edit,
         can_approve=False if user.role_key in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else user.can_approve,
-        is_locked=user.email is not None,
+        is_locked=invite,
         token_version=0,
     )
     db.add(record)
@@ -1565,7 +1610,7 @@ def create_user(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username is already in use") from exc
     db.refresh(record)
-    if user.email is not None:
+    if invite and user.email is not None:
         invitation, token = _create_invitation(db, record, user.email)
         db.commit()
         _deliver_invitation(db, record, invitation, token)
@@ -1634,9 +1679,20 @@ def update_user(
     invitation: models.AccountInvitation | None = None
     token: str | None = None
     if changes.email and changes.email != user.email:
-        invitation, token = _create_invitation(db, user, changes.email)
+        if _mail_enabled(db):
+            invitation, token = _create_invitation(db, user, changes.email)
+        else:
+            user.email = changes.email
     if changes.new_password:
         user.password_salt, user.password_hash = hash_password(changes.new_password)
+        if not _mail_enabled(db):
+            user.must_change_password = True
+            if user.invitation_status in {"pending", "delivery_failed", "revoked"}:
+                old_invitation = db.scalar(select(models.AccountInvitation).where(models.AccountInvitation.user_id == user.id))
+                if old_invitation is not None:
+                    old_invitation.revoked_at = datetime.now(timezone.utc)
+                user.invitation_status = "active"
+                user.is_locked = False
     user.token_version += 1
     db.commit()
     db.refresh(user)
@@ -1700,6 +1756,8 @@ def resend_user_invitation(
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> models.UserAccount:
+    if not _mail_enabled(db):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email delivery is disabled")
     user = db.get(models.UserAccount, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -1758,6 +1816,7 @@ def accept_invitation(
     if user is None or expires_at <= now or user.invitation_status not in {"pending", "delivery_failed"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation is invalid or expired")
     user.password_salt, user.password_hash = hash_password(body.password)
+    user.must_change_password = False
     user.is_locked = False
     user.invitation_status = "active"
     user.token_version += 1
@@ -1889,8 +1948,11 @@ def onboard_employee(
         if employee.create_account:
             username = employee.username
             email = employee.email
-            if not username or not email:
+            mail_enabled = _mail_enabled(db)
+            if not username or (mail_enabled and not email):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username and email are required")
+            if not mail_enabled and not employee.password:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="An initial password is required when email delivery is disabled")
             existing = db.scalar(
                 select(models.UserAccount.id).where(
                     models.UserAccount.username_lookup == username_lookup_digest(username)
@@ -1905,7 +1967,7 @@ def onboard_employee(
             if taken is not None:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee already has an account")
             _verify_user_limit(db)
-            salt, password_hash = hash_password(secrets.token_urlsafe(32))
+            salt, password_hash = hash_password(employee.password if not mail_enabled and employee.password else secrets.token_urlsafe(32))
             account = models.UserAccount(
                 username=username,
                 username_lookup=username_lookup_digest(username),
@@ -1921,14 +1983,16 @@ def onboard_employee(
                 email=email,
                 first_name=employee.first_name,
                 last_name=employee.last_name,
-                invitation_status="pending",
-                is_locked=True,
+                invitation_status="pending" if mail_enabled else "active",
+                must_change_password=not mail_enabled,
+                is_locked=mail_enabled,
                 token_version=0,
             )
             db.add(account)
             db.flush()
-            invitation, token = _create_invitation(db, account, email)
-            invitation_status = "pending"
+            if mail_enabled and email:
+                invitation, token = _create_invitation(db, account, email)
+                invitation_status = "pending"
         db.commit()
     except IntegrityError as exc:
         db.rollback()

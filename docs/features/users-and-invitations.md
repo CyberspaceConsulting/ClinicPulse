@@ -21,3 +21,9 @@ Statt eines Passworts kann ein Konto per E-Mail eingeladen werden. Dafür müsse
 - Ohne Passwort ist eine Einladungs-E-Mail-Adresse erforderlich.
 - Eine Einladung kann erneut gesendet oder widerrufen werden.
 - Abgelaufene oder ungültige Einladungen werden abgelehnt („Invitation is invalid or expired“).
+
+## Konto ohne E-Mail
+
+Deaktiviert der Administrator den [E-Mail-Versand](mail.md), können Leitung und Personalverwaltung Konten ohne SMTP und ohne E-Mail-Adresse anlegen. Stattdessen wird ein Startpasswort vergeben und über einen sicheren Kanal an die Person übermittelt. Bei der ersten Anmeldung muss sie ein anderes Passwort setzen; bis dahin sind andere geschützte Funktionen und API-Zugriffe gesperrt. Dies gilt auch für Konten, die zusammen mit Mitarbeitenden angelegt werden.
+
+Bereits eingeladene, noch nicht aktivierte Konten können bei deaktiviertem Versand durch Bearbeiten und Vergabe eines Startpassworts aktiviert werden. Ihr bisheriger Einladungslink wird dabei widerrufen. Auch ein später durch die Verwaltung neu gesetztes Passwort muss beim nächsten Login geändert werden, solange der Versand deaktiviert ist.
