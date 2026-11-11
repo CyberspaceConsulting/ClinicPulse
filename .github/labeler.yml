@@ -1,4 +1,9 @@
 # Labels are applied to PRs based on the files changed.
+workflows:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/workflows/**'
+
 backend:
   - changed-files:
       - any-glob-to-any-file:

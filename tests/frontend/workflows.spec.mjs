@@ -10,14 +10,17 @@ const shift = {
   break_minutes: 30, break_start_minutes: 240, department_id: 1,
 }
 
-async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures = {}) {
+async function mockApi(
+  page, role = 'OBERARZT', initialAbsences = [], failures = {},
+  initialEmployees = [employee], initialShifts = [shift],
+) {
   let signedIn = false
   let assignments = []
   let absences = initialAbsences
   const session = {
     username: role === 'EMPLOYEE' ? 'alex' : 'planer', role_key: role, department_id: 1,
     can_view: true, can_edit: role === 'OBERARZT', can_approve: role === 'OBERARZT',
-    can_manage: false, remember_me: false, idle_timeout_minutes: 30,
+    can_manage: role === 'ADMIN', remember_me: false, idle_timeout_minutes: 30,
   }
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -54,8 +57,9 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures =
     if (path === '/api/role-catalog') return reply({ functions: ['Pflege'], access_roles: [] })
     if (path === '/api/license/status') return reply({ status: 'PAID', read_only: false, suppress_warnings: false })
     if (path === '/api/departments') return reply([{ id: 1, name: 'Chirurgie' }])
-    if (path === '/api/employees') return reply([employee])
-    if (path === '/api/shift-types') return reply([shift])
+    if (path === '/api/employees') return reply(initialEmployees)
+    if (path === '/api/users') return reply([])
+    if (path === '/api/shift-types') return reply(initialShifts)
     if (path === '/api/assignments' && method === 'POST') {
       assignments.push({ ...request.postDataJSON(), id: 1, employee_name: employee.name, shift_name: shift.name })
       return reply(assignments[0], 201)
@@ -85,11 +89,18 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures =
   return failures
 }
 
-async function login(page) {
+async function login(page, { openSchedule = true } = {}) {
   await page.goto('/')
   await page.getByLabel('Benutzername').fill('planer')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.locator('.dashboard-page h1')).toBeVisible()
+  if (!openSchedule) return
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Dienstplan', exact: true }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Dienstplan"]').click()
+  }
   await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
   await expect(page.getByText('Frühdienst').first()).toBeVisible()
 }
@@ -104,6 +115,8 @@ test('password guidance uses the stored locale on the setup screen', async ({ pa
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await expect(page.getByText('At least 8 characters; a longer and more varied passphrase is safer.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Your administrator account' })).toBeVisible()
+  await expect(page.getByLabel('Administrator first name')).toBeVisible()
+  await expect(page.getByLabel('Administrator last name')).toBeVisible()
   await page.getByLabel('Password (at least 8 characters)').fill('test-password-123')
   await expect(page.getByText(/Found in data breaches \(2 times\)/)).toBeVisible()
   await expect(page.getByText(/Strength:/)).toBeVisible()
@@ -117,12 +130,19 @@ test('English login and navigation use the stored locale', async ({ page }) => {
   await page.getByLabel('Username').fill('planer')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Welcome, planer', exact: true })).toBeVisible()
   await expect(page.locator('nav.mobile-navigation')).toHaveAttribute('aria-label', 'Mobile navigation')
   await expect(page.getByRole('button', { name: 'Open notifications' })).toBeVisible()
+  await expect(page).toHaveTitle('ClinicPulse – Overview')
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Schedule', exact: true }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Schedule"]').click()
+  }
   await expect(page).toHaveTitle('ClinicPulse – Schedule')
 })
 
-test('mobile administrator toolbar remains usable when an error is displayed', async ({ page }) => {
+test('administrator is taken to a useful dashboard with shortcuts to settings', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await mockApi(page, 'ADMIN')
   await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
@@ -130,12 +150,26 @@ test('mobile administrator toolbar remains usable when an error is displayed', a
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await expect(page.locator('.toast-error')).toContainText('Unexpected test request')
+  await expect(page.getByRole('heading', { name: 'Administrator overview' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Important settings' })).toBeVisible()
   await expect(page.getByLabel('Language')).toBeVisible()
   await expect(page.locator('.mobile-navigation').getByRole('button', { name: 'Team management' })).toBeVisible()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5000 })
-  await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible()
-  await expect(page.locator('.toast-error')).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Administrator overview' })).toBeVisible()
+  await page.getByRole('button', { name: /Email delivery and invitations/ }).click()
+  await expect(page.getByRole('tab', { name: 'Email delivery' })).toBeVisible()
+})
+
+test('employee login opens an overview with upcoming-duty and absence entry points', async ({ page }) => {
+  await mockApi(page, 'EMPLOYEE')
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('alex')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Willkommen, alex' })).toBeVisible()
+  await expect(page.getByText('NÄCHSTER DIENST')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kalenderübersicht' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Abwesenheit beantragen' })).toBeVisible()
 })
 
 test('notification history switches language without losing shift data or selected period', async ({ page }) => {
@@ -143,7 +177,7 @@ test('notification history switches language without losing shift data or select
   await page.route('**/api/shift-types', (route) => route.fulfill({ json: [
     shift, { ...shift, id: 2, name: 'Spätdienst', position: 'OP', required_staff: 2 },
   ] }))
-  await login(page)
+  await login(page, { openSchedule: false })
   await page.getByRole('button', { name: 'Meldungen öffnen' }).click()
   await expect(page.getByRole('heading', { name: 'Meldungen' })).toBeVisible()
   await expect(page.locator('.notification-item').first()).toContainText('1 unbesetzte Pflege-Stelle · Frühdienst')
@@ -179,6 +213,73 @@ test('schedule overview and day details switch languages without changing custom
   await expect(page.locator('.team-roster')).toContainText('Alex Beispiel')
 })
 
+test('manual staffing of an Oberarzt vacancy only offers qualified employees', async ({ page }) => {
+  const qualified = { id: 2, name: 'Dr. Beispiel', role: 'Oberarzt', department_id: 1 }
+  const seniorShift = {
+    ...shift, position: 'Oberarzt',
+    staffing_requirements: [{ position: 'Oberarzt', required_staff: 1 }],
+  }
+  await mockApi(page, 'OBERARZT', [], {}, [employee, qualified], [seniorShift])
+  await login(page)
+  await page.getByRole('button', { name: 'Tagesdetails öffnen →' }).click()
+  await page.getByText('Offene Stelle', { exact: true }).click()
+  const employeeSelect = page.getByRole('dialog').getByLabel('Mitarbeitende')
+  await expect(employeeSelect.locator('option')).toHaveCount(1)
+  await expect(employeeSelect).toContainText('Dr. Beispiel')
+})
+
+test('a senior physician without department leadership can manage employee accounts only', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
+  await login(page)
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Konten & Rollen' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mitarbeiter', exact: true })).toHaveCount(0)
+})
+
+test('an administrator can assign an Oberarzt as department leader', async ({ page }) => {
+  await mockApi(page, 'ADMIN')
+  const department = { id: 1, name: 'Chirurgie', manager_user_id: null }
+  await page.route('**/api/departments', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: [department] })
+      : route.continue())
+  await page.route('**/api/users', (route) => route.fulfill({ json: [{
+    id: 2, username: 'lea', first_name: 'Lea', last_name: 'Leitung',
+    role_key: 'OBERARZT', department_id: 1, department_ids: [1],
+    can_view: true, can_edit: false, can_approve: false, can_manage_department: false,
+  }] }))
+  let assignedLeader = null
+  await page.route('**/api/departments/1/leader', async (route) => {
+    assignedLeader = route.request().postDataJSON().manager_user_id
+    await route.fulfill({ json: { ...department, manager_user_id: assignedLeader } })
+  })
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'de'))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('admin')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  const leaderSelect = page.getByLabel('Leitung dieser Abteilung')
+  await expect(leaderSelect).toBeVisible()
+  await expect(leaderSelect).toContainText('Lea Leitung · lea')
+  await leaderSelect.selectOption('2')
+  await expect.poll(() => assignedLeader).toBe(2)
+})
+
+test('a pending vacation request opens an attention dialog', async ({ page }) => {
+  await mockApi(page, 'OBERARZT', [{
+    id: 22, employee_id: 1, employee_name: 'Alex Beispiel', kind: 'vacation',
+    start_date: '2026-12-01', end_date: '2026-12-05', status: 'pending', note: null,
+    requested_by: 'alex', created_at: '2026-11-11T10:00:00Z', decided_by: null, decided_at: null,
+  }])
+  await login(page, { openSchedule: false })
+  const alert = page.getByRole('alertdialog')
+  await expect(alert).toContainText('Alex Beispiel hat einen Urlaub beantragt.')
+  await alert.getByRole('button', { name: 'Anträge ansehen' }).click()
+  await expect(page.getByRole('heading', { name: 'Abwesenheiten' })).toBeVisible()
+})
+
 test('English shift forms and system role use localized labels while preserving values', async ({ page }) => {
   await mockApi(page)
   await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
@@ -187,6 +288,12 @@ test('English shift forms and system role use localized labels while preserving 
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.locator('.profile-text').first()).toContainText('Senior physician')
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Schedule', exact: true }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Schedule"]').click()
+  }
+  await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Open day details' }).click()
   await page.getByText('Open position', { exact: true }).click()
   const dialog = page.getByRole('dialog')
@@ -326,7 +433,7 @@ test('team management displays translated labels and preserves account and depar
     const request = page.waitForRequest((req) => req.url().endsWith('/api/settings/account') && req.method() === 'PUT')
     await page.getByRole('button', { name: 'Passwort festlegen' }).click()
     expect((await request).postDataJSON()).toMatchObject({ username: 'planer', current_password: 'test-password', new_password: 'different-password' })
-    await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
   })
 
 test('standard schedule functions translate without changing their values', async ({ page }) => {
@@ -677,7 +784,7 @@ test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page
   await expect(page.getByText('Ungültige Zugangsdaten')).toBeVisible()
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/ClinicPulse/')
   await page.getByRole('button', { name: 'Abmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Willkommen zurück' })).toBeVisible()
@@ -788,7 +895,7 @@ test('offene Stelle kann im Tagesplan besetzt werden', async ({ page }) => {
 
 test('Mitarbeitende können eine Abwesenheit beantragen', async ({ page }) => {
   await mockApi(page, 'EMPLOYEE')
-  await login(page)
+  await login(page, { openSchedule: false })
   await page.getByRole('button', { name: /Abwesenheiten/ }).click()
   await page.getByLabel('Von', { exact: true }).fill('2026-11-16')
   await page.getByLabel('Bis', { exact: true }).fill('2026-11-17')
@@ -803,7 +910,8 @@ test('berechtigte Planer können einen Antrag genehmigen', async ({ page }) => {
     start_date: '2026-11-16', end_date: '2026-11-17', status: 'pending',
     note: null, requested_by: 'alex', created_at: null, decided_by: null, decided_at: null,
   }])
-  await login(page)
+  await login(page, { openSchedule: false })
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Anträge ansehen' }).click()
   await page.getByRole('button', { name: /Abwesenheiten/ }).click()
   await page.getByRole('button', { name: 'Genehmigen' }).click()
   await expect(page.getByText(/Genehmigt von planer/)).toBeVisible()
@@ -813,8 +921,8 @@ test('berechtigte Planer können einen Antrag genehmigen', async ({ page }) => {
 test('nur erlaubte Abteilung und Aktionen werden angezeigt', async ({ page }) => {
   await mockApi(page, 'CHEFARZT')
   await login(page)
-  await expect(page.locator('button[title="Chirurgie"]')).toHaveCount(1)
-  await expect(page.locator('button[title="Radiologie"]')).toHaveCount(0)
+  await expect(page.locator('.breadcrumb')).toContainText('Chirurgie')
+  await expect(page.getByText('Radiologie', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Dienst eintragen/ })).toHaveCount(0)
   await page.getByRole('button', { name: 'Tagesdetails öffnen' }).click()
   await expect(page.getByText('Offene Stelle', { exact: true })).toBeVisible()
@@ -852,5 +960,5 @@ test('nicht erreichbare API zeigt eine Fehlermeldung statt leerer Plan-Daten', a
   await page.reload()
 
   await expect(page.locator('.toast.toast-error')).toContainText('Failed to fetch')
-  await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
 })

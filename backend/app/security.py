@@ -33,6 +33,9 @@ class Principal:
     department_ids: tuple[int, ...] = ()
     employee_id: int | None = None
     must_change_password: bool = False
+    can_manage_department: bool = False
+    managed_department_ids: tuple[int, ...] = ()
+    user_account_id: int | None = None
 
 
 def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -62,6 +65,7 @@ def create_token_response(
     can_edit: bool = True,
     can_approve: bool = True,
     remember_me: bool = False,
+    can_manage_department: bool = False,
 ) -> dict[str, object]:
     can_manage = role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"}
     return {
@@ -72,6 +76,7 @@ def create_token_response(
         "can_edit": can_edit,
         "can_approve": can_approve,
         "can_manage": can_manage,
+        "can_manage_department": can_manage_department,
         "remember_me": remember_me,
     }
 
@@ -141,6 +146,10 @@ def authenticate(db: Session, username: str, password: str) -> tuple[AdminAccoun
     )
     if user is None or user.is_locked or not verify_password(user.password_salt, user.password_hash, password):
         return None
+    managed_department_ids = tuple(
+        department.id for department in user.departments
+        if department.manager_user_id == user.id
+    )
     return (
         root,
         Principal(
@@ -150,11 +159,14 @@ def authenticate(db: Session, username: str, password: str) -> tuple[AdminAccoun
             user.can_view,
             user.can_edit,
             user.can_approve,
-            user.role_key == "HOSPITAL_MANAGEMENT",
+            user.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"},
             False,
             tuple(user.department_ids or ([user.department_id] if user.department_id is not None else [])),
             user.employee_id,
             user.must_change_password,
+            bool(managed_department_ids),
+            managed_department_ids,
+            user.id,
         ),
         f"u:{user.id}",
         user.token_version,
@@ -211,6 +223,10 @@ def require_principal(
             user_id = 0
         user = db.get(UserAccount, user_id)
         if user is not None and not user.is_locked and version == user.token_version:
+            managed_department_ids = tuple(
+                department.id for department in user.departments
+                if department.manager_user_id == user.id
+            )
             principal = Principal(
                 user.username,
                 user.role_key,
@@ -218,11 +234,14 @@ def require_principal(
                 user.can_view,
                 user.can_edit,
                 user.can_approve,
-                user.role_key == "HOSPITAL_MANAGEMENT",
+                user.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"},
                 remember_me,
                 tuple(user.department_ids or ([user.department_id] if user.department_id is not None else [])),
                 user.employee_id,
                 user.must_change_password,
+                bool(managed_department_ids),
+                managed_department_ids,
+                user.id,
             )
             if user.must_change_password and (request.method, request.url.path) not in {
                 ("GET", "/api/auth/session"),
@@ -258,8 +277,24 @@ def require_manage(principal: Principal = Depends(require_principal)) -> Princip
 
 
 def require_team_manage(principal: Principal = Depends(require_principal)) -> Principal:
-    if principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"}:
+    if principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL", "OBERARZT"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Team management access required")
+    return principal
+
+
+def require_employee_manage(principal: Principal = Depends(require_principal)) -> Principal:
+    if principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"} and not (
+        principal.role_key == "OBERARZT" and principal.managed_department_ids
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Employee management access required")
+    return principal
+
+
+def require_department_manage(principal: Principal = Depends(require_principal)) -> Principal:
+    if not principal.can_manage and not (
+        principal.role_key == "OBERARZT" and principal.managed_department_ids
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Department management access required")
     return principal
 
 

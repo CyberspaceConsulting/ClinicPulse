@@ -12,6 +12,8 @@ def auth_header(client):
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -68,6 +70,8 @@ def test_new_accounts_accept_eight_character_passwords(client):
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "C0mp!ex8",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -105,6 +109,8 @@ def test_account_username_is_stored_as_ciphertext_and_remains_authenticatable(cl
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -129,6 +135,8 @@ def test_institution_name_from_signed_license_is_shown_on_login(client):
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -150,6 +158,8 @@ def test_initial_setup_requires_valid_signed_license(
 ):
     setup_data = {
         "username": "test-admin",
+        "first_name": "Test",
+        "last_name": "Administrator",
         "password": "test-password-with-twelve",
         "license_token": "not-a-signed-license",
         "federal_state": "Nordrhein-Westfalen",
@@ -441,6 +451,8 @@ def test_setup_is_one_time_and_password_change_revokes_old_token(client):
         "/api/setup",
         json={
             "username": "another-admin",
+            "first_name": "Another",
+            "last_name": "Administrator",
             "password": "another-password-123",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -508,6 +520,8 @@ def test_admin_can_review_audit_events_without_sensitive_payloads(client, monkey
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -1018,7 +1032,10 @@ def test_department_planner_cannot_read_or_plan_for_another_department(client):
         "ends_at": "2031-02-06T15:00:00+00:00",
     })
     assert cross_department_assignment.status_code == 403
-    assert client.get("/api/users", headers=headers).status_code == 403
+    scoped_users = client.get("/api/users", headers=headers)
+    assert scoped_users.status_code == 200
+    assert all(user["role_key"] == "EMPLOYEE" for user in scoped_users.json())
+    assert all(user["department_id"] == departments["Chirurgie"] for user in scoped_users.json())
     assert client.put(
         f"/api/users/{other_employee_account.json()['id']}",
         headers=headers,
@@ -1275,6 +1292,92 @@ def test_employee_self_service_absence_workflow(client):
     assert client.get("/api/absences", headers=_login_headers(client, "erika", "secure-password-123")).json()[-1]["id"] == absence_id
 
 
+def test_sick_coverage_suggests_and_atomically_replaces_a_shift(client):
+    admin = auth_header(client)
+    department_id = client.post(
+        "/api/departments", json={"name": "Sick coverage"}, headers=admin
+    ).json()["id"]
+    sick_employee_id = client.post("/api/employees", headers=admin, json={
+        "first_name": "Sick", "last_name": "Physician", "role": "Oberarzt",
+        "department_id": department_id,
+    }).json()["id"]
+    replacement_id = client.post("/api/employees", headers=admin, json={
+        "first_name": "Available", "last_name": "Physician", "role": "Oberarzt",
+        "department_id": department_id,
+    }).json()["id"]
+    unqualified_id = client.post("/api/employees", headers=admin, json={
+        "first_name": "Other", "last_name": "Employee", "role": "Nurse",
+        "department_id": department_id,
+    }).json()["id"]
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Sick", "last_name": "Physician", "username": "sick-reporter",
+        "password": "secure-password-123", "role_key": "EMPLOYEE",
+        "department_id": department_id, "employee_id": sick_employee_id,
+    }).status_code == 201
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Planning", "last_name": "Lead", "username": "sick-planner",
+        "password": "secure-password-123", "role_key": "OBERARZT",
+        "department_id": department_id, "can_view": True, "can_edit": True,
+        "can_approve": True,
+    }).status_code == 201
+    reporter = _login_headers(client, "sick-reporter", "secure-password-123")
+    planner = _login_headers(client, "sick-planner", "secure-password-123")
+    shift_id = client.post("/api/shift-types", headers=planner, json={
+        "name": "Senior coverage", "start_time": "08:00:00", "end_time": "14:00:00",
+        "position": "Oberarzt", "required_staff": 1, "department_id": department_id,
+    }).json()["id"]
+    assignment = client.post("/api/assignments", headers=planner, json={
+        "employee_id": sick_employee_id, "shift_type_id": shift_id,
+        "starts_at": "2032-05-04T06:00:00Z", "ends_at": "2032-05-04T12:00:00Z",
+    })
+    assert assignment.status_code == 201
+    absence = client.post("/api/absences", headers=reporter, json={
+        "kind": "sick", "start_date": "2032-05-04", "end_date": "2032-05-04",
+    })
+    assert absence.status_code == 201
+
+    preview = client.post("/api/planning/sick-cover/preview", headers=planner, json={
+        "absence_id": absence.json()["id"],
+    })
+    assert preview.status_code == 200
+    affected = preview.json()["assignments"]
+    assert [item["assignment_id"] for item in affected] == [assignment.json()["id"]]
+    assert [item["employee_id"] for item in affected[0]["suggestions"]] == [replacement_id]
+
+    rejected = client.post(
+        f"/api/planning/sick-cover/approve?absence_id={absence.json()['id']}",
+        headers=planner,
+        json={"replacements": [{
+            "assignment_id": assignment.json()["id"], "employee_id": unqualified_id,
+        }]},
+    )
+    assert rejected.status_code == 409
+    assert client.get(
+        "/api/assignments?from=2032-05-04&to=2032-05-04", headers=planner
+    ).json()[0]["employee_id"] == sick_employee_id
+
+    approved = client.post(
+        f"/api/planning/sick-cover/approve?absence_id={absence.json()['id']}",
+        headers=planner,
+        json={"replacements": [{
+            "assignment_id": assignment.json()["id"], "employee_id": replacement_id,
+        }]},
+    )
+    assert approved.status_code == 201
+    stored = client.get(
+        "/api/assignments?from=2032-05-04&to=2032-05-04", headers=planner
+    ).json()
+    assert [(item["employee_id"], item["shift_type_id"]) for item in stored] == [(replacement_id, shift_id)]
+    repeated = client.post(
+        f"/api/planning/sick-cover/approve?absence_id={absence.json()['id']}",
+        headers=planner,
+        json={"replacements": [{
+            "assignment_id": assignment.json()["id"], "employee_id": replacement_id,
+        }]},
+    )
+    assert repeated.status_code == 409
+
+
 def test_admin_cannot_read_schedules_or_absences_and_hospital_management_is_opt_in(client):
     admin = auth_header(client)
     department_id = client.post(
@@ -1470,6 +1573,8 @@ def test_working_time_limits_breaks_and_configurable_rules(client):
 def test_business_configuration_is_selected_during_setup_and_admin_editable(client):
     response = client.post("/api/setup", json={
         "username": "setup-admin",
+        "first_name": "Setup",
+        "last_name": "Administrator",
         "password": "secure-password-123",
         "license_token": os.environ["TEST_LICENSE_TOKEN"],
         "federal_state": "Bayern",
@@ -1732,6 +1837,8 @@ def test_operational_profile_is_taken_from_license_and_locked(client, license_ke
     )
     response = client.post("/api/setup", json={
         "username": "managed-admin",
+        "first_name": "Managed",
+        "last_name": "Administrator",
         "password": "secure-password-123",
         "license_token": token,
     })
@@ -1754,6 +1861,8 @@ def test_operational_profile_is_taken_from_license_and_locked(client, license_ke
 def test_setup_without_license_profile_requires_manual_choice(client):
     response = client.post("/api/setup", json={
         "username": "manual-admin",
+        "first_name": "Manual",
+        "last_name": "Administrator",
         "password": "secure-password-123",
         "license_token": os.environ["TEST_LICENSE_TOKEN"],
         "federal_state": "Bayern",
@@ -1857,11 +1966,14 @@ def test_legacy_mail_and_password_change_columns_migrate_with_safe_defaults(clie
     assert created.status_code == 201
     with main.engine.begin() as connection:
         connection.exec_driver_sql("ALTER TABLE user_accounts DROP COLUMN must_change_password")
+        connection.exec_driver_sql("ALTER TABLE user_accounts DROP COLUMN can_manage_department")
         connection.exec_driver_sql("ALTER TABLE application_settings DROP COLUMN mail_enabled")
     main.migrate_existing_database()
     main.migrate_existing_database()
     assert "must_change_password" in {column["name"] for column in inspect(main.engine).get_columns("user_accounts")}
+    assert "can_manage_department" in {column["name"] for column in inspect(main.engine).get_columns("user_accounts")}
     assert "mail_enabled" in {column["name"] for column in inspect(main.engine).get_columns("application_settings")}
+    assert client.get("/api/users", headers=admin).json()[0]["can_manage_department"] is False
     assert client.get("/api/account-creation/mail-mode", headers=admin).json() == {"enabled": True}
     login = client.post("/api/auth/login", json={"username": "legacy-user", "password": "legacy-password"})
     assert login.status_code == 200 and login.json()["must_change_password"] is False
@@ -2033,6 +2145,197 @@ def test_admin_can_save_mail_settings_and_send_a_test_message(client, monkeypatc
     )
     assert cleared.status_code == 200
     assert cleared.json()["smtp_password_configured"] is False
+
+
+def test_department_leader_can_manage_only_their_department(client):
+    admin = auth_header(client)
+    own_department = client.post(
+        "/api/departments", headers=admin, json={"name": "Leitung Chirurgie"}
+    ).json()["id"]
+    other_department = client.post(
+        "/api/departments", headers=admin, json={"name": "Leitung Radiologie"}
+    ).json()["id"]
+    own_employee = client.post(
+        "/api/employees", headers=admin,
+        json={"first_name": "Mara", "last_name": "Muster", "role": "Pflegefachkraft", "department_id": own_department},
+    ).json()
+    other_employee = client.post(
+        "/api/employees", headers=admin,
+        json={"first_name": "Paul", "last_name": "Beispiel", "role": "Arzt", "department_id": other_department},
+    ).json()
+    second_own_employee = client.post(
+        "/api/employees", headers=admin,
+        json={"first_name": "Nils", "last_name": "Neu", "role": "Pflegefachkraft", "department_id": own_department},
+    ).json()
+    created_leader = client.post(
+        "/api/users",
+        headers=admin,
+        json={
+            "first_name": "Lea", "last_name": "Leitung", "username": "department-lead",
+            "password": "department-lead-password",
+            "role_key": "OBERARZT", "department_id": own_department,
+            "can_view": False,
+        },
+    )
+    assert created_leader.status_code == 201
+    leader_assignment = client.put(
+        f"/api/departments/{own_department}/leader",
+        headers=admin,
+        json={"manager_user_id": created_leader.json()["id"]},
+    )
+    assert leader_assignment.status_code == 200
+    assert leader_assignment.json()["manager_user_id"] == created_leader.json()["id"]
+    session = client.post(
+        "/api/auth/login",
+        json={"username": "department-lead", "password": "department-lead-password"},
+    ).json()
+    assert session["can_manage_department"] is True
+    assert session["can_manage"] is False
+
+    departments = client.get("/api/departments")
+    assert departments.status_code == 200
+    assert [department["id"] for department in departments.json()] == [own_department]
+    assert client.put(
+        f"/api/departments/{own_department}", json={"name": "Chirurgie"}
+    ).status_code == 200
+    assert client.put(
+        f"/api/departments/{other_department}", json={"name": "Andere Abteilung"}
+    ).status_code == 403
+    assert client.post("/api/departments", json={"name": "Neue Abteilung"}).status_code == 403
+    assert client.get("/api/employees").json()[0]["id"] == own_employee["id"]
+    assert client.post(
+        "/api/employees",
+        json={"first_name": "Noah", "last_name": "Neu", "role": "Pflegefachkraft", "department_id": own_department},
+    ).status_code == 201
+    assert client.post(
+        "/api/employees",
+        json={"first_name": "Nina", "last_name": "Fremd", "role": "Arzt", "department_id": other_department},
+    ).status_code == 403
+
+    own_user = client.post(
+        "/api/users",
+        json={
+            "first_name": "Mara", "last_name": "Muster", "username": "department-employee",
+            "password": "department-employee-password",
+            "role_key": "EMPLOYEE", "department_id": own_department,
+            "department_ids": [own_department], "employee_id": own_employee["id"],
+        },
+    )
+    assert own_user.status_code == 201
+    assert [user["id"] for user in client.get("/api/users").json()] == [own_user.json()["id"]]
+    assert client.post(
+        "/api/users",
+        json={
+            "first_name": "Paul", "last_name": "Beispiel", "username": "other-department-employee",
+            "password": "other-department-employee-password",
+            "role_key": "EMPLOYEE", "department_id": other_department,
+            "department_ids": [other_department], "employee_id": other_employee["id"],
+        },
+    ).status_code == 403
+    regular_physician = client.post(
+        "/api/users",
+        headers=admin,
+        json={
+            "first_name": "Regulär", "last_name": "Oberarzt", "username": "regular-physician",
+            "password": "regular-physician-password",
+            "role_key": "OBERARZT", "department_id": own_department,
+            "can_view": False,
+        },
+    )
+    assert regular_physician.status_code == 201
+    session = client.post(
+        "/api/auth/login",
+        json={"username": "regular-physician", "password": "regular-physician-password"},
+    ).json()
+    assert session["can_manage_department"] is False
+    assert [item["id"] for item in client.get("/api/departments").json()] == [own_department]
+    assert len(client.get("/api/employees").json()) >= 1
+    regular_user = client.post(
+        "/api/users",
+        json={
+            "first_name": "Nils", "last_name": "Neu", "username": "regular-employee",
+            "password": "regular-employee-password",
+            "role_key": "EMPLOYEE", "department_id": own_department,
+            "department_ids": [own_department], "employee_id": second_own_employee["id"],
+        },
+    )
+    assert regular_user.status_code == 201
+    assert client.put(
+        f"/api/departments/{own_department}", json={"name": "Keine Abteilungsleitung"}
+    ).status_code == 403
+    assert client.post(
+        "/api/employees",
+        json={"first_name": "Kein", "last_name": "Mitarbeiter", "role": "Arzt", "department_id": own_department},
+    ).status_code == 403
+    assert client.post(
+        "/api/users",
+        json={
+            "first_name": "Another", "last_name": "Physician", "username": "another-physician",
+            "password": "another-physician-password",
+            "role_key": "OBERARZT", "department_id": own_department,
+        },
+    ).status_code == 403
+
+
+def test_senior_physician_requirement_is_staffed_only_by_qualified_employee(client):
+    admin = auth_header(client)
+    department_id = client.post(
+        "/api/departments", headers=admin, json={"name": "Oberarztplanung"}
+    ).json()["id"]
+    unqualified = client.post(
+        "/api/employees", headers=admin,
+        json={"first_name": "Arzt", "last_name": "Muster", "role": "Arzt", "department_id": department_id},
+    ).json()
+    qualified = client.post(
+        "/api/employees", headers=admin,
+        json={"first_name": "Oberarzt", "last_name": "Beispiel", "role": "Oberarzt", "department_id": department_id},
+    ).json()
+    physician = client.post(
+        "/api/users",
+        headers=admin,
+        json={
+            "first_name": "Plan", "last_name": "Arzt", "username": "senior-planner",
+            "password": "senior-planner-password",
+            "role_key": "OBERARZT", "department_id": department_id,
+            "can_view": True, "can_edit": True, "can_approve": True,
+        },
+    )
+    assert physician.status_code == 201
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "senior-planner", "password": "senior-planner-password"},
+    ).status_code == 200
+    shift = client.post(
+        "/api/shift-types",
+        json={
+            "name": "Oberarztdienst", "start_time": "07:00:00", "end_time": "15:00:00",
+            "position": "Oberarzt", "required_staff": 1, "department_id": department_id,
+            "staffing_requirements": [{"position": "Oberarzt", "required_staff": 1}],
+        },
+    )
+    assert shift.status_code == 201
+
+    preview = client.post("/api/optimization/preview", json={"target_date": "2026-11-16"})
+    assert preview.status_code == 200
+    assert [item["employee_id"] for item in preview.json()["suggestions"]] == [qualified["id"]]
+    assert preview.json()["unfilled_slots"] == []
+
+    wrong_assignment = client.post(
+        "/api/assignments",
+        json={
+            "employee_id": unqualified["id"], "shift_type_id": shift.json()["id"],
+            "starts_at": "2026-11-16T07:00:00+01:00", "ends_at": "2026-11-16T15:00:00+01:00",
+        },
+    )
+    assert wrong_assignment.status_code == 409
+    assignment = client.post(
+        "/api/assignments",
+        json={
+            "employee_id": qualified["id"], "shift_type_id": shift.json()["id"],
+            "starts_at": "2026-11-16T07:00:00+01:00", "ends_at": "2026-11-16T15:00:00+01:00",
+        },
+    )
+    assert assignment.status_code == 201
 
 
 def test_personnel_role_can_manage_staff_but_not_planning_or_privileged_accounts(client):
@@ -2217,7 +2520,7 @@ def test_role_catalog_follows_the_facility_type(client):
     assert "Rettungssanitäter" in rescue["functions"] and "Arzt" not in rescue["functions"]
     assert {"key": "HOSPITAL_MANAGEMENT", "label": "Wachleitung"} in rescue["access_roles"]
     assert {role["key"] for role in client.get("/api/roles", headers=admin).json()} == {
-        "HOSPITAL_MANAGEMENT", "PERSONNEL", "EMPLOYEE",
+        "ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL", "EMPLOYEE",
     }
     rejected = client.post("/api/users", headers=admin, json={
         "first_name": "Test", "last_name": "Nutzer", "username": "oberarzt1",
@@ -2257,3 +2560,38 @@ def test_user_requires_names_and_profile_details_flow_to_employee_listing(client
     assert saved.status_code == 200 and saved.json()["last_name"] == "Mustermann" and saved.json()["phone"] == "0999"
     listed = client.get("/api/employees").json()
     assert listed[0]["name"] == "Erika Mustermann" and listed[0]["profile_image_data"] == png
+
+
+def test_admin_accounts_can_manage_department_leaders_and_edit_their_names(client):
+    root = auth_header(client)
+    department = client.post(
+        "/api/departments", headers=root, json={"name": "Admin-Bereich"}
+    ).json()
+    admin_user = client.post("/api/users", headers=root, json={
+        "first_name": "Zweiter", "last_name": "Admin", "username": "secondary-admin",
+        "password": "secondary-admin-password", "role_key": "ADMIN",
+    })
+    assert admin_user.status_code == 201
+
+    leader = client.post("/api/users", headers=root, json={
+        "first_name": "Ada", "last_name": "Leitung", "username": "admin-physician",
+        "password": "admin-physician-password", "role_key": "OBERARZT",
+        "department_id": department["id"], "department_ids": [department["id"]],
+    })
+    assert leader.status_code == 201
+
+    admin_headers = _login_headers(client, "secondary-admin", "secondary-admin-password")
+    assert client.put(
+        f"/api/departments/{department['id']}/leader",
+        headers=admin_headers,
+        json={"manager_user_id": leader.json()["id"]},
+    ).json()["manager_user_id"] == leader.json()["id"]
+    profile = client.get("/api/profile/me", headers=admin_headers)
+    assert profile.json()["first_name"] == "Zweiter"
+    saved = client.put("/api/profile/me", headers=admin_headers, json={
+        "profile_image_data": None, "profile_photo_visibility": "private",
+        "first_name": "Zweite", "last_name": "Administrator",
+    })
+    assert saved.status_code == 200
+    assert saved.json()["first_name"] == "Zweite"
+    assert saved.json()["last_name"] == "Administrator"
