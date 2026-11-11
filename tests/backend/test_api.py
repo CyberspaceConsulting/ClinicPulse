@@ -535,7 +535,7 @@ def test_update_check_is_admin_only_and_returns_version_info(client, monkeypatch
     monkeypatch.setattr(
         main.update_checker,
         "check",
-        lambda channel="stable", force=False: {
+        lambda channel="main", force=False: {
             "current_version": "0.1.0",
             "channel": channel,
             "latest_version": "0.2.0",
@@ -560,17 +560,34 @@ def test_admin_can_choose_update_channel(client, monkeypatch):
     auth_header(client)
     requested_channels = []
 
-    def check(channel="stable", force=False):
+    def check(channel="main", force=False):
         requested_channels.append((channel, force))
         return {"status": "no_release"}
 
     monkeypatch.setattr(main.update_checker, "check", check)
-    changed = client.put("/api/admin/update-channel", json={"channel": "nightly"})
+    changed = client.put("/api/admin/update-channel", json={"channel": "test"})
     assert changed.status_code == 200
-    assert changed.json()["channel"] == "nightly"
+    assert changed.json()["channel"] == "test"
     status_response = client.get("/api/admin/updates")
     assert status_response.status_code == 200
-    assert requested_channels == [("nightly", True), ("nightly", False)]
+    assert requested_channels == [("test", True), ("test", False)]
+    assert client.put("/api/admin/update-channel", json={"channel": "stable"}).status_code == 422
+
+
+def test_legacy_update_channels_migrate_and_preserve_license_protocol(client, monkeypatch):
+    from sqlalchemy import text
+
+    auth_header(client)
+    monkeypatch.setattr(main.update_checker, "check", lambda channel, force=False: {"channel": channel})
+    for old, new, license_channel in [("stable", "main", "stable"), ("nightly", "test", "nightly")]:
+        with main.engine.begin() as connection:
+            connection.execute(text("DELETE FROM application_settings"))
+            connection.execute(text("INSERT INTO application_settings (id, update_channel) VALUES (1, :channel)"), {"channel": old})
+        main.migrate_existing_database()
+        main.migrate_existing_database()
+        assert client.get("/api/admin/updates").json()["channel"] == new
+        with main.SessionLocal() as db:
+            assert main._license_release_channel(db.get(main.models.ApplicationSetting, 1)) == license_channel
 
 
 def test_admin_cannot_stay_signed_in_but_department_user_can(client, monkeypatch):

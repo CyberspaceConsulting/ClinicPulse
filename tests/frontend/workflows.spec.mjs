@@ -472,10 +472,38 @@ test('English planning preview and approval retain custom names', async ({ page 
   await expect(page.getByText('1 shift was approved and scheduled.')).toBeVisible()
 })
 
+test('update selector shows the installed image and uses main and test channels', async ({ page }) => {
+  await mockApi(page, 'ADMIN')
+  let channel = 'test'
+  await page.route('**/api/admin/updates**', (route) => route.fulfill({ json: {
+    current_version: 'v-0.2.1-alpha', channel, latest_version: 'v-0.2.2-alpha',
+    update_available: true, status: 'update_available', message: 'Version v-0.2.2-alpha ist verfügbar.',
+    release_url: 'https://github.com/orgs/CyberspaceConsulting/packages/container/package/clinicpulse-backend',
+    repository_url: 'https://github.com/CyberspaceConsulting/ClinicPulse', checked_at: '',
+  } }))
+  await page.route('**/api/admin/update-channel', (route) => {
+    channel = route.request().postDataJSON().channel
+    return route.fulfill({ json: { channel, status: 'no_release' } })
+  })
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('admin')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.locator('.page-footer')).toContainText('Version v-0.2.1-alpha')
+  const selector = page.getByLabel('Update-Kanal')
+  await expect(selector).toHaveValue('test')
+  await expect(selector.locator('option')).toHaveText(['Main', 'Test'])
+  await expect(page.getByRole('link', { name: 'Update v-0.2.2-alpha verfügbar' })).toBeVisible()
+  const request = page.waitForRequest((req) => req.url().endsWith('/api/admin/update-channel') && req.method() === 'PUT')
+  await selector.selectOption('main')
+  expect((await request).postDataJSON()).toEqual({ channel: 'main' })
+  await expect(selector).toHaveValue('main')
+})
+
 test('backup interface translates without changing the restore confirmation contract', async ({ page }) => {
   await mockApi(page, 'ADMIN')
   await page.route('**/api/admin/updates**', (route) => route.fulfill({ json: {
-    current_version: 'test', channel: 'stable', latest_version: null, update_available: false,
+    current_version: 'test', channel: 'main', latest_version: null, update_available: false,
     status: 'up_to_date', message: 'ClinicPulse ist auf dem aktuellen Release-Stand.', release_url: null, repository_url: '', checked_at: '',
   } }))
   await page.route('**/api/admin/business-configuration', (route) => route.fulfill({ json: {

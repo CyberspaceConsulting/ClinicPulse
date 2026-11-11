@@ -2,6 +2,9 @@
 
 Plane eine kurze Unterbrechung ein und lies vor dem Update die Hinweise zum
 neuen Release auf [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).
+Der Update-Hinweis in der Anwendung vergleicht die verfügbaren Backend- und
+Web-Images in GitHub Packages; prüfe vor dem Update zusätzlich, ob für den Tag
+bereits ein Release mit Compose-Datei und Prüfsummen veröffentlicht wurde.
 Erstelle zunächst eine Sicherung und prüfe, ob sie wiederhergestellt werden
 kann; siehe [Backup und Wiederherstellung](../features/backup.md). Sichere auch
 den vorhandenen Verschlüsselungsschlüssel und deine Konfiguration separat und

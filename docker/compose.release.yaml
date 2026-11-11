@@ -1,4 +1,4 @@
-# Release artifact template. CI replaces __IMAGE_TAG__ (e.g. v0.1.0) and __VERSION__ (e.g. 0.1.0).
+# Release artifact template. CI replaces __IMAGE_TAG__ (e.g. v-0.2.1-alpha).
 name: clinicpulse
 
 services:
@@ -37,7 +37,6 @@ services:
       CLINICPULSE_SMTP_USE_SSL: ${CLINICPULSE_SMTP_USE_SSL:-false}
       CLINICPULSE_SMTP_USE_STARTTLS: ${CLINICPULSE_SMTP_USE_STARTTLS:-true}
       CLINICPULSE_BACKUP_DIR: /backups
-      CLINICPULSE_VERSION: __VERSION__
     volumes:
       - ${CLINICPULSE_BACKUP_HOST_DIR:-./backups}:/backups
     secrets:

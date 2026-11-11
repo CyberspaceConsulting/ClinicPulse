@@ -1,78 +1,127 @@
 from io import BytesIO
 import json
-from urllib.request import Request
+import os
+from pathlib import Path
+import subprocess
+import sys
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit
 
+import pytest
+
+from app import update_checker
 from app.update_checker import UpdateChecker
 
 
-def test_check_detects_new_release_and_sends_optional_secret(tmp_path, monkeypatch):
-    token_file = tmp_path / "github-token"
-    token_file.write_text("test-readonly-token", encoding="utf-8")
-    monkeypatch.setenv("CLINICPULSE_GITHUB_TOKEN_FILE", str(token_file))
-    captured: list[Request] = []
+class RegistryResponse(BytesIO):
+    def __init__(self, value, link=None):
+        super().__init__(json.dumps(value).encode())
+        self.headers = {"Link": link} if link else {}
 
-    def fake_urlopen(request: Request, timeout: int):
-        captured.append(request)
+
+def mock_registry(monkeypatch, backend_tags, web_tags, page_size=None):
+    calls = []
+
+    def fake_urlopen(request, timeout):
         assert timeout == 5
-        return BytesIO(json.dumps([{
-            "tag_name": "v0.2.0",
-            "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.2.0",
-            "draft": False,
-            "prerelease": False,
-        }]).encode())
+        url = urlsplit(request.full_url)
+        assert url.netloc == "ghcr.io"
+        calls.append(request)
+        if url.path == "/token":
+            return RegistryResponse({"token": "public-registry-token"})
+        assert request.get_header("Authorization") == "Bearer public-registry-token"
+        tags = backend_tags if "clinicpulse-backend" in url.path else web_tags
+        params = parse_qs(url.query)
+        last = params.get("last", [None])[0]
+        start = tags.index(last) + 1 if last is not None else 0
+        page = tags[start:start + page_size] if page_size else tags[start:]
+        link = '<next>; rel="next"' if page_size and start + page_size < len(tags) else None
+        return RegistryResponse({"tags": page}, link)
 
-    monkeypatch.setattr("app.update_checker.urlopen", fake_urlopen)
-    result = UpdateChecker().check()
+    monkeypatch.setattr(update_checker, "urlopen", fake_urlopen)
+    return calls
 
-    assert result["status"] == "update_available"
-    assert result["current_version"] == "0.1.0"
-    assert result["latest_version"] == "0.2.0"
+
+def test_registry_checks_both_images_and_pagination(monkeypatch):
+    monkeypatch.setattr(update_checker, "APP_VERSION", "v-0.2.1-alpha")
+    calls = mock_registry(monkeypatch, [
+        "v-0.2.1-alpha", "v-0.2.2-alpha", "v-0.2.3-alpha",
+    ], ["v-0.2.1-alpha", "v-0.2.2-alpha"], page_size=1)
+    checker = UpdateChecker()
+    result = checker.check("test")
+    assert result["current_version"] == "v-0.2.1-alpha"
+    assert result["latest_version"] == "v-0.2.2-alpha"
     assert result["update_available"] is True
-    assert captured[0].get_header("Authorization") == "Bearer test-readonly-token"
+    assert result["release_url"] == update_checker.PACKAGE_URL
+    assert len(calls) == 7
+    assert checker.check("test") == result
+    assert len(calls) == 7
+    assert checker.check("main")["status"] == "no_release"
 
 
-def test_update_check_does_not_require_secret_for_public_repo(monkeypatch):
-    monkeypatch.delenv("CLINICPULSE_GITHUB_TOKEN_FILE", raising=False)
-    captured: list[Request] = []
+@pytest.mark.parametrize(("channel", "expected"), [
+    ("main", "v-1.0.0"), ("test", "v-1.1.0-test.2"),
+])
+def test_channels_filter_and_sort_real_tags(monkeypatch, channel, expected):
+    monkeypatch.setattr(update_checker, "APP_VERSION", "v-0.2.1-alpha")
+    tags = [
+        "v-0.2.2-alpha", "v-1.0.0", "v-1.1.0-alpha", "v-1.1.0-test.2",
+        "v-1.1.0-test.1", "v-3.0.0-nightly", "latest",
+    ]
+    mock_registry(monkeypatch, tags, tags)
+    assert UpdateChecker().check(channel)["latest_version"] == expected
 
-    def fake_urlopen(request: Request, timeout: int):
-        captured.append(request)
-        return BytesIO(json.dumps([{
-            "tag_name": "0.1.0",
-            "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/0.1.0",
-            "draft": False,
-            "prerelease": False,
-        }]).encode())
 
-    monkeypatch.setattr("app.update_checker.urlopen", fake_urlopen)
-    result = UpdateChecker().check()
+@pytest.mark.parametrize(("installed", "available", "update"), [
+    ("v-0.2.1-alpha", "v-0.2.1-alpha", False),
+    ("v-0.2.1-alpha", "v-0.2.2-alpha", True),
+    ("0.2.1-alpha", "v-0.2.2-alpha", True),
+    ("v-1.0.0", "v-1.0.0-alpha", False),
+    ("v-1.0.0-test.2", "v-1.0.0-test.10", True),
+    ("v-1.0.0-alpha", "v-1.0.0-alpha.1", True),
+])
+def test_version_order(monkeypatch, installed, available, update):
+    monkeypatch.setattr(update_checker, "APP_VERSION", installed)
+    mock_registry(monkeypatch, [available], [available])
+    assert UpdateChecker().check("test")["update_available"] is update
 
-    assert result["status"] == "up_to_date"
+
+def test_missing_image_pair_and_invalid_installed_version(monkeypatch):
+    monkeypatch.setattr(update_checker, "APP_VERSION", "v-0.2.1-alpha")
+    mock_registry(monkeypatch, ["v-0.2.2-alpha"], [])
+    assert UpdateChecker().check("test")["status"] == "no_release"
+    monkeypatch.setattr(update_checker, "APP_VERSION", "unknown")
+    result = UpdateChecker().check("test")
+    assert result["status"] == "unavailable"
+    assert result["channel"] == "test"
+    assert "installierte Image-Version" in result["message"]
+
+
+@pytest.mark.parametrize("error", [
+    URLError("unreachable"),
+    HTTPError("https://ghcr.io", 403, "forbidden", {}, None),
+    HTTPError("https://ghcr.io", 500, "server error", {}, None),
+])
+def test_registry_errors_are_not_reported_as_success(monkeypatch, error):
+    def fail(request, timeout):
+        raise error
+    monkeypatch.setattr(update_checker, "urlopen", fail)
+    result = UpdateChecker().check("test")
+    assert result["status"] == "unavailable"
+    assert result["channel"] == "test"
     assert result["update_available"] is False
-    assert captured[0].get_header("Authorization") is None
 
 
-def test_nightly_channel_only_compares_nightly_releases(monkeypatch):
-    monkeypatch.delenv("CLINICPULSE_GITHUB_TOKEN_FILE", raising=False)
+def test_invalid_registry_response(monkeypatch):
+    monkeypatch.setattr(update_checker, "urlopen", lambda *args, **kwargs: RegistryResponse({"token": None}))
+    assert UpdateChecker().check("main")["status"] == "unavailable"
 
-    def fake_urlopen(request: Request, timeout: int):
-        return BytesIO(json.dumps([
-            {
-                "tag_name": "v0.3.0",
-                "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.3.0",
-                "draft": False,
-                "prerelease": False,
-            },
-            {
-                "tag_name": "v0.2.0-nightly.20261014",
-                "html_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.2.0-nightly.20261014",
-                "draft": False,
-                "prerelease": True,
-            },
-        ]).encode())
 
-    monkeypatch.setattr("app.update_checker.urlopen", fake_urlopen)
-    result = UpdateChecker().check(channel="nightly")
-    assert result["channel"] == "nightly"
-    assert result["latest_version"] == "0.2.0-nightly.20261014"
-    assert result["update_available"] is True
+def test_version_from_image_takes_precedence_over_legacy_compose():
+    env = os.environ.copy()
+    env.update({"PYTHONPATH": str(Path(__file__).resolve().parents[2] / "backend"), "CLINICPULSE_VERSION": "-0.2.1-alpha"})
+    env.pop("CLINICPULSE_IMAGE_VERSION", None)
+    command = [sys.executable, "-c", "from app.update_checker import APP_VERSION, default_update_channel; print(APP_VERSION, default_update_channel())"]
+    assert subprocess.check_output(command, env=env, text=True).strip() == "v-0.2.1-alpha test"
+    env["CLINICPULSE_IMAGE_VERSION"] = "v-0.2.2-alpha"
+    assert subprocess.check_output(command, env=env, text=True).strip() == "v-0.2.2-alpha test"

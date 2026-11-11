@@ -112,7 +112,7 @@ from .work_rules import (
 )
 from .optimizer import OptimizationTooLarge, _shift_interval, optimize_day, optimize_period
 from .backup_api import backup_scheduler, router as backup_router
-from .update_checker import APP_VERSION, update_checker
+from .update_checker import APP_VERSION, default_update_channel, update_checker
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +250,11 @@ def migrate_existing_database() -> None:
         if "requested_by" not in absence_columns:
             connection.exec_driver_sql("ALTER TABLE absences ADD COLUMN requested_by VARCHAR(64)")
         settings_columns = {column["name"] for column in inspect(engine).get_columns("application_settings")}
+        connection.exec_driver_sql(
+            "UPDATE application_settings SET update_channel = CASE update_channel "
+            "WHEN 'stable' THEN 'main' WHEN 'nightly' THEN 'test' ELSE update_channel END "
+            "WHERE update_channel IN ('stable', 'nightly')"
+        )
         if "idle_timeout_minutes" not in settings_columns:
             connection.exec_driver_sql(
                 "ALTER TABLE application_settings ADD COLUMN idle_timeout_minutes INTEGER NOT NULL DEFAULT 5"
@@ -424,6 +429,11 @@ def _record_license_failure(db: Session, state: models.LicenseState, error: Exce
     db.commit()
 
 
+def _license_release_channel(settings: models.ApplicationSetting | None) -> str:
+    channel = settings.update_channel if settings is not None else default_update_channel()
+    return "nightly" if channel in {"nightly", "test"} else "stable"
+
+
 def _check_license_state(db: Session, force: bool = False) -> None:
     account = get_account(db)
     if account is None or not account.license_token:
@@ -441,7 +451,7 @@ def _check_license_state(db: Session, force: bool = False) -> None:
         if next_check > now:
             return
     settings = db.get(models.ApplicationSetting, 1)
-    release_channel = settings.update_channel if settings is not None else "stable"
+    release_channel = _license_release_channel(settings)
     try:
         if state.signed_status_token is None:
             verified = activate_license(
@@ -559,7 +569,7 @@ def check_for_updates(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     settings = db.get(models.ApplicationSetting, 1)
-    channel = settings.update_channel if settings is not None else "stable"
+    channel = settings.update_channel if settings is not None else default_update_channel()
     return update_checker.check(channel=channel, force=refresh)
 
 
@@ -630,7 +640,7 @@ def set_work_rules(
 ) -> WorkRulesRead:
     settings = db.get(models.ApplicationSetting, 1)
     if settings is None:
-        settings = models.ApplicationSetting(id=1, update_channel="stable")
+        settings = models.ApplicationSetting(id=1)
         db.add(settings)
     settings.rest_hours = changes.rest_hours
     settings.max_daily_hours = changes.max_daily_hours
@@ -653,7 +663,7 @@ def set_security_settings(
     db.info["audit_actor"] = principal.username
     settings = db.get(models.ApplicationSetting, 1)
     if settings is None:
-        settings = models.ApplicationSetting(id=1, update_channel="stable")
+        settings = models.ApplicationSetting(id=1)
         db.add(settings)
     settings.idle_timeout_minutes = changes.idle_timeout_minutes
     db.commit()
@@ -695,7 +705,7 @@ def set_mail_mode(
     db.info["audit_actor"] = principal.username
     settings = db.get(models.ApplicationSetting, 1)
     if settings is None:
-        settings = models.ApplicationSetting(id=1, update_channel="stable")
+        settings = models.ApplicationSetting(id=1)
         db.add(settings)
     settings.mail_enabled = changes.enabled
     db.commit()
@@ -732,7 +742,7 @@ def set_mail_settings(
     db.info["audit_actor"] = principal.username
     settings = db.get(models.ApplicationSetting, 1)
     if settings is None:
-        settings = models.ApplicationSetting(id=1, update_channel="stable")
+        settings = models.ApplicationSetting(id=1)
         db.add(settings)
     effective_password = (
         None
@@ -912,7 +922,7 @@ def replace_license_token(
     if account is None or state is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="License installation is not initialized")
     settings = db.get(models.ApplicationSetting, 1)
-    release_channel = settings.update_channel if settings is not None else "stable"
+    release_channel = _license_release_channel(settings)
     license_claims = decode_license_claims(changes.license_token)
     if "features" in license_claims and not has_core_feature(license_claims["features"]):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lizenz enthält kein ClinicPulse-Kernfeature")

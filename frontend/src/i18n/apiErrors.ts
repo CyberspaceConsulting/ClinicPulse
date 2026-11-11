@@ -176,6 +176,10 @@ const knownErrors: Record<string, TranslationKey> = {
   'GitHub hat eine ungültige Antwort geliefert.': 'updates.invalidResponse',
   'GitHub hat eine ungültige Release-Antwort geliefert.': 'updates.invalidReleaseResponse',
   'Release-Versionen müssen dem Format vX.Y.Z entsprechen.': 'updates.invalidVersion',
+  'Die installierte Image-Version ist unbekannt oder ungültig.': 'updates.invalidImageVersion',
+  'Die GitHub-Container-Registry hat die Update-Abfrage begrenzt oder verweigert.': 'updates.registryRateLimited',
+  'Die GitHub-Container-Registry ist für die Update-Prüfung nicht erreichbar.': 'updates.registryUnreachable',
+  'Die GitHub-Container-Registry hat eine ungültige Antwort geliefert.': 'updates.registryInvalid',
 }
 
 export function apiErrorDetail(detail: unknown): string | null {
@@ -226,6 +230,10 @@ export function apiErrorDetail(detail: unknown): string | null {
     if (updateHttpError?.[1]) return t('updates.httpError', { status: updateHttpError[1] })
     const noChannelRelease = /^Kein veröffentlichtes Release für den (stable|nightly)-Kanal gefunden\.$/.exec(detail)
     if (noChannelRelease?.[1]) return t('updates.noChannelRelease', { channel: noChannelRelease[1] })
+    const registryError = /^Container-Registry-Update-Abfrage fehlgeschlagen \(HTTP (\d+)\)\.$/.exec(detail)
+    if (registryError?.[1]) return t('updates.registryHttpError', { status: registryError[1] })
+    const noImage = /^Kein Docker-Image-Paar für den (main|test)-Kanal gefunden\.$/.exec(detail)
+    if (noImage?.[1]) return t('updates.noImage', { channel: noImage[1] })
     return locale.value === 'de' ? detail : t('api.serverDetail', { detail })
   }
   if (!Array.isArray(detail)) return null
