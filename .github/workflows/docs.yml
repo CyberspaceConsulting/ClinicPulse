@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/configure-pages@v5
+        id: configure
       - uses: actions/checkout@v6
         with:
           # Full history, for each page's "Last updated" date.
@@ -35,11 +36,39 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: docs/package-lock.json
-      - run: npm ci --prefix docs
+      - name: Install documentation dependencies
+        id: install
+        run: npm ci --prefix docs
       # Fails on dead links.
-      - run: npm run build --prefix docs
+      - name: Build documentation
+        id: build
+        run: npm run build --prefix docs
       - uses: actions/upload-pages-artifact@v4
+        id: upload
         with:
           path: docs/.vitepress/dist
       - uses: actions/deploy-pages@v4
         id: deployment
+      - name: Summarize documentation deployment
+        if: always()
+        env:
+          CONFIGURE_STATUS: ${{ steps.configure.outcome }}
+          INSTALL_STATUS: ${{ steps.install.outcome }}
+          BUILD_STATUS: ${{ steps.build.outcome }}
+          UPLOAD_STATUS: ${{ steps.upload.outcome }}
+          DEPLOY_STATUS: ${{ steps.deployment.outcome }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          {
+            echo '## Documentation'
+            echo
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Configure Pages | %s |\n' "${CONFIGURE_STATUS:-not run}"
+            printf '| Install dependencies | %s |\n' "${INSTALL_STATUS:-not run}"
+            printf '| Build and link validation | %s |\n' "${BUILD_STATUS:-not run}"
+            printf '| Upload Pages artifact | %s |\n' "${UPLOAD_STATUS:-not run}"
+            printf '| Deploy | %s |\n' "${DEPLOY_STATUS:-not run}"
+            if [ "$DEPLOY_STATUS" = success ] && [ -n "$PAGE_URL" ]; then
+              printf '\nPublished documentation: %s\n' "$PAGE_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

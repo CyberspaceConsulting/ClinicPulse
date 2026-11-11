@@ -12,6 +12,7 @@ __pycache__/
 node_modules/
 dist/
 frontend/test-results/
+frontend/test-reports/
 frontend/playwright-report/
 
 # Local backup directory

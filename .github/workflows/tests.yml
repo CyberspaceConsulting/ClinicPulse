@@ -39,17 +39,60 @@ jobs:
         with:
           python-version: "3.12"
       - name: Verify Python lock and export
+        id: lock
         run: |
           python -m pip install uv==0.13.7
           uv lock --check
           make export
           git diff --exit-code -- backend/requirements.txt
-      - run: ./tests/run-tests.sh
+      - name: Backend tests
+        id: backend_tests
+        run: ./tests/run-tests.sh --junitxml="$RUNNER_TEMP/backend-tests.xml"
       - name: PostgreSQL encryption, migration and restore tests
+        id: postgres_tests
         working-directory: backend
         env:
           TEST_POSTGRES_URL: postgresql+psycopg://clinicpulse_test:test-only-password@localhost:5432/clinicpulse_test
-        run: .venv/bin/python -m pytest -q ../tests/backend/test_postgres_integrity.py
+        run: .venv/bin/python -m pytest -q ../tests/backend/test_postgres_integrity.py --junitxml="$RUNNER_TEMP/postgres-tests.xml"
+      - name: Upload test reports
+        id: reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-test-reports-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/backend-tests.xml
+            ${{ runner.temp }}/postgres-tests.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Summarize backend tests
+        if: always()
+        env:
+          ARCH: ${{ matrix.arch }}
+          LOCK_STATUS: ${{ steps.lock.outcome }}
+          BACKEND_STATUS: ${{ steps.backend_tests.outcome }}
+          POSTGRES_STATUS: ${{ steps.postgres_tests.outcome }}
+          REPORT_URL: ${{ steps.reports.outputs.artifact-url }}
+        run: |
+          summary_status=0
+          {
+            printf '## Backend tests (%s)\n\n' "$ARCH"
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Lock and export | %s |\n' "${LOCK_STATUS:-not run}"
+            printf '| Backend tests | %s |\n' "${BACKEND_STATUS:-not run}"
+            printf '| PostgreSQL tests | %s |\n\n' "${POSTGRES_STATUS:-not run}"
+            if [ -f tests/junit_summary.py ]; then
+              python tests/junit_summary.py "Backend" "$RUNNER_TEMP/backend-tests.xml" || summary_status=1
+              python tests/junit_summary.py "PostgreSQL" "$RUNNER_TEMP/postgres-tests.xml" || summary_status=1
+            else
+              echo 'JUnit summaries unavailable: repository checkout did not complete.'
+            fi
+            echo
+            if [ -n "$REPORT_URL" ]; then
+              printf '[Download JUnit reports](%s)\n' "$REPORT_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$summary_status"
 
   frontend-browser:
     name: Frontend browser (Chromium)
@@ -60,27 +103,77 @@ jobs:
         with:
           node-version: "22"
       - name: Install dependencies
+        id: install
         working-directory: frontend
         run: npm ci
       - name: Build frontend
+        id: build
         working-directory: frontend
         run: npm run build
       - name: Check translation catalogs
+        id: translations
         working-directory: frontend
         run: npm run test:i18n
       - name: Install Chromium
+        id: chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
       - name: Browser tests
+        id: browser
         working-directory: frontend
         run: npm run test:e2e
+      - name: Upload browser report
+        id: report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-browser-junit
+          path: frontend/test-reports/browser.xml
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v6
+        id: traces
         if: failure()
         with:
           name: frontend-browser-test-results
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
+      - name: Summarize frontend tests
+        if: always()
+        env:
+          INSTALL_STATUS: ${{ steps.install.outcome }}
+          BUILD_STATUS: ${{ steps.build.outcome }}
+          TRANSLATIONS_STATUS: ${{ steps.translations.outcome }}
+          CHROMIUM_STATUS: ${{ steps.chromium.outcome }}
+          BROWSER_STATUS: ${{ steps.browser.outcome }}
+          REPORT_URL: ${{ steps.report.outputs.artifact-url }}
+          TRACE_URL: ${{ steps.traces.outputs.artifact-url }}
+        run: |
+          summary_status=0
+          {
+            echo '## Frontend build and browser tests'
+            echo
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Install dependencies | %s |\n' "${INSTALL_STATUS:-not run}"
+            printf '| Frontend build | %s |\n' "${BUILD_STATUS:-not run}"
+            printf '| Translations | %s |\n' "${TRANSLATIONS_STATUS:-not run}"
+            printf '| Install Chromium | %s |\n' "${CHROMIUM_STATUS:-not run}"
+            printf '| Browser tests | %s |\n\n' "${BROWSER_STATUS:-not run}"
+            if [ -f tests/junit_summary.py ]; then
+              python tests/junit_summary.py "Desktop and mobile" frontend/test-reports/browser.xml || summary_status=1
+            else
+              echo 'JUnit summary unavailable: repository checkout did not complete.'
+            fi
+            echo
+            if [ -n "$REPORT_URL" ]; then
+              printf '[Download JUnit report](%s)\n\n' "$REPORT_URL"
+            fi
+            if [ -n "$TRACE_URL" ]; then
+              printf '[Download browser failure traces](%s)\n' "$TRACE_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$summary_status"
 
   compose-smoke:
     name: Docker Compose runtime smoke test
@@ -88,4 +181,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Start the real Compose stack and verify web/API/database
+        id: smoke
         run: ./tests/compose-smoke.sh
+      - name: Summarize Compose smoke test
+        if: always()
+        env:
+          SMOKE_STATUS: ${{ steps.smoke.outcome }}
+        run: |
+          printf '## Docker Compose smoke test\n\n| Check | Status |\n| --- | --- |\n| Web, API and database | %s |\n\nSee the step logs for details.\n' "${SMOKE_STATUS:-not run}" >> "$GITHUB_STEP_SUMMARY"

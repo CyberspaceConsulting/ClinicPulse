@@ -510,7 +510,7 @@ class TeamProfileRead(BaseModel):
 
 
 class UpdateChannelUpdate(BaseModel):
-    channel: Literal["stable", "nightly"]
+    channel: Literal["main", "test"]
 
 
 class LicenseTokenUpdate(BaseModel):

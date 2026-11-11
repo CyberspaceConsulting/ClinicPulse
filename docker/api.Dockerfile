@@ -1,8 +1,10 @@
 FROM python:3.12-slim
 LABEL org.opencontainers.image.source="https://github.com/CyberspaceConsulting/ClinicPulse"
 
+ARG CLINICPULSE_IMAGE_VERSION=""
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    CLINICPULSE_IMAGE_VERSION=${CLINICPULSE_IMAGE_VERSION}
 
 WORKDIR /app
 COPY requirements.txt .

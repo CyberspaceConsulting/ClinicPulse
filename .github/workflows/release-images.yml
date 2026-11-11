@@ -43,23 +43,65 @@ jobs:
         with:
           python-version: "3.12"
       - name: Backend tests
+        id: backend_tests
         working-directory: backend
         run: |
           pip install -r requirements.txt
-          python -m pytest -q ../tests/backend
+          python -m pytest -q ../tests/backend --junitxml="$RUNNER_TEMP/backend-tests.xml"
       - name: PostgreSQL encryption, migration and restore tests
+        id: postgres_tests
         working-directory: backend
         env:
           TEST_POSTGRES_URL: postgresql+psycopg://clinicpulse_test:test-only-password@localhost:5432/clinicpulse_test
-        run: python -m pytest -q ../tests/backend/test_postgres_integrity.py
+        run: python -m pytest -q ../tests/backend/test_postgres_integrity.py --junitxml="$RUNNER_TEMP/postgres-tests.xml"
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Frontend build
+        id: build
         working-directory: frontend
         run: |
           npm ci
           npm run build
+      - name: Upload test reports
+        id: reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-backend-test-reports-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/backend-tests.xml
+            ${{ runner.temp }}/postgres-tests.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Summarize release tests
+        if: always()
+        env:
+          ARCH: ${{ matrix.arch }}
+          BACKEND_STATUS: ${{ steps.backend_tests.outcome }}
+          POSTGRES_STATUS: ${{ steps.postgres_tests.outcome }}
+          BUILD_STATUS: ${{ steps.build.outcome }}
+          REPORT_URL: ${{ steps.reports.outputs.artifact-url }}
+        run: |
+          summary_status=0
+          {
+            printf '## Release tests (%s)\n\n' "$ARCH"
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Backend tests | %s |\n' "${BACKEND_STATUS:-not run}"
+            printf '| PostgreSQL tests | %s |\n' "${POSTGRES_STATUS:-not run}"
+            printf '| Frontend build | %s |\n\n' "${BUILD_STATUS:-not run}"
+            if [ -f tests/junit_summary.py ]; then
+              python tests/junit_summary.py "Backend" "$RUNNER_TEMP/backend-tests.xml" || summary_status=1
+              python tests/junit_summary.py "PostgreSQL" "$RUNNER_TEMP/postgres-tests.xml" || summary_status=1
+            else
+              echo 'JUnit summaries unavailable: repository checkout did not complete.'
+            fi
+            echo
+            if [ -n "$REPORT_URL" ]; then
+              printf '[Download JUnit reports](%s)\n' "$REPORT_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$summary_status"
 
   frontend-browser:
     name: Frontend browser (Chromium)
@@ -70,21 +112,65 @@ jobs:
         with:
           node-version: "22"
       - name: Install dependencies
+        id: install
         working-directory: frontend
         run: npm ci
       - name: Install Chromium
+        id: chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
       - name: Browser tests
+        id: browser
         working-directory: frontend
         run: npm run test:e2e
+      - name: Upload browser report
+        id: report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-frontend-browser-junit
+          path: frontend/test-reports/browser.xml
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v6
+        id: traces
         if: failure()
         with:
           name: release-browser-test-results
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
+      - name: Summarize release browser tests
+        if: always()
+        env:
+          INSTALL_STATUS: ${{ steps.install.outcome }}
+          CHROMIUM_STATUS: ${{ steps.chromium.outcome }}
+          BROWSER_STATUS: ${{ steps.browser.outcome }}
+          REPORT_URL: ${{ steps.report.outputs.artifact-url }}
+          TRACE_URL: ${{ steps.traces.outputs.artifact-url }}
+        run: |
+          summary_status=0
+          {
+            echo '## Release browser tests'
+            echo
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Install dependencies | %s |\n' "${INSTALL_STATUS:-not run}"
+            printf '| Install Chromium | %s |\n' "${CHROMIUM_STATUS:-not run}"
+            printf '| Browser tests | %s |\n\n' "${BROWSER_STATUS:-not run}"
+            if [ -f tests/junit_summary.py ]; then
+              python tests/junit_summary.py "Desktop and mobile" frontend/test-reports/browser.xml || summary_status=1
+            else
+              echo 'JUnit summary unavailable: repository checkout did not complete.'
+            fi
+            echo
+            if [ -n "$REPORT_URL" ]; then
+              printf '[Download JUnit report](%s)\n\n' "$REPORT_URL"
+            fi
+            if [ -n "$TRACE_URL" ]; then
+              printf '[Download browser failure traces](%s)\n' "$TRACE_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$summary_status"
 
   compose-smoke:
     name: Docker Compose runtime smoke test
@@ -92,7 +178,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Start the real Compose stack and verify web/API/database
+        id: smoke
         run: ./tests/compose-smoke.sh
+      - name: Summarize Compose smoke test
+        if: always()
+        env:
+          SMOKE_STATUS: ${{ steps.smoke.outcome }}
+        run: |
+          printf '## Release Docker Compose smoke test\n\n| Check | Status |\n| --- | --- |\n| Web, API and database | %s |\n\nSee the step logs for details.\n' "${SMOKE_STATUS:-not run}" >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     needs: [test, frontend-browser, compose-smoke]
@@ -123,6 +216,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/cyberspaceconsulting/clinicpulse-backend:${{ env.IMAGE_TAG }}
+          build-args: |
+            CLINICPULSE_IMAGE_VERSION=${{ env.IMAGE_TAG }}
           provenance: true
           sbom: true
 
@@ -145,6 +240,7 @@ jobs:
           syft-version: v1.57.0
 
       - name: Generate and validate CycloneDX SBOM
+        id: sbom
         env:
           SYFT: ${{ steps.syft.outputs.cmd }}
           BACKEND_DIGEST: ${{ steps.backend_image.outputs.digest }}
@@ -188,9 +284,10 @@ jobs:
           python -c "import json; d=json.load(open('dist/clinicpulse.cdx.json')); c=d.get('components', []); assert d['bomFormat'] == 'CycloneDX' and d['specVersion'] == '1.5' and c; assert all(any(x.get('name', '').lower() == n for x in c) for n in ('fastapi', 'vue', 'vite'))"
 
       - name: Prepare pinned release artifacts
+        id: prepare
         run: |
           mkdir -p dist
-          sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g; s/__VERSION__/${IMAGE_TAG#v}/g" \
+          sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g" \
             docker/compose.release.yaml > dist/compose.yaml
           cp deploy/install.sh dist/install.sh
           cp docker/compose.encrypted.yaml dist/compose.encrypted.yaml
@@ -199,6 +296,7 @@ jobs:
           (cd dist && sha256sum compose.yaml compose.encrypted.yaml install.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)
 
       - name: Publish release artifacts
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -206,3 +304,23 @@ jobs:
           case "$IMAGE_TAG" in *-*) prerelease="--prerelease";; esac
           gh release view "$IMAGE_TAG" >/dev/null 2>&1 || gh release create "$IMAGE_TAG" --title "$IMAGE_TAG" --generate-notes $prerelease
           gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/install.sh dist/clinicpulse.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS --clobber
+      - name: Summarize release publication
+        if: always()
+        env:
+          BACKEND_STATUS: ${{ steps.backend_image.outcome }}
+          WEB_STATUS: ${{ steps.web_image.outcome }}
+          SBOM_STATUS: ${{ steps.sbom.outcome }}
+          PREPARE_STATUS: ${{ steps.prepare.outcome }}
+          PUBLISH_STATUS: ${{ steps.publish.outcome }}
+        run: |
+          {
+            printf '## Release publication\n\nTag: `%s`\n\n' "$IMAGE_TAG"
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Backend image | %s |\n' "${BACKEND_STATUS:-not run}"
+            printf '| Web image | %s |\n' "${WEB_STATUS:-not run}"
+            printf '| Generate and validate SBOM | %s |\n' "${SBOM_STATUS:-not run}"
+            printf '| Prepare release artifacts | %s |\n' "${PREPARE_STATUS:-not run}"
+            printf '| Publish release artifacts | %s |\n' "${PUBLISH_STATUS:-not run}"
+            echo
+            echo 'See the Docker build summaries and step logs for details.'
+          } >> "$GITHUB_STEP_SUMMARY"

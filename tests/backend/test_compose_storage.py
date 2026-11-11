@@ -47,6 +47,16 @@ def test_release_images_identify_repository_for_ghcr_access(dockerfile):
     assert GHCR_SOURCE_LABEL in dockerfile.read_text(encoding="utf-8")
 
 
+def test_release_image_version_is_built_from_the_actual_tag():
+    workflow = (ROOT / ".github" / "workflows" / "release-images.yml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker" / "api.Dockerfile").read_text(encoding="utf-8")
+    compose = (ROOT / "docker" / "compose.release.yaml").read_text(encoding="utf-8")
+    assert "CLINICPULSE_IMAGE_VERSION=${{ env.IMAGE_TAG }}" in workflow
+    assert "CLINICPULSE_IMAGE_VERSION=${CLINICPULSE_IMAGE_VERSION}" in dockerfile
+    assert "clinicpulse-backend:__IMAGE_TAG__" in compose
+    assert "CLINICPULSE_VERSION:" not in compose
+
+
 @pytest.mark.parametrize("base", [ROOT / "docker" / "docker-compose.yml", ROOT / "docker" / "compose.release.yaml"])
 def test_encrypted_storage_overlay_keeps_database_mount_explicit(base, tmp_path):
     environment = os.environ.copy()
