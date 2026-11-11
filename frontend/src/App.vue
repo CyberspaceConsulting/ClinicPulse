@@ -83,6 +83,7 @@ type ShiftType = {
   break_minutes: number
   break_start_minutes: number
   department_id: number | null
+  staffing_requirements?: { position: string; required_staff: number }[]
 }
 type Assignment = {
   id: number
@@ -264,6 +265,7 @@ const weekOffset = ref(0)
 const selectedDay = ref<string | null>(null)
 const showEmployeeForm = ref(false)
 const showShiftForm = ref(false)
+const editingShiftId = ref<number | null>(null)
 const showAssignmentForm = ref(false)
 const showSettings = ref(false)
 const settingsTab = ref('appearance')
@@ -332,9 +334,11 @@ const employeeEmail = ref('')
 const employeePassword = ref('')
 const employeeCustomRole = ref('')
 const shiftName = ref('')
-const shiftPosition = ref('Pflegefachkraft')
 const shiftBreak = ref<number | null>(null)
 const shiftBreakStart = ref<number | null>(null)
+const shiftRequirements = ref<{ position: string; required_staff: number }[]>([
+  { position: 'Pflegefachkraft', required_staff: 1 },
+])
 const workRules = ref({ rest_hours: 11, max_daily_hours: 10, max_weekly_hours: 48 })
 const workRulesMessage = ref(false)
 const businessConfiguration = ref<BusinessConfiguration>({
@@ -344,7 +348,6 @@ const businessConfiguration = ref<BusinessConfiguration>({
   sunday_work_authorized: false,
 })
 const businessConfigurationMessage = ref(false)
-const requiredStaff = ref(1)
 const shiftStart = ref('07:00')
 const shiftEnd = ref('15:00')
 const selectedEmployee = ref('')
@@ -389,6 +392,7 @@ const userCanApprove = ref(false)
 const userEmployeeId = ref<number | null>(null)
 const allEmployees = ref<Employee[]>([])
 const showAbsences = ref(false)
+const showNextShifts = ref(false)
 const showArchive = ref(false)
 interface PlanArchiveSummary { id: number; created_at: string; created_by: string; start_date: string; end_date: string; department_id: number | null; department_name: string; note: string | null; entry_count: number; content_sha256: string }
 const planArchives = ref<PlanArchiveSummary[]>([])
@@ -399,7 +403,14 @@ const archiveNote = ref('')
 const archiveSettings = ref<{ auto_enabled: boolean; period: string; last_period_end: string | null }>({ auto_enabled: false, period: 'monthly', last_period_end: null })
 const archiveSettingsMessage = ref(false)
 const idleTimeoutMessage = ref(false)
-const canViewArchive = computed(() => ['OBERARZT', 'CHEFARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value))
+const canViewArchive = computed(() =>
+  ['OBERARZT', 'CHEFARZT'].includes(roleKey.value)
+  || (roleKey.value === 'HOSPITAL_MANAGEMENT' && canView.value),
+)
+const canViewAbsences = computed(() =>
+  roleKey.value === 'EMPLOYEE'
+  || (canView.value && ['OBERARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value)),
+)
 const absences = ref<Absence[]>([])
 const absenceKind = ref<Absence['kind']>('vacation')
 const absenceStart = ref('')
@@ -452,10 +463,10 @@ const totalHours = computed(() => assignments.value.reduce((total, assignment) =
   return total + (new Date(assignment.ends_at).getTime() - new Date(assignment.starts_at).getTime()) / 3_600_000
 }, 0))
 const notifications = computed(() => days.value.flatMap((day) => {
+  if (roleKey.value === 'EMPLOYEE') return []
   const date = localDate(day)
   return shiftTypes.value.flatMap((shift) => {
-    const filled = assignmentsFor(date, shift.id).length
-    const open = Math.max(0, shift.required_staff - filled)
+    const open = openStaffingCount(date, shift)
     return open ? [{
       id: `${date}-${shift.id}`,
       date,
@@ -466,6 +477,7 @@ const notifications = computed(() => days.value.flatMap((day) => {
 }))
 const notificationDays = ref(14)
 const notificationHistory = ref<{ id: string; date: string; count: number; position: string; shiftName: string }[]>([])
+const nextAssignments = ref<Assignment[]>([])
 const notificationsLoading = ref(false)
 const pageTitle = computed(() => {
   if (!setupChecked.value) return t('page.starting')
@@ -478,6 +490,7 @@ const pageTitle = computed(() => {
   if (showSettings.value) return t('page.settings')
   if (showProfile.value) return t('page.profile')
   if (showNotifications.value) return t('page.notifications')
+  if (showNextShifts.value) return t('schedule.nextShifts')
   if (selectedDay.value) return dateLabel(selectedDay.value)
   return t('page.schedule')
 })
@@ -490,6 +503,7 @@ const selectedPlanName = computed(() =>
 )
 const licenseReadOnly = computed(() => licenseInfo.value?.read_only ?? true)
 const canEditPlan = computed(() => roleKey.value === 'OBERARZT' && canEdit.value && !licenseReadOnly.value)
+const hasScheduleAccess = computed(() => roleKey.value !== 'ADMIN' && canView.value)
 
 watch(pageTitle, (title) => {
   document.title = `ClinicPulse – ${title}`
@@ -542,12 +556,16 @@ const planningLoad = computed(() => {
 
 watch(userRoleKey, (role) => {
   if (role !== 'EMPLOYEE') userEmployeeId.value = null
-  if (role === 'KIOSK' || role === 'EMPLOYEE') {
+  if (role === 'HOSPITAL_MANAGEMENT') {
+    userCanView.value = false
+    userCanEdit.value = false
+    userCanApprove.value = false
+  } else if (role === 'KIOSK' || role === 'EMPLOYEE') {
     userCanView.value = true
     userCanEdit.value = false
     userCanApprove.value = false
   }
-})
+}, { flush: 'sync' })
 
 function localDate(date: Date) {
   return date.toLocaleDateString('sv-SE')
@@ -646,8 +664,7 @@ async function checkSetup(restoreSession = true) {
         if (mustChangePassword.value) return
         if (canManageTeam.value) await loadMailMode()
         await loadData()
-        if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
-          teamNotice.value = { key: 'management.welcomeLater' }
+        if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
           await openManagement()
         }
         void checkForUpdates()
@@ -675,7 +692,7 @@ async function loadRoleCatalog() {
 
 async function loadData() {
   void loadRoleCatalog()
-  if (!authenticated.value || !canView.value) return
+  if (!authenticated.value || !hasScheduleAccess.value) return
   busy.value = true
   error.value = ''
   try {
@@ -684,9 +701,7 @@ async function loadData() {
     const [allStaff, allShifts, allAssignments, organization] = await Promise.all([
       api<Employee[]>('/employees'),
       api<ShiftType[]>('/shift-types'),
-      roleKey.value === 'ADMIN'
-        ? Promise.resolve<Assignment[]>([])
-        : api<Assignment[]>(`/assignments?from=${from}&to=${to}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
+      api<Assignment[]>(`/assignments?from=${from}&to=${to}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`),
       api<Department[]>('/departments'),
     ])
     departments.value = organization
@@ -803,14 +818,34 @@ async function createArchive() {
 }
 
 async function openAbsences() {
+  if (roleKey.value === 'ADMIN' || !canView.value) return
   showPlanning.value = false
   showNotifications.value = false
+  showNextShifts.value = false
   selectedDay.value = null
   showAbsences.value = true
   absenceStart.value = absenceStart.value || localDate(new Date())
   absenceEnd.value = absenceEnd.value || absenceStart.value
   if (!absenceEmployeeId.value && employees.value.length) absenceEmployeeId.value = String(employees.value[0].id)
   await loadAbsences()
+}
+
+async function openNextShifts() {
+  showPlanning.value = false
+  showNotifications.value = false
+  showAbsences.value = false
+  showNextShifts.value = true
+  const start = localDate(new Date())
+  const endDate = new Date()
+  endDate.setDate(endDate.getDate() + 62)
+  try {
+    const assignments = await api<Assignment[]>(
+      `/assignments?from=${start}&to=${localDate(endDate)}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`,
+    )
+    nextAssignments.value = assignments.filter((item) => new Date(item.starts_at).getTime() >= Date.now())
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.loadData')
+  }
 }
 
 async function submitAbsence() {
@@ -1250,6 +1285,9 @@ async function login() {
     if (mustChangePassword.value) return
     if (canManageTeam.value) await loadMailMode()
     await loadData()
+    if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
+      await openManagement()
+    }
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
@@ -1281,6 +1319,9 @@ async function changeRequiredPassword() {
     requiredPasswordConfirm.value = ''
     if (canManageTeam.value) await loadMailMode()
     await loadData()
+    if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
+      await openManagement()
+    }
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
@@ -1339,8 +1380,7 @@ async function completeSetup() {
     setupPasswordConfirm.value = ''
     setupLicenseToken.value = ''
     await loadData()
-    if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
-      teamNotice.value = { key: 'management.welcome' }
+    if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
       await openManagement()
     }
     void checkForUpdates()
@@ -1458,21 +1498,30 @@ function newEmployee() {
 
 async function submitShift() {
   try {
-    await api('/shift-types', {
-      method: 'POST',
+    const existing = editingShiftId.value === null
+      ? undefined
+      : shiftTypes.value.find((item) => item.id === editingShiftId.value)
+    await api(editingShiftId.value === null ? '/shift-types' : `/shift-types/${editingShiftId.value}`, {
+      method: editingShiftId.value === null ? 'POST' : 'PUT',
       body: JSON.stringify({
         name: shiftName.value.trim(),
         start_time: `${shiftStart.value}:00`,
         end_time: `${shiftEnd.value}:00`,
-        color: '#287b71',
-        position: shiftPosition.value.trim(),
-        required_staff: requiredStaff.value,
+        color: existing?.color ?? '#287b71',
+        position: shiftRequirements.value[0]?.position.trim() ?? 'Pflegefachkraft',
+        required_staff: shiftRequirements.value.reduce((sum, item) => sum + item.required_staff, 0),
+        staffing_requirements: shiftRequirements.value.map((item) => ({
+          position: item.position.trim(),
+          required_staff: item.required_staff,
+        })),
         break_minutes: shiftBreak.value,
         break_start_minutes: shiftBreakStart.value,
-        department_id: selectedPlanId.value ?? departmentId.value,
+        department_id: existing?.department_id ?? selectedPlanId.value ?? departmentId.value,
       }),
     })
+    editingShiftId.value = null
     shiftName.value = ''
+    shiftRequirements.value = [{ position: 'Pflegefachkraft', required_staff: 1 }]
     shiftBreak.value = null
     shiftBreakStart.value = null
     showShiftForm.value = false
@@ -1480,6 +1529,93 @@ async function submitShift() {
   } catch (err) {
     error.value = err instanceof Error ? err : new TranslatedError('errors.createShift')
   }
+}
+
+function startNewShift() {
+  editingShiftId.value = null
+  shiftName.value = ''
+  shiftStart.value = '07:00'
+  shiftEnd.value = '15:00'
+  shiftRequirements.value = [{ position: defaultEmployeeRole.value, required_staff: 1 }]
+  shiftBreak.value = null
+  shiftBreakStart.value = null
+  showShiftForm.value = true
+}
+
+function editShift(shift: ShiftType) {
+  editingShiftId.value = shift.id
+  shiftName.value = shift.name
+  shiftStart.value = shift.start_time.slice(0, 5)
+  shiftEnd.value = shift.end_time.slice(0, 5)
+  shiftRequirements.value = shift.staffing_requirements?.length
+    ? shift.staffing_requirements.map((item) => ({ ...item }))
+    : [{ position: shift.position, required_staff: shift.required_staff }]
+  shiftBreak.value = shift.break_minutes
+  shiftBreakStart.value = shift.break_start_minutes
+  showShiftForm.value = true
+}
+
+function addShiftRequirement() {
+  shiftRequirements.value.push({ position: defaultEmployeeRole.value, required_staff: 1 })
+}
+
+function removeShiftRequirement(index: number) {
+  if (shiftRequirements.value.length > 1) shiftRequirements.value.splice(index, 1)
+}
+
+async function removeShift(shift: ShiftType) {
+  if (!window.confirm(t('form.confirmDeleteShift', { name: shift.name }))) return
+  try {
+    await api(`/shift-types/${shift.id}`, { method: 'DELETE' })
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.deleteShift')
+  }
+}
+
+function requirementsFor(shift: ShiftType) {
+  return shift.staffing_requirements?.length
+    ? shift.staffing_requirements
+    : [{ position: shift.position, required_staff: shift.required_staff }]
+}
+
+function openPositionsFor(date: string, shift: ShiftType) {
+  if (roleKey.value === 'EMPLOYEE') return []
+  const assigned = assignmentsFor(date, shift.id)
+  const requirements = requirementsFor(shift)
+  if (requirements.length === 1) {
+    return Array.from(
+      { length: Math.max(0, requirements[0].required_staff - assigned.length) },
+      () => requirements[0].position,
+    )
+  }
+  return requirements.flatMap((requirement) => {
+    const matching = assigned.filter((assignment) =>
+      employees.value.find((employee) => employee.id === assignment.employee_id)?.role.trim().toLocaleLowerCase()
+      === requirement.position.trim().toLocaleLowerCase())
+    return Array.from(
+      { length: Math.max(0, requirement.required_staff - matching.length) },
+      () => requirement.position,
+    )
+  })
+}
+
+function openStaffingCount(date: string, shift: ShiftType) {
+  return openPositionsFor(date, shift).length
+}
+
+function staffingSummary(shift: ShiftType) {
+  return requirementsFor(shift)
+    .map((item) => `${item.required_staff} × ${catalogFunctionLabel(item.position)}`)
+    .join(' · ')
+}
+
+function assignmentPosition(assignment: Assignment, shift: ShiftType) {
+  const employeeRole = employees.value.find((employee) => employee.id === assignment.employee_id)?.role
+  return requirementsFor(shift).find((item) =>
+    item.position.trim().toLocaleLowerCase() === employeeRole?.trim().toLocaleLowerCase())?.position
+    ?? employeeRole
+    ?? shift.position
 }
 
 function shiftInterval(date: string, shift: ShiftType) {
@@ -1568,6 +1704,7 @@ async function approveCandidate(candidate: Candidate) {
 function openPlanning() {
   showAbsences.value = false
   showNotifications.value = false
+  showNextShifts.value = false
   showPlanning.value = true
   selectedDay.value = null
 }
@@ -1730,7 +1867,7 @@ function resetUserForm() {
     userRoleKey.value = roleKey.value === 'PERSONNEL' ? 'EMPLOYEE' : 'OBERARZT'
     userDepartmentIds.value = departments.value.length ? [departments.value[0].id] : []
     userEmployeeId.value = null
-    userCanView.value = true
+    userCanView.value = userRoleKey.value !== 'HOSPITAL_MANAGEMENT'
     userCanEdit.value = false
     userCanApprove.value = false
   }
@@ -1905,6 +2042,7 @@ function moveWeek(amount: number) {
 
 function selectPlan(departmentId: number | null) {
   showAbsences.value = false
+  showNextShifts.value = false
   if (selectedPlanId.value === departmentId) return
   showNotifications.value = false
   selectedPlanId.value = departmentId
@@ -1919,6 +2057,7 @@ function selectPlan(departmentId: number | null) {
 function openNotification(item: { date: string }) {
   selectedDay.value = item.date
   showNotifications.value = false
+  showNextShifts.value = false
 }
 
 async function loadNotificationHistory() {
@@ -1928,6 +2067,11 @@ async function loadNotificationHistory() {
   }
   notificationsLoading.value = true
   try {
+    if (roleKey.value === 'EMPLOYEE') {
+      absences.value = await api<Absence[]>('/absences')
+      notificationHistory.value = []
+      return
+    }
     const today = new Date()
     const start = new Date(today)
     start.setDate(start.getDate() - notificationDays.value)
@@ -1959,6 +2103,7 @@ async function loadNotificationHistory() {
 
 function openNotificationsPage() {
   showAbsences.value = false
+  showNextShifts.value = false
   showPlanning.value = false
   selectedDay.value = null
   showNotifications.value = true
@@ -2073,17 +2218,18 @@ onBeforeUnmount(() => {
     <aside class="sidebar">
       <a class="brand" href="#"><span class="brand-mark small">C</span><span class="brand-text">Clinic<span class="brand-light">Pulse</span></span></a>
       <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')" :title="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')" @click="toggleSidebar">{{ sidebarCollapsed ? '»' : '«' }}</button>
-      <div v-if="roleKey !== 'PERSONNEL'" class="plan-nav-list">
+      <div v-if="hasScheduleAccess && canManage && roleKey !== 'PERSONNEL'" class="plan-nav-list">
         <p class="nav-caption">{{ t('nav.schedules') }}</p>
         <button v-if="canManage" class="nav-item plan-nav-item" :title="t('nav.allSchedules')" :class="{ active: selectedPlanId === null }" @click="selectPlan(null)"><span>▦</span> {{ t('nav.allSchedules') }}</button>
         <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
       </div>
       <p class="nav-caption nav-caption-spaced">{{ t('nav.workspace') }}</p>
-      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
+      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
+      <button v-if="roleKey === 'EMPLOYEE'" class="nav-item" :title="t('schedule.nextShifts')" :class="{ active: showNextShifts }" @click="void openNextShifts()"><span>◷</span> {{ t('schedule.nextShifts') }}</button>
       <button v-if="canEditPlan" class="nav-item" :title="t('page.planning')" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> {{ t('page.planning') }}</button>
-      <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
+      <button v-if="canViewAbsences" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
       <button v-if="canViewArchive" class="nav-item" :title="t('page.archive')" @click="void openArchive()"><span>▤</span> {{ t('page.archive') }}</button>
-      <button v-if="roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.notifications')" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> {{ t('page.notifications') }} <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
+      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.notifications')" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> {{ t('page.notifications') }} <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
       <button v-if="canManageTeam" class="nav-item" :title="t('nav.teamManagement')" :class="{ active: showManagement }" @click="void openManagement()"><span>♙</span> {{ t('nav.teamManagement') }}</button>
       <div class="sidebar-bottom">
         <button class="profile profile-button" :title="t('nav.myProfile')" @click="void openProfile()">
@@ -2098,11 +2244,12 @@ onBeforeUnmount(() => {
 
     <section class="workspace">
       <nav class="mobile-navigation" :aria-label="t('nav.mobileNavigation')">
-        <button v-if="roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; selectedDay = null">{{ t('page.schedule') }}</button>
+        <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null">{{ t('page.schedule') }}</button>
+        <button v-if="roleKey === 'EMPLOYEE'" @click="void openNextShifts()">{{ t('schedule.nextShifts') }}</button>
         <button v-if="canEditPlan" @click="openPlanning()">{{ t('page.planning') }}</button>
-        <button v-if="roleKey !== 'KIOSK' && roleKey !== 'PERSONNEL'" @click="void openAbsences()">{{ t('page.absences') }}</button>
+        <button v-if="canViewAbsences" @click="void openAbsences()">{{ t('page.absences') }}</button>
         <button v-if="canViewArchive" @click="void openArchive()">{{ t('page.archive') }}</button>
-        <button v-if="roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">{{ t('page.notifications') }}</button>
+        <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">{{ t('page.notifications') }}</button>
         <button v-if="canManageTeam" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
         <button @click="logout()">{{ t('nav.signOut') }}</button>
       </nav>
@@ -2110,13 +2257,13 @@ onBeforeUnmount(() => {
         <div class="breadcrumb">{{ t('nav.workspaceLabel') }} <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? t('nav.dayView') : t('nav.weekView') }}</div>
         <div class="topbar-right">
           <LanguageSelector compact />
-          <select class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
+          <select v-if="hasScheduleAccess" class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
             <option v-if="canManage" value="all">{{ t('nav.allSchedules') }}</option>
             <option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option>
           </select>
           <span class="status-dot"></span> {{ t('nav.connected') }}
           <div class="notification-wrap">
-            <button class="icon-button notification-button" :aria-label="t('nav.openNotifications')" @click="openNotificationsPage()">♧<span v-if="notifications.length" class="notification-count">{{ notifications.length }}</span></button>
+            <button v-if="hasScheduleAccess" class="icon-button notification-button" :aria-label="t('nav.openNotifications')" @click="openNotificationsPage()">♧<span v-if="notifications.length" class="notification-count">{{ notifications.length }}</span></button>
           </div>
           <button v-if="canManageTeam" class="secondary management-button" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
           <button class="icon-button" :aria-label="t('page.settings')" @click="openAppSettings()">⚙</button>
@@ -2216,9 +2363,9 @@ onBeforeUnmount(() => {
           <div>
             <p class="eyebrow">{{ t('notifications.eyebrow') }}</p>
             <h1>{{ t('page.notifications') }}</h1>
-            <p class="muted">{{ t('notifications.description') }}</p>
+            <p class="muted">{{ t(roleKey === 'EMPLOYEE' ? 'notifications.employeeDescription' : 'notifications.description') }}</p>
           </div>
-          <label class="notification-range">{{ t('notifications.period') }}
+          <label v-if="roleKey !== 'EMPLOYEE'" class="notification-range">{{ t('notifications.period') }}
             <select v-model.number="notificationDays" @change="void loadNotificationHistory()">
               <option v-for="days in [7, 14, 30, 90]" :key="days" :value="days">{{ t('notifications.lastDays', { count: days }) }}</option>
             </select>
@@ -2226,11 +2373,34 @@ onBeforeUnmount(() => {
         </div>
         <section class="notification-page">
           <p v-if="notificationsLoading" class="notification-empty">{{ t('notifications.loading') }}</p>
+          <template v-if="roleKey === 'EMPLOYEE'">
+            <article v-for="absence in absences" :key="`absence-${absence.id}`" class="notification-item">
+              <span class="notification-warning">{{ absence.kind === 'sick' ? 'i' : absence.status === 'approved' ? '✓' : absence.status === 'rejected' ? '×' : '…' }}</span>
+              <span><strong>{{ t('notifications.absenceStatus', { kind: kindLabels[absence.kind], status: absence.kind === 'sick' ? t('notifications.sickReported') : statusLabels[absence.status] }) }}</strong><small>{{ dateLabel(absence.start_date) }} – {{ dateLabel(absence.end_date) }}</small></span>
+            </article>
+          </template>
           <button v-for="item in notificationHistory" :key="item.id" class="notification-item" @click="openNotification(item)">
             <span class="notification-warning">!</span><span><strong>{{ t(item.count === 1 ? 'notifications.gapOne' : 'notifications.gapOther', { count: item.count, position: item.position, shift: item.shiftName }) }}</strong><small>{{ dateLabel(item.date) }}</small></span>
           </button>
-          <p v-if="!notificationsLoading && !notificationHistory.length" class="notification-empty">{{ t('notifications.empty') }}</p>
+          <p v-if="!notificationsLoading && (roleKey === 'EMPLOYEE' ? !absences.length : !notificationHistory.length)" class="notification-empty">{{ t('notifications.empty') }}</p>
         </section>
+      </main>
+      <main v-else-if="showNextShifts" class="content">
+        <div class="page-heading">
+          <div><p class="eyebrow">{{ t('planning.eyebrow') }}</p><h1>{{ t('schedule.nextShifts') }}</h1><p class="muted">{{ t('schedule.nextShiftsDescription') }}</p></div>
+        </div>
+        <section class="panel next-shifts-list">
+          <article v-for="assignment in nextAssignments" :key="assignment.id" class="management-row">
+            <div><strong>{{ assignment.shift_name }}</strong><small>{{ dateLabel(localDate(new Date(assignment.starts_at))) }} · {{ timeLabel(assignment.starts_at) }}–{{ timeLabel(assignment.ends_at) }}</small></div>
+          </article>
+          <p v-if="!nextAssignments.length" class="notification-empty">{{ t('schedule.noNextShifts') }}</p>
+        </section>
+      </main>
+      <main v-else-if="!hasScheduleAccess" class="content">
+        <div class="page-heading">
+          <div><p class="eyebrow">{{ t('management.title') }}</p><h1>{{ t('management.accessRestrictedTitle') }}</h1><p class="muted">{{ t('management.accessRestrictedDescription') }}</p></div>
+          <button v-if="canManageTeam" class="primary" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
+        </div>
       </main>
       <main v-else class="content">
         <div class="page-heading">
@@ -2261,24 +2431,28 @@ onBeforeUnmount(() => {
           <button class="secondary" :disabled="licenseCheckBusy" @click="void checkLicenseNow()">{{ licenseCheckBusy ? t('license.checking') : t('license.checkNow') }}</button>
         </section>
 
-        <template v-if="canView">
+        <template v-if="hasScheduleAccess">
         <section class="stats">
           <article class="stat-card"><span class="stat-icon teal">▦</span><div><span class="stat-label">{{ t('schedule.plannedShifts') }}</span><strong>{{ assignments.length }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
           <article class="stat-card"><span class="stat-icon blue">◷</span><div><span class="stat-label">{{ t('schedule.plannedHours') }}</span><strong>{{ totalHours.toLocaleString(locale, { maximumFractionDigits: 0 }) }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
-          <article class="stat-card"><span class="stat-icon" :class="notifications.length ? 'amber' : 'teal'">!</span><div><span class="stat-label">{{ t('schedule.openPositions') }}</span><strong>{{ notifications.reduce((sum, item) => sum + item.count, 0) }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
+          <article v-if="roleKey !== 'EMPLOYEE'" class="stat-card"><span class="stat-icon" :class="notifications.length ? 'amber' : 'teal'">!</span><div><span class="stat-label">{{ t('schedule.openPositions') }}</span><strong>{{ notifications.reduce((sum, item) => sum + item.count, 0) }}</strong></div><small>{{ t('schedule.thisWeek') }}</small></article>
         </section>
 
         <section v-if="!selectedDay" class="today-panel panel">
           <header class="today-heading">
-            <div><p class="eyebrow">{{ t('schedule.today').toLocaleUpperCase(locale) }}</p><h2>{{ dateLabel(localDate(today)) }}</h2><p class="muted">{{ shiftCountLabel(dateAssignments(today).length) }} · {{ openCountLabel(shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(today), shift.id).length), 0)) }}</p></div>
+            <div><p class="eyebrow">{{ t('schedule.today').toLocaleUpperCase(locale) }}</p><h2>{{ dateLabel(localDate(today)) }}</h2><p class="muted">{{ shiftCountLabel(dateAssignments(today).length) }}<template v-if="roleKey !== 'EMPLOYEE'"> · {{ openCountLabel(shiftTypes.reduce((sum, shift) => sum + openStaffingCount(localDate(today), shift), 0)) }}</template></p></div>
             <button class="secondary" @click="selectedDay = localDate(today)">{{ t('schedule.openDay') }}</button>
           </header>
           <div v-if="shiftTypes.length" class="today-shifts">
-            <article v-for="shift in shiftTypes" :key="shift.id" class="today-shift">
+            <article v-for="shift in (roleKey === 'EMPLOYEE' ? shiftTypes.filter((item) => assignmentsFor(localDate(today), item.id).length) : shiftTypes)" :key="shift.id" class="today-shift">
               <span class="shift-color" :style="{ background: shift.color }"></span>
-              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }}</small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || t('schedule.noAssignments') }}</p></div>
-              <span v-if="shift.required_staff > assignmentsFor(localDate(today), shift.id).length" class="overview-gap">{{ t('schedule.openCount', { count: shift.required_staff - assignmentsFor(localDate(today), shift.id).length }) }}</span>
-              <span v-else class="overview-filled">{{ t('schedule.filled') }}</span>
+              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}<template v-if="roleKey !== 'EMPLOYEE'"> · {{ staffingSummary(shift) }}</template></small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || t('schedule.noAssignments') }}</p></div>
+              <span v-if="roleKey !== 'EMPLOYEE' && openStaffingCount(localDate(today), shift)" class="overview-gap">{{ t('schedule.openCount', { count: openStaffingCount(localDate(today), shift) }) }}</span>
+              <span v-else-if="roleKey !== 'EMPLOYEE'" class="overview-filled">{{ t('schedule.filled') }}</span>
+              <div v-if="canEditPlan" class="shift-actions">
+                <button class="text-button" @click="editShift(shift)">{{ t('management.edit') }}</button>
+                <button class="text-button danger-text" @click="void removeShift(shift)">{{ t('management.delete') }}</button>
+              </div>
             </article>
           </div>
           <p v-else class="muted today-empty">{{ t('schedule.noShifts') }}</p>
@@ -2291,14 +2465,14 @@ onBeforeUnmount(() => {
               <template v-if="!selectedDay">
                 <div class="week-nav"><button :aria-label="t('schedule.previousWeek')" @click="moveWeek(-1)">‹</button><button @click="weekOffset = 0; void loadData()">{{ t('schedule.today') }}</button><button :aria-label="t('schedule.nextWeek')" @click="moveWeek(1)">›</button></div>
                 <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
-                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.addShiftType') }}</button>
+                <button v-if="canEditPlan" class="secondary" @click="startNewShift">{{ t('schedule.addShiftType') }}</button>
               </template>
               <template v-else>
                 <button v-if="canEditPlan" class="secondary" :disabled="optimizationBusy" @click="void optimizeSelectedDay()">
                   {{ optimizationBusy ? t('planning.calculating') : t('schedule.optimize') }}
                 </button>
                 <button v-if="canManageTeam && !licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
-                <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.addShiftType') }}</button>
+                <button v-if="canEditPlan" class="secondary" @click="startNewShift">{{ t('schedule.addShiftType') }}</button>
               </template>
             </div>
           </div>
@@ -2308,7 +2482,7 @@ onBeforeUnmount(() => {
             <p>{{ t('schedule.emptyDescription') }}</p>
             <div class="empty-actions">
               <button v-if="canManageTeam" class="secondary" @click="void openManagement()">{{ t('schedule.openManagement') }}</button>
-              <button v-if="canEditPlan" class="secondary" @click="showShiftForm = true">{{ t('schedule.createShiftType') }}</button>
+              <button v-if="canEditPlan" class="secondary" @click="startNewShift">{{ t('schedule.createShiftType') }}</button>
             </div>
           </div>
 
@@ -2317,10 +2491,10 @@ onBeforeUnmount(() => {
               <span class="overview-weekday">{{ day.toLocaleDateString(locale, { weekday: 'long' }) }}</span>
               <strong class="overview-date">{{ day.toLocaleDateString(locale, { day: '2-digit', month: 'short' }) }}</strong>
               <span class="overview-shifts">{{ shiftCountLabel(dateAssignments(day).length) }}</span>
-              <span v-if="shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0)" class="overview-gap">
-                {{ t('schedule.openCount', { count: shiftTypes.reduce((sum, shift) => sum + Math.max(0, shift.required_staff - assignmentsFor(localDate(day), shift.id).length), 0) }) }}
+              <span v-if="roleKey !== 'EMPLOYEE' && shiftTypes.reduce((sum, shift) => sum + openStaffingCount(localDate(day), shift), 0)" class="overview-gap">
+                {{ t('schedule.openCount', { count: shiftTypes.reduce((sum, shift) => sum + openStaffingCount(localDate(day), shift), 0) }) }}
               </span>
-              <span v-else class="overview-filled">{{ t('schedule.fullyStaffed') }}</span>
+              <span v-else-if="roleKey !== 'EMPLOYEE'" class="overview-filled">{{ t('schedule.fullyStaffed') }}</span>
               <span class="overview-link">{{ t('schedule.viewDay') }}</span>
             </button>
           </div>
@@ -2352,21 +2526,23 @@ onBeforeUnmount(() => {
                 </p>
               </template>
             </section>
-            <div v-for="shift in shiftTypes" :key="shift.id" class="shift-section">
+            <div v-for="shift in (roleKey === 'EMPLOYEE' ? shiftTypes.filter((item) => assignmentsFor(selectedDay!, item.id).length) : shiftTypes)" :key="shift.id" class="shift-section">
               <header class="shift-section-heading">
                 <div class="shift-color" :style="{ background: shift.color }"></div>
-                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }} · {{ shift.position }} · {{ t('schedule.required', { count: shift.required_staff }) }}</p></div>
-                <span class="coverage-count">{{ assignmentsFor(selectedDay, shift.id).length }}/{{ shift.required_staff }}</span>
-                <button v-if="(canEditPlan || (canApprove && !licenseReadOnly))" class="secondary smart-button" @click="suggestFor(selectedDay, shift)">{{ t('schedule.smartSelection') }}</button>
+                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}<template v-if="roleKey !== 'EMPLOYEE'"> · {{ staffingSummary(shift) }}</template></p></div>
+                <span v-if="roleKey !== 'EMPLOYEE'" class="coverage-count">{{ assignmentsFor(selectedDay, shift.id).length }}/{{ shift.required_staff }}</span>
+                <button v-if="canEditPlan" class="text-button" @click="editShift(shift)">{{ t('management.edit') }}</button>
+                <button v-if="canEditPlan" class="text-button danger-text" @click="void removeShift(shift)">{{ t('management.delete') }}</button>
+                <button v-if="canEditPlan" class="secondary smart-button" @click="suggestFor(selectedDay, shift)">{{ t('schedule.smartSelection') }}</button>
               </header>
               <div class="position-slots">
                 <article v-for="(assignment, index) in assignmentsFor(selectedDay, shift.id)" :key="assignment.id" class="position-slot filled-slot">
                   <span class="slot-index">{{ index + 1 }}</span>
-                  <div class="slot-person"><span class="candidate-avatar"><img v-if="employeePhoto(assignment.employee_id)" :src="employeePhoto(assignment.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(assignment.employee_name) }}</template></span><div class="slot-employee"><strong>{{ assignment.employee_name }}</strong><small>{{ shift.position }} · {{ timeLabel(assignment.starts_at) }}–{{ timeLabel(assignment.ends_at) }}</small></div></div>
+                  <div class="slot-person"><span class="candidate-avatar"><img v-if="employeePhoto(assignment.employee_id)" :src="employeePhoto(assignment.employee_id) ?? undefined" alt="" /><template v-else>{{ initialsOf(assignment.employee_name) }}</template></span><div class="slot-employee"><strong>{{ assignment.employee_name }}</strong><small>{{ catalogFunctionLabel(assignmentPosition(assignment, shift)) }} · {{ timeLabel(assignment.starts_at) }}–{{ timeLabel(assignment.ends_at) }}</small></div></div>
                   <button v-if="canEditPlan" class="remove-assignment" :aria-label="t('schedule.removeAssignment', { name: assignment.employee_name })" @click="removeAssignment(assignment.id)">×</button>
                 </article>
                 <article
-                  v-for="slot in Math.max(0, shift.required_staff - assignmentsFor(selectedDay, shift.id).length)"
+                  v-for="(position, slot) in openPositionsFor(selectedDay, shift)"
                   :key="`gap-${shift.id}-${slot}`"
                   class="position-slot vacancy-slot"
                   :class="{ droppable: canEditPlan }"
@@ -2375,7 +2551,7 @@ onBeforeUnmount(() => {
                   @click="canEditPlan && (selectedDate = selectedDay!); canEditPlan && (selectedShift = String(shift.id)); canEditPlan && (showAssignmentForm = true)"
                 >
                   <span class="slot-index">{{ assignmentsFor(selectedDay, shift.id).length + slot }}</span>
-                  <div class="slot-employee"><strong>{{ t('schedule.openPosition') }}</strong><small>{{ shift.position }} · {{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}</small></div>
+                  <div class="slot-employee"><strong>{{ t('schedule.openPosition') }}</strong><small>{{ catalogFunctionLabel(position) }} · {{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}</small></div>
                   <span class="drag-hint">{{ t('schedule.dropOrSelect') }}</span>
                 </article>
                 <div v-if="smartGap?.date === selectedDay && smartGap.shift.id === shift.id" class="smart-panel">
@@ -2518,22 +2694,29 @@ onBeforeUnmount(() => {
           </form>
         </template>
         <template v-else-if="showShiftForm">
-          <p class="eyebrow">{{ t('form.shiftManagement') }}</p><h2>{{ t('form.createShiftType') }}</h2>
+          <p class="eyebrow">{{ t('form.shiftManagement') }}</p><h2>{{ t(editingShiftId === null ? 'form.createShiftType' : 'form.editShiftType') }}</h2>
           <form class="stack" @submit.prevent="submitShift">
             <label>{{ t('form.name') }}<input v-model="shiftName" maxlength="80" :placeholder="t('form.shiftExample')" required autofocus /></label>
-            <label>{{ t('form.requiredPosition') }}<input v-model="shiftPosition" maxlength="80" :placeholder="t('form.positionExample')" required /></label>
-            <label>{{ t('form.requiredEmployees') }}<input v-model.number="requiredStaff" type="number" min="1" max="100" required /></label>
+            <fieldset class="staffing-requirements">
+              <legend>{{ t('form.staffingRequirements') }}</legend>
+              <div v-for="(requirement, index) in shiftRequirements" :key="index" class="staffing-requirement">
+                <label>{{ t('form.requiredPosition') }}<input v-model="requirement.position" maxlength="80" :placeholder="t('form.positionExample')" required /></label>
+                <label>{{ t('form.requiredEmployees') }}<input v-model.number="requirement.required_staff" type="number" min="1" max="100" required /></label>
+                <button type="button" class="text-button danger-text" :aria-label="t('form.removeRequirement')" :disabled="shiftRequirements.length === 1" @click="removeShiftRequirement(index)">×</button>
+              </div>
+              <button type="button" class="text-button" @click="addShiftRequirement">{{ t('form.addRequirement') }}</button>
+            </fieldset>
             <div class="form-row"><label>{{ t('form.start') }}<input v-model="shiftStart" type="time" required /></label><label>{{ t('form.end') }}<input v-model="shiftEnd" type="time" required /></label></div>
             <label>{{ t('form.breakMinutes') }}<input v-model.number="shiftBreak" type="number" min="0" max="240" :placeholder="t('form.automatic')" /></label>
             <label>{{ t('form.breakStart') }}<input v-model.number="shiftBreakStart" type="number" min="0" max="360" :placeholder="t('form.automatic')" /></label>
-            <button class="primary full">{{ t('form.saveShiftType') }}</button>
+            <button class="primary full">{{ t(editingShiftId === null ? 'form.saveShiftType' : 'form.saveChanges') }}</button>
           </form>
         </template>
         <template v-else-if="showAssignmentForm">
           <p class="eyebrow">{{ t('planning.eyebrow') }}</p><h2>{{ t('form.addAssignment') }}</h2>
           <form class="stack" @submit.prevent="submitAssignment">
             <label>{{ t('form.employee') }}<select v-model="selectedEmployee" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
-            <label>{{ t('form.shiftType') }}<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ shift.position }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
+            <label>{{ t('form.shiftType') }}<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ staffingSummary(shift) }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
             <label>{{ t('form.date') }}<input v-model="selectedDate" type="date" required /></label>
             <button class="primary full">{{ t('form.saveAssignment') }}</button>
           </form>
@@ -2591,8 +2774,8 @@ onBeforeUnmount(() => {
               <label v-if="userRoleKey === 'EMPLOYEE'">{{ t('management.linkedPerson') }}<select v-model="userEmployeeId" required><option :value="null" disabled>{{ t('management.choose') }}</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
               <template v-if="userRoleKey !== 'PERSONNEL'">
                 <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.viewSchedule') }}</label>
-                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.editShifts') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
-                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.approveSuggestions') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
+                <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="userRoleKey === 'HOSPITAL_MANAGEMENT' || userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.editShifts') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
+                <label class="permission-toggle"><input v-model="userCanApprove" type="checkbox" :disabled="userRoleKey === 'HOSPITAL_MANAGEMENT' || userRoleKey === 'CHEFARZT' || userRoleKey === 'KIOSK' || userRoleKey === 'EMPLOYEE'" /> {{ t('management.approveSuggestions') }} <span class="permission-note">{{ t('management.seniorOnly') }}</span></label>
               </template>
               <div class="form-row"><button class="primary">{{ userId ? t('management.saveAccount') : t('management.createAccount') }}</button><button v-if="userId" type="button" class="secondary" @click="resetUserForm">{{ t('management.cancel') }}</button></div>
             </form>

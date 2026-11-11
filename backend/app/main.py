@@ -53,6 +53,7 @@ from .schemas import (
     SetupRequest,
     ShiftTypeCreate,
     ShiftTypeRead,
+    ShiftStaffingRequirementCreate,
     UserCreate,
     UserRead,
     UserUpdate,
@@ -325,6 +326,14 @@ def migrate_existing_database() -> None:
                     gross_duration(shift.start_time, shift.end_time), shift.break_minutes
                 )
             db.commit()
+    with SessionLocal() as db:
+        for shift in db.scalars(select(models.ShiftType)):
+            if not shift.staffing_requirements:
+                shift.staffing_requirements.append(models.ShiftStaffingRequirement(
+                    position=shift.position,
+                    required_staff=shift.required_staff,
+                ))
+        db.commit()
     setting_columns = {column["name"] for column in inspect(engine).get_columns("application_settings")}
     for column, default in (("rest_hours", 11), ("max_daily_hours", 10), ("max_weekly_hours", 48)):
         if column not in setting_columns:
@@ -1607,7 +1616,7 @@ def create_user(
         departments=list(db.scalars(
             select(models.Department).where(models.Department.id.in_(user.department_ids))
         )) if user.department_ids and user.role_key not in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else [],
-        can_view=True if user.role_key == "HOSPITAL_MANAGEMENT" else False if user.role_key == "PERSONNEL" else user.can_view,
+        can_view=False if user.role_key == "PERSONNEL" else user.can_view,
         can_edit=False if user.role_key in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else user.can_edit,
         can_approve=False if user.role_key in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else user.can_approve,
         is_locked=invite,
@@ -1676,7 +1685,7 @@ def update_user(
     user.departments = list(db.scalars(
         select(models.Department).where(models.Department.id.in_(changes.department_ids))
     )) if changes.department_ids and changes.role_key not in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else []
-    user.can_view = True if changes.role_key == "HOSPITAL_MANAGEMENT" else changes.can_view
+    user.can_view = False if changes.role_key == "PERSONNEL" else changes.can_view
     user.can_edit = False if changes.role_key == "HOSPITAL_MANAGEMENT" else changes.can_edit
     user.can_approve = False if changes.role_key == "HOSPITAL_MANAGEMENT" else changes.can_approve
     if changes.role_key == "PERSONNEL":
@@ -2043,7 +2052,7 @@ def delete_employee(
 
 @app.get("/api/shift-types", response_model=list[ShiftTypeRead])
 def list_shift_types(
-    principal: Principal = Depends(require_view), db: Session = Depends(get_db)
+    principal: Principal = Depends(require_plan_view), db: Session = Depends(get_db)
 ) -> list[models.ShiftType]:
     query = select(models.ShiftType).order_by(models.ShiftType.start_time)
     if scoped_to_department(principal):
@@ -2090,13 +2099,96 @@ def create_shift_type(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="The scheduled break must fit within the shift and start within the first six hours (ArbZG §4)",
         )
+    requirements = shift_type.staffing_requirements or [
+        ShiftStaffingRequirementCreate(position=shift_type.position, required_staff=shift_type.required_staff)
+    ]
     record = models.ShiftType(
-        **shift_type.model_dump(exclude={"break_minutes", "break_start_minutes"})
+        **shift_type.model_dump(exclude={
+            "break_minutes", "break_start_minutes", "position", "required_staff", "staffing_requirements",
+        })
     )
+    record.position = requirements[0].position
+    record.required_staff = sum(item.required_staff for item in requirements)
+    record.staffing_requirements = [
+        models.ShiftStaffingRequirement(
+            position=item.position,
+            required_staff=item.required_staff,
+        )
+        for item in requirements
+    ]
     record.break_minutes = break_minutes
     record.break_start_minutes = break_start_minutes
     record.department_id = department_id
     db.add(record)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Shift type name already exists") from exc
+    db.refresh(record)
+    return record
+
+
+@app.put("/api/shift-types/{shift_type_id}", response_model=ShiftTypeRead)
+def update_shift_type(
+    shift_type_id: int,
+    shift_type: ShiftTypeCreate,
+    principal: Principal = Depends(require_edit),
+    db: Session = Depends(get_db),
+) -> models.ShiftType:
+    record = db.get(models.ShiftType, shift_type_id)
+    if record is None or not can_access_department(principal, record.department_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shift type not found")
+    department_id = shift_type.department_id
+    if principal.role_key == "OBERARZT":
+        if department_id is None:
+            department_id = record.department_id or principal.department_id
+        if not can_access_department(principal, department_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only plan your own department")
+    verify_department(db, department_id)
+    gross = gross_duration(shift_type.start_time, shift_type.end_time)
+    break_minutes = (
+        shift_type.break_minutes
+        if shift_type.break_minutes is not None
+        else required_break_minutes(gross)
+    )
+    required_break = required_break_minutes(gross, break_minutes)
+    break_start_minutes = (
+        shift_type.break_start_minutes
+        if shift_type.break_start_minutes is not None
+        else default_break_start_minutes(gross, break_minutes)
+    )
+    if break_minutes < required_break:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"At least {required_break} minutes of break are required for this shift length (ArbZG §4)",
+        )
+    gross_minutes = int(gross.total_seconds() // 60)
+    if break_minutes and (
+        break_start_minutes > 360
+        or break_start_minutes + break_minutes > gross_minutes
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The scheduled break must fit within the shift and start within the first six hours (ArbZG §4)",
+        )
+    requirements = shift_type.staffing_requirements or [
+        ShiftStaffingRequirementCreate(position=shift_type.position, required_staff=shift_type.required_staff)
+    ]
+    values = shift_type.model_dump(exclude={
+        "break_minutes", "break_start_minutes", "position", "required_staff", "staffing_requirements",
+    })
+    for field, value in values.items():
+        setattr(record, field, value)
+    record.position = requirements[0].position
+    record.required_staff = sum(item.required_staff for item in requirements)
+    record.staffing_requirements = [
+        models.ShiftStaffingRequirement(position=item.position, required_staff=item.required_staff)
+        for item in requirements
+    ]
+    record.break_minutes = break_minutes
+    record.break_start_minutes = break_start_minutes
+    record.department_id = department_id
     try:
         db.commit()
     except IntegrityError as exc:
@@ -2143,6 +2235,8 @@ def list_assignments(
     )
     if scoped_to_department(principal):
         query = query.where(models.ShiftType.department_id.in_(accessible_department_ids(principal)))
+    if principal.role_key == "EMPLOYEE":
+        query = query.where(models.Assignment.employee_id == principal.employee_id)
     assignments = db.scalars(query)
     return [
         AssignmentRead(
@@ -2341,6 +2435,36 @@ def check_assignment_allowed(
     shift_type: models.ShiftType,
     db: Session,
 ) -> None:
+    requirements = shift_type.staffing_requirements
+    if len(requirements) > 1 and employee.role.strip().casefold() not in {
+        item.position.strip().casefold() for item in requirements
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Employee role is not required for this shift",
+        )
+    matching_requirement = next(
+        (
+            item for item in requirements
+            if item.position.strip().casefold() == employee.role.strip().casefold()
+        ),
+        None,
+    )
+    if len(requirements) > 1 and matching_requirement is not None:
+        staffed_for_position = db.scalar(
+            select(func.count(models.Assignment.id))
+            .join(models.Employee)
+            .where(
+                models.Assignment.shift_type_id == shift_type.id,
+                models.Assignment.starts_at == assignment.starts_at,
+                func.lower(models.Employee.role) == matching_requirement.position.casefold(),
+            )
+        ) or 0
+        if staffed_for_position >= matching_requirement.required_staff:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{matching_requirement.position} positions are already fully staffed",
+            )
     overlaps = db.scalar(
         select(models.Assignment.id).where(
             models.Assignment.employee_id == assignment.employee_id,
@@ -2391,7 +2515,7 @@ def smart_selection(
     shift_type_id: int = Query(gt=0),
     starts_at: datetime = Query(),
     ends_at: datetime = Query(),
-    principal: Principal = Depends(require_plan_view),
+    principal: Principal = Depends(require_edit),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     if starts_at.tzinfo is None or ends_at.tzinfo is None or ends_at <= starts_at:
@@ -2430,6 +2554,11 @@ def smart_selection(
         ):
             continue
         role_match = employee.role.strip().casefold() == shift_type.position.strip().casefold()
+        if len(shift_type.staffing_requirements) > 1 and not any(
+            employee.role.strip().casefold() == item.position.strip().casefold()
+            for item in shift_type.staffing_requirements
+        ):
+            continue
         week_start = starts_at.replace(hour=0, minute=0, second=0, microsecond=0)
         planned_assignments = len(list(db.scalars(
             select(models.Assignment.id).where(

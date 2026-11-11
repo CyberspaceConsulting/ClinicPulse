@@ -12,7 +12,7 @@ from .security import Principal, require_approve, require_license_writable, requ
 router = APIRouter(prefix="/api/absences", tags=["absences"])
 
 ACTIVE_STATUSES = ("pending", "approved")
-READ_ALL_ROLES = {"ADMIN", "HOSPITAL_MANAGEMENT"}
+READ_ALL_ROLES = {"HOSPITAL_MANAGEMENT"}
 
 
 def _day_bounds(start: date, end: date) -> tuple[datetime, datetime]:
@@ -86,8 +86,10 @@ def list_absences(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ) -> list[AbsenceRead]:
-    if principal.role_key == "KIOSK":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Absences are not available for kiosk accounts")
+    if principal.role_key not in {"EMPLOYEE", "OBERARZT", "HOSPITAL_MANAGEMENT"} or (
+        principal.role_key != "EMPLOYEE" and not principal.can_view
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Absence view permission required")
     query = select(models.Absence).join(models.Employee).order_by(models.Absence.start_date.desc())
     if status_filter:
         query = query.where(models.Absence.status == status_filter)

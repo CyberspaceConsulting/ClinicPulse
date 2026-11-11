@@ -80,6 +80,23 @@ class EmployeeRead(BaseModel):
     profile_image_data: str | None = None
 
 
+class ShiftStaffingRequirementCreate(BaseModel):
+    position: str = Field(min_length=1, max_length=80)
+    required_staff: int = Field(ge=1, le=100)
+
+    @field_validator("position")
+    @classmethod
+    def clean_position(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Position must not be empty")
+        return value
+
+
+class ShiftStaffingRequirementRead(ShiftStaffingRequirementCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ShiftTypeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     start_time: time
@@ -90,6 +107,17 @@ class ShiftTypeCreate(BaseModel):
     department_id: int | None = Field(default=None, gt=0)
     break_minutes: int | None = Field(default=None, ge=0, le=240)
     break_start_minutes: int | None = Field(default=None, ge=0, le=360)
+    staffing_requirements: list[ShiftStaffingRequirementCreate] | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def validate_staffing_requirements(self) -> "ShiftTypeCreate":
+        if self.staffing_requirements is not None:
+            positions = [item.position.casefold() for item in self.staffing_requirements]
+            if len(positions) != len(set(positions)):
+                raise ValueError("Each position can only be listed once")
+            if sum(item.required_staff for item in self.staffing_requirements) > 100:
+                raise ValueError("Total required staff must not exceed 100")
+        return self
 
 
 class ShiftTypeRead(ShiftTypeCreate):
@@ -98,6 +126,7 @@ class ShiftTypeRead(ShiftTypeCreate):
     id: int
     break_minutes: int
     break_start_minutes: int
+    staffing_requirements: list[ShiftStaffingRequirementRead]
 
 
 class WorkRulesRead(BaseModel):
@@ -246,6 +275,8 @@ class UserCreate(PersonName, PersonalDetails):
 
     @model_validator(mode="after")
     def require_view_for_planning_access(self) -> "UserCreate":
+        if self.role_key == "HOSPITAL_MANAGEMENT" and "can_view" not in self.model_fields_set:
+            self.can_view = False
         if self.email is not None:
             self.email = self.email.strip()
             if "@" not in self.email:
@@ -287,6 +318,8 @@ class UserUpdate(PersonName, PersonalDetails):
 
     @model_validator(mode="after")
     def require_view_for_planning_access(self) -> "UserUpdate":
+        if self.role_key == "HOSPITAL_MANAGEMENT" and "can_view" not in self.model_fields_set:
+            self.can_view = False
         if self.email is not None:
             self.email = self.email.strip()
             if "@" not in self.email:
