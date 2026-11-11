@@ -4,7 +4,7 @@ workflows:
       - any-glob-to-any-file:
           - '.github/workflows/**'
 
-ackend:
+backend:
   - changed-files:
       - any-glob-to-any-file:
           - 'backend/**'
