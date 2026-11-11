@@ -51,6 +51,7 @@ type SessionInfo = {
   can_approve: boolean
   can_manage: boolean
   remember_me: boolean
+  must_change_password: boolean
 }
 type AccountUser = {
   id: number
@@ -179,6 +180,10 @@ type TeamProfile = {
 }
 
 const authenticated = ref(false)
+const mustChangePassword = ref(false)
+const requiredPassword = ref('')
+const requiredPasswordConfirm = ref('')
+const requiredCurrentPassword = ref('')
 const theme = ref(localStorage.getItem('clinicpulse-theme') ?? 'light')
 const username = ref('')
 const roleKey = ref('ADMIN')
@@ -219,6 +224,9 @@ const mailTestRecipient = ref('')
 const mailTestRecipientSent = ref('')
 const mailTestBusy = ref(false)
 const mailSettingsLoaded = ref(false)
+const mailEnabled = ref(true)
+const mailModeDraft = ref(true)
+const mailModeSaved = ref(false)
 const setupLicenseToken = ref('')
 const setupSundayWorkAuthorized = ref(false)
 const setupChecked = ref(false)
@@ -321,6 +329,7 @@ const employeeDepartmentId = ref('')
 const employeeCreateAccount = ref(false)
 const employeeLoginUsername = ref('')
 const employeeEmail = ref('')
+const employeePassword = ref('')
 const employeeCustomRole = ref('')
 const shiftName = ref('')
 const shiftPosition = ref('Pflegefachkraft')
@@ -603,6 +612,7 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 function storeSession(result: Partial<SessionInfo> & { username: string }) {
   authenticated.value = true
+  mustChangePassword.value = result.must_change_password ?? false
   username.value = result.username
   roleKey.value = result.role_key ?? 'ADMIN'
   departmentId.value = result.department_id ?? null
@@ -633,6 +643,8 @@ async function checkSetup(restoreSession = true) {
     if (!state.setup_required && restoreSession) {
       try {
         storeSession(await api<SessionInfo>('/auth/session'))
+        if (mustChangePassword.value) return
+        if (canManageTeam.value) await loadMailMode()
         await loadData()
         if (['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value) && !departments.value.length) {
           teamNotice.value = { key: 'management.welcomeLater' }
@@ -900,6 +912,26 @@ async function loadMailSettings() {
     mailSettingsLoaded.value = true
   } catch (err) {
     error.value = err instanceof Error ? err : new TranslatedError('mail.loadFailed')
+  }
+}
+
+async function loadMailMode() {
+  const mode = await api<{ enabled: boolean }>('/account-creation/mail-mode')
+  mailEnabled.value = mode.enabled
+  mailModeDraft.value = mode.enabled
+}
+
+async function saveMailMode() {
+  try {
+    const mode = await api<{ enabled: boolean }>('/admin/mail-mode', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled: mailModeDraft.value }),
+    })
+    mailEnabled.value = mode.enabled
+    mailModeDraft.value = mode.enabled
+    mailModeSaved.value = true
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('mail.saveFailed')
   }
 }
 
@@ -1214,11 +1246,44 @@ async function login() {
     storeSession(result)
     staySignedIn.value = result.remember_me
     password.value = ''
+    if (mustChangePassword.value) return
+    if (canManageTeam.value) await loadMailMode()
     await loadData()
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
     error.value = err instanceof Error ? err : new TranslatedError('errors.login')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function changeRequiredPassword() {
+  if (requiredPassword.value !== requiredPasswordConfirm.value) {
+    error.value = new TranslatedError('auth.passwordMismatch')
+    return
+  }
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await api<SessionInfo>('/settings/account', {
+      method: 'PUT',
+      body: JSON.stringify({
+        username: username.value,
+        current_password: requiredCurrentPassword.value,
+        new_password: requiredPassword.value,
+      }),
+    })
+    storeSession(result)
+    requiredCurrentPassword.value = ''
+    requiredPassword.value = ''
+    requiredPasswordConfirm.value = ''
+    if (canManageTeam.value) await loadMailMode()
+    await loadData()
+    void checkForUpdates()
+    void refreshLicenseStatus()
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveSettings')
   } finally {
     busy.value = false
   }
@@ -1296,6 +1361,10 @@ async function logout() {
     error.value = err instanceof Error ? err : new TranslatedError('errors.logout')
   }
   authenticated.value = false
+  mustChangePassword.value = false
+  requiredCurrentPassword.value = ''
+  requiredPassword.value = ''
+  requiredPasswordConfirm.value = ''
   username.value = ''
   assignments.value = []
   employees.value = []
@@ -1324,7 +1393,8 @@ async function submitEmployee() {
         department_id: Number(employeeDepartmentId.value),
         create_account: employeeCreateAccount.value,
         username: employeeCreateAccount.value ? employeeLoginUsername.value.trim() : null,
-        email: employeeCreateAccount.value ? employeeEmail.value.trim() : null,
+        email: employeeCreateAccount.value ? employeeEmail.value.trim() || null : null,
+        password: employeeCreateAccount.value && !mailEnabled.value ? employeePassword.value : null,
     }
     const result = employeeId.value
       ? await api<Employee>('/employees/' + employeeId.value, {
@@ -1343,6 +1413,7 @@ async function submitEmployee() {
     employeeCreateAccount.value = false
     employeeLoginUsername.value = ''
     employeeEmail.value = ''
+    employeePassword.value = ''
     showEmployeeForm.value = false
     if (result.invitation_status === 'pending') {
       teamNotice.value = { key: 'management.employeeInvited' }
@@ -1380,6 +1451,7 @@ function newEmployee() {
   employeeCreateAccount.value = false
   employeeLoginUsername.value = ''
   employeeEmail.value = ''
+  employeePassword.value = ''
   showEmployeeForm.value = true
 }
 
@@ -1628,6 +1700,7 @@ async function openManagement() {
     showManagement.value = true
     if (!canManageTeam.value) return
     try {
+      await loadMailMode()
       const [managedUsers, organization, staff] = await Promise.all([
         api<AccountUser[]>('/users'),
         api<Department[]>('/departments'),
@@ -1731,7 +1804,7 @@ async function toggleUserLock(user: AccountUser) {
         can_edit: userRoleKey.value === 'CHEFARZT' || userRoleKey.value === 'EMPLOYEE' ? false : userCanEdit.value,
         can_approve: userRoleKey.value === 'CHEFARZT' || userRoleKey.value === 'EMPLOYEE' ? false : userCanApprove.value,
         employee_id: userRoleKey.value === 'EMPLOYEE' ? userEmployeeId.value : null,
-        ...(userId.value ? { new_password: userPassword.value || null } : { password: userEmail.value.trim() ? null : userPassword.value || null }),
+        ...(userId.value ? { new_password: userPassword.value || null } : { password: mailEnabled.value && userEmail.value.trim() ? null : userPassword.value || null }),
       }
       const saved = await api<AccountUser>(userId.value ? `/users/${userId.value}` : '/users', {
         method: userId.value ? 'PUT' : 'POST',
@@ -1975,6 +2048,23 @@ onBeforeUnmount(() => {
       </form>
       <p v-if="error" class="error-message">{{ displayedError }}</p>
       <footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version {{ displayVersion }}</footer>
+    </section>
+  </main>
+
+  <main v-else-if="mustChangePassword" class="login-shell">
+    <section class="login-card">
+      <LanguageSelector />
+      <div class="brand-mark">C</div>
+      <h1>{{ t('auth.requiredPasswordTitle') }}</h1>
+      <p class="muted">{{ t('auth.requiredPasswordDescription') }}</p>
+      <form class="stack" @submit.prevent="changeRequiredPassword">
+        <label>{{ t('profile.currentPassword') }}<input v-model="requiredCurrentPassword" type="password" autocomplete="current-password" required /></label>
+        <PasswordInput v-model="requiredPassword" :label="t('auth.newPassword')" required />
+        <label>{{ t('auth.repeatPassword') }}<input v-model="requiredPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
+        <button class="primary full" :disabled="busy">{{ t('auth.setPassword') }}</button>
+      </form>
+      <p v-if="error" class="error-message">{{ displayedError }}</p>
+      <button class="text-button" @click="logout">{{ t('nav.signOut') }}</button>
     </section>
   </main>
 
@@ -2414,8 +2504,14 @@ onBeforeUnmount(() => {
             <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> {{ t('form.createAccess') }}</label>
             <template v-if="employeeCreateAccount && !employeeId">
               <label>{{ t('auth.username') }}<input v-model="employeeLoginUsername" minlength="3" maxlength="64" required /></label>
-              <label>{{ t('form.invitationEmail') }}<input v-model="employeeEmail" type="email" maxlength="254" autocomplete="email" required /></label>
-              <p class="muted">{{ t('form.invitationExplanation') }}</p>
+              <template v-if="mailEnabled">
+                <label>{{ t('form.invitationEmail') }}<input v-model="employeeEmail" type="email" maxlength="254" autocomplete="email" required /></label>
+                <p class="muted">{{ t('form.invitationExplanation') }}</p>
+              </template>
+              <template v-else>
+                <PasswordInput v-model="employeePassword" :label="t('management.temporaryPassword')" required />
+                <p class="muted">{{ t('management.temporaryPasswordNotice') }}</p>
+              </template>
             </template>
             <button class="primary full">{{ employeeId ? t('form.saveChanges') : t('form.createEmployee') }}</button>
           </form>
@@ -2485,9 +2581,10 @@ onBeforeUnmount(() => {
                 <label>{{ t('management.address') }}<input v-model="userAddress" maxlength="300" autocomplete="street-address" /></label>
                 <label>{{ t('management.phone') }}<input v-model="userPhone" type="tel" maxlength="50" /></label>
               </details>
-              <label>{{ t('management.passwordEmail') }}<input v-model="userEmail" type="email" maxlength="254" :required="!userId && !userPassword" /></label>
-              <PasswordInput v-model="userPassword" :label="userId ? t('management.newPassword') : t('management.initialPassword')" optional />
-              <p v-if="userEmail && !userId" class="muted">{{ t('management.invitationNotice') }}</p>
+              <label v-if="mailEnabled || userId">{{ t('management.passwordEmail') }}<input v-model="userEmail" type="email" maxlength="254" :required="mailEnabled && !userId && !userPassword" /></label>
+              <PasswordInput v-model="userPassword" :label="userId ? t('management.newPassword') : mailEnabled ? t('management.initialPassword') : t('management.temporaryPassword')" :optional="!!userId || mailEnabled" :required="!userId && !mailEnabled" />
+              <p v-if="mailEnabled && userEmail && !userId" class="muted">{{ t('management.invitationNotice') }}</p>
+              <p v-if="!mailEnabled" class="muted">{{ t('management.temporaryPasswordNotice') }}</p>
               <label>{{ t('management.systemRole') }}<select v-model="userRoleKey"><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? t('role.kioskDescription') : option.key === 'EMPLOYEE' ? t('role.employeeDescription') : roleLabel(option.key) }}</option></template></select></label>
               <fieldset v-if="!['HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>{{ t('management.accessibleSchedules') }}</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
               <label v-if="userRoleKey === 'EMPLOYEE'">{{ t('management.linkedPerson') }}<select v-model="userEmployeeId" required><option :value="null" disabled>{{ t('management.choose') }}</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
@@ -2500,7 +2597,7 @@ onBeforeUnmount(() => {
             </form>
             <div v-for="user in users" :key="user.id" class="management-row account-row">
               <div><strong>{{ user.username }}</strong><small>{{ roleLabel(user.role_key) }} · {{ user.email || t('management.noEmail') }} · {{ user.invitation_status === 'pending' ? t('management.invitationPending') : user.invitation_status === 'delivery_failed' ? t('management.invitationFailed') : user.invitation_status === 'revoked' ? t('management.invitationRevoked') : user.is_locked ? t('management.locked') : t('management.active') }} · {{ user.department_ids?.map((id) => departments.find((item) => item.id === id)?.name).filter(Boolean).join(', ') || t('management.allDepartments') }}</small></div>
-              <div><button class="text-button" @click="editUser(user)">{{ t('management.edit') }}</button><button v-if="['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">{{ t('management.resendInvitation') }}</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">{{ t('management.revoke') }}</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? t('management.unlock') : t('management.lock') }}</button><button class="text-button danger-text" @click="removeUser(user)">{{ t('management.delete') }}</button></div>
+              <div><button class="text-button" @click="editUser(user)">{{ t('management.edit') }}</button><button v-if="mailEnabled && ['pending', 'delivery_failed', 'revoked'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button" @click="void resendInvitation(user)">{{ t('management.resendInvitation') }}</button><button v-if="['pending', 'delivery_failed'].includes(user.invitation_status ?? '') && !licenseReadOnly" class="text-button danger-text" @click="void revokeInvitation(user)">{{ t('management.revoke') }}</button><button v-else-if="user.invitation_status !== 'pending' && user.invitation_status !== 'delivery_failed' && user.invitation_status !== 'revoked'" class="text-button" @click="toggleUserLock(user)">{{ user.is_locked ? t('management.unlock') : t('management.lock') }}</button><button class="text-button danger-text" @click="removeUser(user)">{{ t('management.delete') }}</button></div>
             </div>
           </section>
         </template>
@@ -2534,8 +2631,13 @@ onBeforeUnmount(() => {
           <section v-if="roleKey === 'ADMIN'" v-show="settingsTab === 'mail'" class="settings-section">
             <h3>{{ t('mail.title') }}</h3>
             <p class="muted">{{ t('mail.description') }}</p>
+            <form class="stack" @submit.prevent="void saveMailMode()">
+              <label class="permission-toggle"><input v-model="mailModeDraft" type="checkbox" @change="mailModeSaved = false" /> {{ t('mail.enableDelivery') }}</label>
+              <p class="muted">{{ t('mail.disabledDescription') }}</p>
+              <div class="form-row"><button class="secondary">{{ t('mail.saveMode') }}</button><span v-if="mailModeSaved" class="muted">{{ t('settings.saved') }}</span></div>
+            </form>
             <p v-if="mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? t('mail.configured') : t('mail.notConfigured') }}</strong> · {{ t('mail.password') }}: <strong>{{ mailSettings.smtp_password_configured ? t('mail.saved') : t('mail.notSaved') }}</strong></p>
-            <form class="stack" @submit.prevent="void saveMailSettings()">
+            <form v-if="mailEnabled" class="stack" @submit.prevent="void saveMailSettings()">
               <label>{{ t('mail.publicUrl') }}<input v-model="mailSettings.public_url" type="url" placeholder="https://dienstplan.klinik.example" required /></label>
               <div class="form-row">
                 <label>{{ t('mail.server') }}<input v-model="mailSettings.smtp_host" maxlength="255" autocomplete="off" required /></label>
@@ -2549,7 +2651,7 @@ onBeforeUnmount(() => {
               <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> {{ t('mail.starttls') }}</label>
               <div class="form-row"><button class="primary">{{ t('mail.save') }}</button><span v-if="mailSettingsMessage" class="muted">{{ t('mail.settingsSaved') }}</span></div>
             </form>
-            <form class="stack" @submit.prevent="void testMailDelivery()">
+            <form v-if="mailEnabled" class="stack" @submit.prevent="void testMailDelivery()">
               <h4>{{ t('mail.test') }}</h4>
               <label>{{ t('mail.testAddress') }}<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
               <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? t('mail.sending') : t('mail.saveAndTest') }}</button><span v-if="mailTestRecipientSent" class="muted" role="status">{{ t('mail.testSent', { recipient: mailTestRecipientSent }) }}</span></div>

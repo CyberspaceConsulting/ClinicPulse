@@ -50,6 +50,7 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures =
       signedIn = false
       return route.fulfill({ status: 204 })
     }
+    if (path === '/api/account-creation/mail-mode') return reply({ enabled: true })
     if (path === '/api/role-catalog') return reply({ functions: ['Pflege'], access_roles: [] })
     if (path === '/api/license/status') return reply({ status: 'PAID', read_only: false, suppress_warnings: false })
     if (path === '/api/departments') return reply([{ id: 1, name: 'Chirurgie' }])
@@ -263,6 +264,70 @@ test('team management displays translated labels and preserves account and depar
   await deleteResponse
   expect(deleteRequests).toBe(1)
 })
+
+  test('disabled email offers temporary passwords for both account creation flows', async ({ page }) => {
+    await mockApi(page, 'HOSPITAL_MANAGEMENT')
+    await page.route('**/api/account-creation/mail-mode', (route) => route.fulfill({ json: { enabled: false } }))
+    await page.route('**/api/users', (route) => route.fulfill({ json: route.request().method() === 'POST'
+      ? { id: 2, invitation_status: 'active' } : [] }))
+    await page.route('**/api/employees/onboard', (route) => route.fulfill({ status: 201, json: { employee, invitation_status: null } }))
+    await page.route('**/api/role-catalog', (route) => route.fulfill({ json: {
+      functions: ['Pflege'], access_roles: [{ key: 'HOSPITAL_MANAGEMENT', label: 'Leitung' }, { key: 'OBERARZT', label: 'Oberarzt' }],
+    } }))
+    await page.goto('/')
+    await page.getByLabel('Benutzername').fill('planer')
+    await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+    await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('Vorname').fill('Ada')
+    await dialog.getByLabel('Nachname').fill('Beispiel')
+    await dialog.getByLabel('Benutzername').fill('ada')
+    await dialog.locator('label.password-input input').fill('temporary-password')
+    const userRequest = page.waitForRequest((req) => req.url().endsWith('/api/users') && req.method() === 'POST')
+    await dialog.getByRole('button', { name: 'Konto anlegen' }).click()
+    expect((await userRequest).postDataJSON()).toMatchObject({ username: 'ada', email: null, password: 'temporary-password' })
+    await dialog.getByRole('button', { name: '＋ Mitarbeiter' }).click()
+    await dialog.getByLabel('Vorname').fill('Ada')
+    await dialog.getByLabel('Nachname').fill('Beispiel')
+    await dialog.getByLabel('ClinicPulse-Zugang einrichten').check()
+    await dialog.getByLabel('Benutzername').fill('ada-employee')
+    await dialog.locator('label.password-input input').fill('employee-password')
+    const onboardRequest = page.waitForRequest((req) => req.url().endsWith('/api/employees/onboard') && req.method() === 'POST')
+    await dialog.getByRole('button', { name: 'Mitarbeiter erstellen' }).click()
+    expect((await onboardRequest).postDataJSON()).toMatchObject({ username: 'ada-employee', email: null, password: 'employee-password' })
+  })
+
+  test('required password change blocks the app across session restore', async ({ page }) => {
+    await mockApi(page)
+    let required = true
+    await page.route('**/api/auth/login', (route) => route.fulfill({ json: {
+      username: 'planer', role_key: 'OBERARZT', department_id: 1, can_view: true,
+      can_edit: true, can_approve: true, can_manage: false, remember_me: false, must_change_password: required,
+    } }))
+    await page.route('**/api/auth/session', (route) => route.fulfill({ json: {
+      username: 'planer', role_key: 'OBERARZT', department_id: 1, can_view: true,
+      can_edit: true, can_approve: true, can_manage: false, remember_me: false, must_change_password: required,
+    } }))
+    await page.route('**/api/settings/account', (route) => {
+      required = false
+      return route.fulfill({ json: {
+        username: 'planer', role_key: 'OBERARZT', department_id: 1, can_view: true,
+        can_edit: true, can_approve: true, can_manage: false, remember_me: false, must_change_password: false,
+      } })
+    })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: 'Passwort ändern' })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Passwort ändern' })).toBeVisible()
+    await page.getByLabel('Aktuelles Passwort zur Bestätigung').fill('test-password')
+    await page.locator('label.password-input input').fill('different-password')
+    await page.getByLabel('Passwort wiederholen').fill('different-password')
+    const request = page.waitForRequest((req) => req.url().endsWith('/api/settings/account') && req.method() === 'PUT')
+    await page.getByRole('button', { name: 'Passwort festlegen' }).click()
+    expect((await request).postDataJSON()).toMatchObject({ username: 'planer', current_password: 'test-password', new_password: 'different-password' })
+    await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+  })
 
 test('standard schedule functions translate without changing their values', async ({ page }) => {
   await mockApi(page, 'HOSPITAL_MANAGEMENT')
@@ -491,6 +556,12 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByRole('button', { name: 'Save email settings' }).click()
   expect((await mailRequest).postDataJSON()).toMatchObject({ smtp_host: 'custom.example', smtp_password: null, clear_smtp_password: false, use_ssl: false, use_starttls: true })
   await expect(page.getByText('Email settings saved.')).toBeVisible()
+  await page.route('**/api/admin/mail-mode', (route) => route.fulfill({ json: route.request().postDataJSON() }))
+  await page.getByLabel('Enable email delivery').uncheck()
+  const modeRequest = page.waitForRequest((req) => req.url().endsWith('/api/admin/mail-mode') && req.method() === 'PUT')
+  await page.getByRole('button', { name: 'Save delivery setting' }).click()
+  expect((await modeRequest).postDataJSON()).toEqual({ enabled: false })
+  await expect(page.getByLabel('SMTP server')).toHaveCount(0)
   await page.getByRole('tab', { name: 'Security' }).click()
   await expect(page.getByRole('heading', { name: 'Automatic sign-out' })).toBeVisible()
   await expect(page.getByLabel('Inactivity before sign-out (minutes)')).toBeVisible()
