@@ -3,7 +3,17 @@ import { createRequire } from 'node:module'
 const require = createRequire(new URL('../../frontend/package.json', import.meta.url))
 const { expect, test } = require('@playwright/test')
 
-const employee = { id: 1, name: 'Alex Beispiel', role: 'Pflege', department_id: 1 }
+const qualifications = [
+  { id: 1, name: 'Pflege', leadership_eligible: false },
+  { id: 2, name: 'Oberarzt', leadership_eligible: true },
+]
+const employee = {
+  id: 1, name: 'Alex Beispiel', role: 'Pflege', department_id: 1,
+  qualifications: [qualifications[0]],
+}
+const department = {
+  id: 1, name: 'Chirurgie', manager_user_id: null, deputy_user_id: null, qualifications,
+}
 const shift = {
   id: 1, name: 'Frühdienst', start_time: '07:00:00', end_time: '15:00:00',
   color: '#2563eb', position: 'Pflege', required_staff: 1,
@@ -20,7 +30,8 @@ async function mockApi(
   const session = {
     username: role === 'EMPLOYEE' ? 'alex' : 'planer', role_key: role, department_id: 1,
     can_view: true, can_edit: role === 'OBERARZT', can_approve: role === 'OBERARZT',
-    can_manage: role === 'ADMIN', remember_me: false, idle_timeout_minutes: 30,
+    can_manage: ['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(role),
+    can_manage_department: false, remember_me: false, idle_timeout_minutes: 30,
   }
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -57,8 +68,9 @@ async function mockApi(
     if (path === '/api/role-catalog') return reply({ functions: ['Pflege'], access_roles: [] })
     if (path === '/api/license/status') return reply({ status: 'PAID', read_only: false, suppress_warnings: false })
     if (path === '/api/users') return reply([])
-    if (path === '/api/departments') return reply([{ id: 1, name: 'Chirurgie' }])
+    if (path === '/api/departments') return reply([department])
     if (path === '/api/employees') return reply(initialEmployees)
+    if (path === '/api/employees/onboard' && method === 'POST') return reply({ employee, invitation_status: null }, 201)
     if (path === '/api/shift-types') return reply(initialShifts)
     if (path === '/api/assignments' && method === 'POST') {
       assignments.push({ ...request.postDataJSON(), id: 1, employee_name: employee.name, shift_name: shift.name })
@@ -201,21 +213,19 @@ test('manual staffing of an Oberarzt vacancy only offers qualified employees', a
   await expect(employeeSelect).toContainText('Dr. Beispiel')
 })
 
-test('a senior physician without department leadership can manage employee accounts only', async ({ page }) => {
+test('a senior physician without department leadership cannot manage departments or accounts', async ({ page }) => {
   await mockApi(page)
   await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
   await login(page)
-  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Konten & Rollen' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Mitarbeiter', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Teamverwaltung', exact: true })).toHaveCount(0)
 })
 
 test('an administrator can assign an Oberarzt as department leader', async ({ page }) => {
   await mockApi(page, 'ADMIN')
-  const department = { id: 1, name: 'Chirurgie', manager_user_id: null }
+  const departmentData = { ...department, manager_user_id: null }
   await page.route('**/api/departments', (route) =>
     route.request().method() === 'GET'
-      ? route.fulfill({ json: [department] })
+      ? route.fulfill({ json: [departmentData] })
       : route.continue())
   await page.route('**/api/users', (route) => route.fulfill({ json: [{
     id: 2, username: 'lea', first_name: 'Lea', last_name: 'Leitung',
@@ -225,7 +235,7 @@ test('an administrator can assign an Oberarzt as department leader', async ({ pa
   let assignedLeader = null
   await page.route('**/api/departments/1/leader', async (route) => {
     assignedLeader = route.request().postDataJSON().manager_user_id
-    await route.fulfill({ json: { ...department, manager_user_id: assignedLeader } })
+    await route.fulfill({ json: { ...departmentData, manager_user_id: assignedLeader } })
   })
   await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'de'))
   await page.goto('/')
@@ -295,11 +305,12 @@ test('team management displays translated labels and preserves account and depar
   await page.getByRole('button', { name: 'Team management', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'Team & access' })).toBeVisible()
+  await dialog.getByRole('tab', { name: 'Accounts & administration' }).click()
   await expect(dialog.getByText('test-user', { exact: true })).toBeVisible()
   await expect(dialog.locator('.account-row')).toContainText('Invitation pending')
   await expect(dialog.locator('.account-row')).toContainText('Chirurgie')
   await dialog.getByLabel('First name').fill('Unverändert')
-  await dialog.getByLabel('System role').selectOption('EMPLOYEE')
+  await dialog.getByLabel('Account type / access').selectOption('EMPLOYEE')
   await expect(dialog.getByLabel('Linked person')).toContainText('Alex Beispiel')
   await expect(dialog.getByLabel('First name')).toHaveValue('Unverändert')
   await page.route('**/api/users/2/invitation', (route) => route.fulfill({ json: {
@@ -312,10 +323,12 @@ test('team management displays translated labels and preserves account and depar
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByLabel('Language').selectOption('de')
   await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  await dialog.getByRole('tab', { name: 'Konten & Administration' }).click()
   await expect(dialog.getByText('Einladung an person@example.org erneut versendet.')).toBeVisible()
   await dialog.getByRole('button', { name: 'Schließen', exact: true }).click()
   await page.getByLabel('Sprache').selectOption('en')
   await page.getByRole('button', { name: 'Team management', exact: true }).first().click()
+  await dialog.getByRole('tab', { name: 'Accounts & administration' }).click()
   let deleteRequests = 0
   await page.route('**/api/users/2', (route) => {
     if (route.request().method() === 'DELETE') {
@@ -353,6 +366,7 @@ test('team management displays translated labels and preserves account and depar
     await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
     await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
     const dialog = page.getByRole('dialog')
+    await dialog.getByRole('tab', { name: 'Konten & Administration' }).click()
     await dialog.getByLabel('Vorname').fill('Ada')
     await dialog.getByLabel('Nachname').fill('Beispiel')
     await dialog.getByLabel('Benutzername').fill('ada')
@@ -360,6 +374,7 @@ test('team management displays translated labels and preserves account and depar
     const userRequest = page.waitForRequest((req) => req.url().endsWith('/api/users') && req.method() === 'POST')
     await dialog.getByRole('button', { name: 'Konto anlegen' }).click()
     expect((await userRequest).postDataJSON()).toMatchObject({ username: 'ada', email: null, password: 'temporary-password' })
+    await dialog.getByRole('tab', { name: 'Mitarbeitende' }).click()
     await dialog.getByRole('button', { name: '＋ Mitarbeiter' }).click()
     await dialog.getByLabel('Vorname').fill('Ada')
     await dialog.getByLabel('Nachname').fill('Beispiel')
@@ -402,24 +417,24 @@ test('team management displays translated labels and preserves account and depar
     await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
   })
 
-test('standard schedule functions translate without changing their values', async ({ page }) => {
+test('employees can receive multiple qualifications from their department', async ({ page }) => {
   await mockApi(page, 'HOSPITAL_MANAGEMENT')
   await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
-  await page.route('**/api/role-catalog', (route) => route.fulfill({ json: {
-    functions: ['Pflegefachkraft', 'Eigene Funktion'], access_roles: [],
-  } }))
   await page.goto('/')
   await page.getByLabel('Benutzername').fill('planer')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
   await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
-  await page.getByRole('dialog').getByRole('button', { name: '＋ Mitarbeiter' }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByLabel('Dienstplanfunktion')).toHaveValue('Pflegefachkraft')
-  await page.getByLabel('Sprache').selectOption('en')
-  await expect(dialog.getByLabel('Schedule role')).toHaveValue('Pflegefachkraft')
-  await expect(dialog.getByLabel('Schedule role')).toContainText('Registered nurse')
-  await expect(dialog.getByLabel('Schedule role')).toContainText('Eigene Funktion')
+  await dialog.getByRole('tab', { name: 'Mitarbeitende' }).click()
+  await dialog.getByRole('button', { name: '＋ Mitarbeiter' }).click()
+  await dialog.getByLabel('Vorname').fill('Ada')
+  await dialog.getByLabel('Nachname').fill('Beispiel')
+  await dialog.getByLabel('Pflege').check()
+  await dialog.getByLabel('Oberarzt').check()
+  const request = page.waitForRequest((req) => req.url().endsWith('/api/employees/onboard') && req.method() === 'POST')
+  await dialog.getByRole('button', { name: 'Mitarbeiter erstellen' }).click()
+  expect((await request).postDataJSON()).toMatchObject({ role: 'Pflege', qualification_ids: [1, 2] })
 })
 
 test('English profile editing keeps user data and submits unchanged API values', async ({ page }) => {
