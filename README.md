@@ -29,29 +29,36 @@ die Prüfung der jeweils geltenden Anforderungen erforderlich. Bis dahin sollten
 keine echten Gesundheits-, Beschäftigten- oder sonstigen sensiblen Daten
 verarbeitet werden.
 
-## Schnellstart aus dem Quellcode
-
-Voraussetzungen: Docker Engine, Docker Compose v2 und OpenSSL.
-
 ## Installation eines Releases
 
 Voraussetzungen: Docker Engine mit Compose v2, `curl`, `openssl` und
-`sha256sum`. Der Befehl lädt den Installer der neuesten stabilen Version,
-prüft die heruntergeladene Compose-Datei und startet ClinicPulse samt Datenbank.
-Die Installation wird standardmäßig im Verzeichnis `./clinicpulse` angelegt;
-ein vorhandener Verschlüsselungsschlüssel und vorhandene Daten bleiben erhalten.
+`sha256sum`. Da bisher nur Alpha-Vorabversionen veröffentlicht wurden,
+verweist `releases/latest` nicht auf ein verfügbares stabiles Release. Die
+folgenden Befehle installieren daher ausdrücklich `v-0.2.0-alpha`. Sie laden
+Installer und Compose-Datei aus demselben Release und prüfen deren Prüfsummen.
+Die Installation wird im Verzeichnis `./clinicpulse` angelegt.
 
 ```sh
-curl -fsSL https://github.com/CyberspaceConsulting/ClinicPulse/releases/latest/download/install.sh | sh
+(
+  set -eu
+  target="$(pwd)/clinicpulse"
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT
+  url=https://github.com/CyberspaceConsulting/ClinicPulse/releases/download/v-0.2.0-alpha
+  curl -fsSL -o "$tmpdir/install.sh" "$url/install.sh"
+  curl -fsSL -o "$tmpdir/compose.yaml" "$url/compose.yaml"
+  curl -fsSL -o "$tmpdir/SHA256SUMS" "$url/SHA256SUMS"
+  cd "$tmpdir"
+  awk '$2 == "install.sh" { install++; print } $2 == "compose.yaml" { compose++; print } END { if (install != 1 || compose != 1) exit 1 }' SHA256SUMS > install.sha256
+  sha256sum --check install.sha256
+  sh ./install.sh "$target"
+)
 ```
 
-Danach ist ClinicPulse unter <http://localhost:8080> erreichbar. Für Updates:
-
-```sh
-cd clinicpulse
-docker compose pull
-docker compose up -d
-```
+Danach ist ClinicPulse unter <http://localhost:8080> erreichbar. Für Updates
+siehe die [Docker-Update-Anleitung](docs/getting-started/update.md). Ein
+`docker compose pull` allein aktualisiert nicht die festgelegte Release-Version.
+Neuere Versionen findest du unter [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).
 
 Den Schlüssel unter `clinicpulse/secrets/data_encryption_key` separat sichern.
 Ohne ihn können verschlüsselte Daten nicht wiederhergestellt werden.
@@ -73,7 +80,7 @@ fi
 touch secrets/smtp_password
 chmod 600 secrets/data_encryption_key secrets/smtp_password
 
-docker compose up --build -d
+docker compose -f docker/docker-compose.yml up --build -d
 ```
 
 Rufe anschließend <http://localhost:8080> auf. Für die Ersteinrichtung ist ein
@@ -84,8 +91,8 @@ Zugriff auf den konfigurierten Lizenzdienst; dessen Adresse kann mit
 Nützliche Befehle:
 
 ```sh
-docker compose logs -f
-docker compose down
+docker compose -f docker/docker-compose.yml logs -f
+docker compose -f docker/docker-compose.yml down
 ```
 
 Die Datenbank wird in einem Docker-Volume gespeichert. Sichere
