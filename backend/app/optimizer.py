@@ -30,6 +30,7 @@ class SuggestedAssignment:
     employee_role: str
     shift_type_id: int
     shift_name: str
+    position: str
     role_match: bool
     starts_at: datetime
     ends_at: datetime
@@ -123,6 +124,8 @@ def optimize_day(
     db: Session,
     target_date: date,
     department_ids: tuple[int, ...] | None = None,
+    *,
+    target_vacancies: dict[tuple[int, str], int] | None = None,
 ) -> OptimizationPreview:
     business_tz = business_timezone(db)
     rules = load_work_rules(db)
@@ -133,6 +136,10 @@ def optimize_day(
     if department_ids is not None:
         shift_query = shift_query.where(models.ShiftType.department_id.in_(department_ids))
         employee_query = employee_query.where(models.Employee.department_id.in_(department_ids))
+    if target_vacancies is not None:
+        shift_query = shift_query.where(
+            models.ShiftType.id.in_({shift_id for shift_id, _ in target_vacancies})
+        )
     shifts = list(db.scalars(shift_query))
     employees = list(db.scalars(employee_query))
     employees_by_department: dict[int | None, list[models.Employee]] = {}
@@ -192,9 +199,10 @@ def optimize_day(
                 if qualification_required
                 else existing_counts_by_shift.get(shift.id, 0)
             )
-            vacancies = max(
-                0,
-                requirement.required_staff - existing_count,
+            vacancies = (
+                target_vacancies.get((shift.id, requirement.position.strip().casefold()), 0)
+                if target_vacancies is not None
+                else max(0, requirement.required_staff - existing_count)
             )
             slots.extend((shift, requirement.position, starts_at, ends_at) for _ in range(vacancies))
     if not slots:
@@ -408,6 +416,7 @@ def optimize_day(
             employee_role=candidate.employee.role,
             shift_type_id=candidate.shift.id,
             shift_name=candidate.shift.name,
+            position=candidate.position,
             role_match=candidate.role_match,
             starts_at=candidate.starts_at,
             ends_at=candidate.ends_at,

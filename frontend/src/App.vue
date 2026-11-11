@@ -96,6 +96,28 @@ type Assignment = {
   employee_name: string
   shift_name: string
 }
+type SickCoverageSuggestion = {
+  employee_id: number
+  employee_name: string
+  employee_role: string
+  role_match: boolean
+}
+type SickCoverageAssignment = {
+  assignment_id: number
+  shift_type_id: number
+  shift_name: string
+  position: string
+  starts_at: string
+  ends_at: string
+  suggestions: SickCoverageSuggestion[]
+}
+type SickCoveragePreview = {
+  absence_id: number
+  employee_name: string
+  start_date: string
+  end_date: string
+  assignments: SickCoverageAssignment[]
+}
 type Candidate = {
   employee_id: number
   employee_name: string
@@ -430,6 +452,12 @@ const userEmployeeId = ref<number | null>(null)
 const allEmployees = ref<Employee[]>([])
 const showAbsences = ref(false)
 const showNextShifts = ref(false)
+const showDashboard = ref(false)
+const dashboardBusy = ref(false)
+const adminDashboardSummary = ref({ users: 0, departments: 0, employees: 0 })
+const sickCoveragePreviews = ref<Record<number, SickCoveragePreview>>({})
+const sickCoverageBusyIds = ref<number[]>([])
+const sickCoverageSelections = ref<Record<number, number>>({})
 const showArchive = ref(false)
 interface PlanArchiveSummary { id: number; created_at: string; created_by: string; start_date: string; end_date: string; department_id: number | null; department_name: string; note: string | null; entry_count: number; content_sha256: string }
 const planArchives = ref<PlanArchiveSummary[]>([])
@@ -519,10 +547,25 @@ const nextAssignments = ref<Assignment[]>([])
 const notificationsLoading = ref(false)
 const vacationAlertQueue = ref<Absence[]>([])
 const vacationAlert = computed(() => vacationAlertQueue.value[0] ?? null)
+const dashboardNextAssignment = computed(() =>
+  nextAssignments.value
+    .filter((assignment) => new Date(assignment.starts_at).getTime() >= Date.now())
+    .sort((left, right) => left.starts_at.localeCompare(right.starts_at))[0] ?? null,
+)
+const dashboardPendingAbsences = computed(() =>
+  absences.value.filter((absence) => absence.status === 'pending' && absence.kind !== 'sick').length,
+)
+const dashboardDays = computed(() => Array.from({ length: 7 }, (_, index) => {
+  const day = new Date()
+  day.setHours(12, 0, 0, 0)
+  day.setDate(day.getDate() + index)
+  return day
+}))
 const pageTitle = computed(() => {
   if (!setupChecked.value) return t('page.starting')
   if (setupRequired.value && !authenticated.value) return t('page.setup')
   if (!authenticated.value) return t('page.login')
+  if (showDashboard.value) return t('dashboard.title')
   if (showPlanning.value) return t('page.planning')
   if (showAbsences.value) return t('page.absences')
   if (showArchive.value) return t('page.archive')
@@ -703,11 +746,9 @@ async function checkSetup(restoreSession = true) {
       try {
         storeSession(await api<SessionInfo>('/auth/session'))
         if (mustChangePassword.value) return
+        const dashboardLoad = openDashboard()
         if (canManageTeam.value) await loadMailMode()
-        await loadData()
-        if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
-          await openManagement()
-        }
+        await dashboardLoad
         void checkForUpdates()
         void refreshLicenseStatus()
       } catch (err) {
@@ -784,6 +825,129 @@ async function loadAbsences() {
   }
 }
 
+async function loadSickCoverage(absence: Absence) {
+  if (!sickCoverageBusyIds.value.includes(absence.id)) sickCoverageBusyIds.value.push(absence.id)
+  try {
+    const preview = await api<SickCoveragePreview>('/planning/sick-cover/preview', {
+      method: 'POST',
+      body: JSON.stringify({ absence_id: absence.id }),
+    })
+    const updatedPreviews = { ...sickCoveragePreviews.value }
+    if (preview.assignments.length) updatedPreviews[absence.id] = preview
+    else delete updatedPreviews[absence.id]
+    sickCoveragePreviews.value = updatedPreviews
+    for (const assignment of preview.assignments) {
+      if (assignment.suggestions.length && !assignment.suggestions.some(
+        (suggestion) => suggestion.employee_id === sickCoverageSelections.value[assignment.assignment_id],
+      )) {
+        sickCoverageSelections.value[assignment.assignment_id] = assignment.suggestions[0].employee_id
+      }
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('dashboard.coverageFailed')
+  } finally {
+    sickCoverageBusyIds.value = sickCoverageBusyIds.value.filter((id) => id !== absence.id)
+  }
+}
+
+function regenerateSickCoverage(absenceId: number) {
+  const absence = absences.value.find((item) => item.id === absenceId)
+  if (!absence) {
+    error.value = new TranslatedError('dashboard.coverageFailed')
+    return
+  }
+  void loadSickCoverage(absence)
+}
+
+async function loadAdminDashboard() {
+  try {
+    const [adminUsers, organization, staff] = await Promise.all([
+      api<AccountUser[]>('/users'),
+      api<Department[]>('/departments'),
+      api<Employee[]>('/employees'),
+    ])
+    adminDashboardSummary.value = {
+      users: adminUsers.length,
+      departments: organization.length,
+      employees: staff.length,
+    }
+    departments.value = organization
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.loadManagement')
+  }
+}
+
+async function loadDashboardAssignments() {
+  const start = localDate(new Date())
+  const endDate = new Date()
+  endDate.setDate(endDate.getDate() + 62)
+  nextAssignments.value = await api<Assignment[]>(
+    `/assignments?from=${start}&to=${localDate(endDate)}&timezone_offset_minutes=${new Date().getTimezoneOffset()}`,
+  )
+}
+
+async function openDashboard() {
+  showDashboard.value = true
+  showPlanning.value = false
+  showNotifications.value = false
+  showAbsences.value = false
+  showNextShifts.value = false
+  showArchive.value = false
+  selectedDay.value = null
+  showManagement.value = false
+  showSettings.value = false
+  dashboardBusy.value = true
+  error.value = ''
+  try {
+    if (roleKey.value === 'ADMIN') {
+      await loadAdminDashboard()
+      return
+    }
+    if (!hasScheduleAccess.value) {
+      await openManagement()
+      return
+    }
+    await Promise.all([loadData(), loadDashboardAssignments()])
+    if (canViewAbsences.value) await loadAbsences()
+    await checkPendingVacationRequests()
+    const todayDate = localDate(new Date())
+    const horizon = new Date()
+    horizon.setDate(horizon.getDate() + 62)
+    const pendingCoverage = canEditPlan.value
+      ? absences.value.filter((absence) =>
+          absence.kind === 'sick'
+          && absence.status === 'approved'
+          && absence.end_date >= todayDate
+          && absence.start_date <= localDate(horizon))
+      : []
+    await Promise.all(pendingCoverage.map(loadSickCoverage))
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.loadData')
+  } finally {
+    dashboardBusy.value = false
+  }
+}
+
+async function approveSickCoverage(preview: SickCoveragePreview) {
+  const replacements = preview.assignments.flatMap((assignment) => {
+    const employeeId = sickCoverageSelections.value[assignment.assignment_id]
+    return employeeId && assignment.suggestions.some((suggestion) => suggestion.employee_id === employeeId)
+      ? [{ assignment_id: assignment.assignment_id, employee_id: employeeId }]
+      : []
+  })
+  if (!replacements.length) return
+  if (!await askConfirmation(t('dashboard.confirmCoverage', { count: replacements.length }))) return
+  try {
+    await api(`/planning/sick-cover/approve?absence_id=${preview.absence_id}`, {
+      method: 'POST',
+      body: JSON.stringify({ replacements }),
+    })
+    await openDashboard()
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('dashboard.coverageFailed')
+  }
+}
+
 async function loadArchives() {
   try {
     planArchives.value = await api<PlanArchiveSummary[]>('/archives')
@@ -829,6 +993,7 @@ async function saveArchiveSettings() {
 }
 
 async function openArchive() {
+  showDashboard.value = false
   showArchive.value = true
   const now = new Date()
   archiveStart.value = archiveStart.value || localDate(new Date(now.getFullYear(), now.getMonth(), 1))
@@ -860,6 +1025,7 @@ async function createArchive() {
 
 async function openAbsences() {
   if (roleKey.value === 'ADMIN' || !canView.value) return
+  showDashboard.value = false
   vacationAlertQueue.value = []
   showPlanning.value = false
   showNotifications.value = false
@@ -873,6 +1039,7 @@ async function openAbsences() {
 }
 
 async function openNextShifts() {
+  showDashboard.value = false
   showPlanning.value = false
   showNotifications.value = false
   showAbsences.value = false
@@ -1064,6 +1231,7 @@ function skipMailOnboarding() {
 }
 
 function openAppSettings(tab = 'appearance') {
+  showDashboard.value = false
   showManagement.value = false
   showEmployeeForm.value = false
   showShiftForm.value = false
@@ -1326,11 +1494,9 @@ async function login() {
     staySignedIn.value = result.remember_me
     password.value = ''
     if (mustChangePassword.value) return
+    const dashboardLoad = openDashboard()
     if (canManageTeam.value) await loadMailMode()
-    await loadData()
-    if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
-      await openManagement()
-    }
+    await dashboardLoad
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
@@ -1360,11 +1526,9 @@ async function changeRequiredPassword() {
     requiredCurrentPassword.value = ''
     requiredPassword.value = ''
     requiredPasswordConfirm.value = ''
+    const dashboardLoad = openDashboard()
     if (canManageTeam.value) await loadMailMode()
-    await loadData()
-    if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
-      await openManagement()
-    }
+    await dashboardLoad
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
@@ -1424,10 +1588,9 @@ async function completeSetup() {
     setupPassword.value = ''
     setupPasswordConfirm.value = ''
     setupLicenseToken.value = ''
-    await loadData()
-    if (roleKey.value === 'ADMIN' || (roleKey.value === 'HOSPITAL_MANAGEMENT' && !canView.value)) {
-      await openManagement()
-    }
+    const dashboardLoad = openDashboard()
+    if (canManageTeam.value) await loadMailMode()
+    await dashboardLoad
     void checkForUpdates()
     void refreshLicenseStatus()
   } catch (err) {
@@ -1458,6 +1621,7 @@ async function logout() {
   departments.value = []
   users.value = []
   showSettings.value = false
+  showDashboard.value = false
   showAbsences.value = false
   showProfile.value = false
   showManagement.value = false
@@ -1810,6 +1974,7 @@ async function approveCandidate(candidate: Candidate) {
 }
 
 function openPlanning() {
+  showDashboard.value = false
   showAbsences.value = false
   showNotifications.value = false
   showNextShifts.value = false
@@ -1942,6 +2107,7 @@ async function saveSettings() {
 }
 
 async function openManagement() {
+    showDashboard.value = false
     void loadRoleCatalog()
     showManagement.value = true
     managementTab.value = managementTabs.value[0]?.key ?? 'overview'
@@ -2289,6 +2455,7 @@ async function loadNotificationHistory() {
 }
 
 function openNotificationsPage() {
+  showDashboard.value = false
   showAbsences.value = false
   showNextShifts.value = false
   showPlanning.value = false
@@ -2451,7 +2618,7 @@ onBeforeUnmount(() => {
         <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
       </div>
       <p class="nav-caption nav-caption-spaced">{{ t('nav.workspace') }}</p>
-      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
+      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
       <button v-if="roleKey === 'EMPLOYEE'" class="nav-item" :title="t('schedule.nextShifts')" :class="{ active: showNextShifts }" @click="void openNextShifts()"><span>◷</span> {{ t('schedule.nextShifts') }}</button>
       <button v-if="canEditPlan" class="nav-item" :title="t('page.planning')" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> {{ t('page.planning') }}</button>
       <button v-if="canViewAbsences" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
@@ -2471,7 +2638,7 @@ onBeforeUnmount(() => {
 
     <section class="workspace">
       <nav class="mobile-navigation" :aria-label="t('nav.mobileNavigation')">
-        <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" @click="showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null">{{ t('page.schedule') }}</button>
+        <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null">{{ t('page.schedule') }}</button>
         <button v-if="roleKey === 'EMPLOYEE'" @click="void openNextShifts()">{{ t('schedule.nextShifts') }}</button>
         <button v-if="canEditPlan" @click="openPlanning()">{{ t('page.planning') }}</button>
         <button v-if="canViewAbsences" @click="void openAbsences()">{{ t('page.absences') }}</button>
@@ -2481,7 +2648,7 @@ onBeforeUnmount(() => {
         <button @click="logout()">{{ t('nav.signOut') }}</button>
       </nav>
       <header class="topbar">
-        <div class="breadcrumb">{{ t('nav.workspaceLabel') }} <span>/</span> <strong>{{ selectedPlanName }}</strong><span>/</span>{{ selectedDay ? t('nav.dayView') : t('nav.weekView') }}</div>
+        <div class="breadcrumb">{{ t('nav.workspaceLabel') }} <span>/</span> <strong>{{ showDashboard ? t('dashboard.title') : selectedPlanName }}</strong><template v-if="!showDashboard"><span>/</span>{{ selectedDay ? t('nav.dayView') : t('nav.weekView') }}</template></div>
         <div class="topbar-right">
           <LanguageSelector compact />
           <select v-if="hasScheduleAccess" class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
@@ -2501,7 +2668,78 @@ onBeforeUnmount(() => {
         </div>
       </header>
       <p v-if="locale === 'en'" class="language-banner" role="status">{{ t('language.incomplete') }}</p>
-      <main v-if="showPlanning" class="content">
+      <main v-if="showDashboard" class="content dashboard-page">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">{{ t(roleKey === 'ADMIN' ? 'dashboard.adminEyebrow' : 'dashboard.eyebrow') }}</p>
+            <h1>{{ t(roleKey === 'ADMIN' ? 'dashboard.adminTitle' : 'dashboard.greeting', { name: username }) }}</h1>
+            <p class="muted">{{ t(roleKey === 'ADMIN' ? 'dashboard.adminDescription' : 'dashboard.description') }}</p>
+          </div>
+        </div>
+        <div v-if="error" class="alert" role="alert"><span>{{ displayedError }}</span><button @click="error = ''" :aria-label="t('dashboard.dismiss')">×</button></div>
+        <p v-if="dashboardBusy" class="muted" role="status">{{ t('dashboard.loading') }}</p>
+        <template v-if="roleKey === 'ADMIN'">
+          <section class="dashboard-grid admin-summary-grid">
+            <article class="panel dashboard-card"><span class="eyebrow">{{ t('dashboard.departments') }}</span><strong>{{ adminDashboardSummary.departments }}</strong><button class="text-button" @click="void openManagement()">{{ t('dashboard.manageDepartments') }}</button></article>
+            <article class="panel dashboard-card"><span class="eyebrow">{{ t('dashboard.employees') }}</span><strong>{{ adminDashboardSummary.employees }}</strong><button class="text-button" @click="void openManagement()">{{ t('dashboard.manageEmployees') }}</button></article>
+            <article class="panel dashboard-card"><span class="eyebrow">{{ t('dashboard.accounts') }}</span><strong>{{ adminDashboardSummary.users }}</strong><button class="text-button" @click="void openManagement()">{{ t('dashboard.manageAccounts') }}</button></article>
+          </section>
+          <section class="panel dashboard-shortcuts">
+            <div class="dashboard-section-heading"><div><p class="eyebrow">{{ t('dashboard.shortcutsEyebrow') }}</p><h2>{{ t('dashboard.shortcutsTitle') }}</h2></div></div>
+            <div class="dashboard-grid">
+              <button class="dashboard-shortcut" @click="openAppSettings('operations')"><span>⚙</span><strong>{{ t('settings.operations') }}</strong><small>{{ t('dashboard.operationsDescription') }}</small></button>
+              <button class="dashboard-shortcut" @click="openAppSettings('mail')"><span>✉</span><strong>{{ t('settings.mail') }}</strong><small>{{ t('dashboard.mailDescription') }}</small></button>
+              <button class="dashboard-shortcut" @click="openAppSettings('license')"><span>◇</span><strong>{{ t('settings.license') }}</strong><small>{{ t('dashboard.licenseDescription') }}</small></button>
+              <button class="dashboard-shortcut" @click="openAppSettings('backup')"><span>▤</span><strong>{{ t('settings.backup') }}</strong><small>{{ t('dashboard.backupDescription') }}</small></button>
+              <button class="dashboard-shortcut" @click="openAppSettings('security')"><span>⌑</span><strong>{{ t('settings.security') }}</strong><small>{{ t('dashboard.securityDescription') }}</small></button>
+              <button class="dashboard-shortcut" @click="openAppSettings('audit')"><span>☷</span><strong>{{ t('settings.audit') }}</strong><small>{{ t('dashboard.auditDescription') }}</small></button>
+              <button class="dashboard-shortcut" @click="openAppSettings('archive')"><span>▧</span><strong>{{ t('settings.archive') }}</strong><small>{{ t('dashboard.archiveDescription') }}</small></button>
+              <button class="dashboard-shortcut" @click="void openManagement()"><span>♙</span><strong>{{ t('nav.teamManagement') }}</strong><small>{{ t('dashboard.teamDescription') }}</small></button>
+            </div>
+          </section>
+        </template>
+        <template v-else>
+          <section class="dashboard-grid employee-dashboard-grid">
+            <article class="panel dashboard-card next-duty-card">
+              <span class="eyebrow">{{ t('dashboard.nextDuty') }}</span>
+              <template v-if="dashboardNextAssignment">
+                <strong>{{ dashboardNextAssignment.shift_name }}</strong>
+                <span>{{ new Date(dashboardNextAssignment.starts_at).toLocaleString(locale, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) }}</span>
+              </template>
+              <p v-else class="muted">{{ dashboardBusy ? t('dashboard.loading') : t('dashboard.noUpcomingDuty') }}</p>
+              <button v-if="roleKey === 'EMPLOYEE'" class="text-button" @click="void openNextShifts()">{{ t('schedule.nextShifts') }}</button>
+            </article>
+            <article class="panel dashboard-card absence-shortcut-card">
+              <span class="eyebrow">{{ t('page.absences') }}</span>
+              <strong v-if="canApprove">{{ dashboardPendingAbsences }}</strong>
+              <span>{{ canApprove ? t('dashboard.pendingRequests') : t('dashboard.absencePrompt') }}</span>
+              <button v-if="canRequestAbsence || canViewAbsences" class="primary" @click="void openAbsences()">{{ canRequestAbsence ? t('dashboard.requestAbsence') : t('dashboard.reviewRequests') }}</button>
+            </article>
+          </section>
+          <section class="panel dashboard-calendar">
+            <div class="dashboard-section-heading"><div><p class="eyebrow">{{ t('dashboard.calendarEyebrow') }}</p><h2>{{ t('dashboard.calendarTitle') }}</h2></div><button class="text-button" @click="showDashboard = false; selectedDay = null">{{ t('page.schedule') }}</button></div>
+            <div class="dashboard-calendar-days">
+              <button v-for="day in dashboardDays" :key="localDate(day)" class="dashboard-calendar-day" @click="showDashboard = false; selectedDay = localDate(day)">
+                <span>{{ day.toLocaleDateString(locale, { weekday: 'short' }) }}</span><strong>{{ day.getDate() }}</strong>
+                <small>{{ shiftCountLabel(nextAssignments.filter((assignment) => localDate(new Date(assignment.starts_at)) === localDate(day)).length) }}</small>
+              </button>
+            </div>
+          </section>
+          <section v-if="canEditPlan && Object.keys(sickCoveragePreviews).length" class="panel dashboard-coverage">
+            <div class="dashboard-section-heading"><div><p class="eyebrow">{{ t('dashboard.coverageEyebrow') }}</p><h2>{{ t('dashboard.coverageTitle') }}</h2></div></div>
+            <article v-for="preview in Object.values(sickCoveragePreviews)" :key="preview.absence_id" class="coverage-preview">
+              <header><strong>{{ t('dashboard.sickReported', { name: preview.employee_name }) }}</strong><button class="text-button" :disabled="sickCoverageBusyIds.includes(preview.absence_id)" @click="regenerateSickCoverage(preview.absence_id)">{{ sickCoverageBusyIds.includes(preview.absence_id) ? t('dashboard.calculating') : t('dashboard.regenerate') }}</button></header>
+              <div v-for="assignment in preview.assignments" :key="assignment.assignment_id" class="coverage-assignment">
+                <div><strong>{{ assignment.shift_name }} · {{ assignment.position }}</strong><small>{{ new Date(assignment.starts_at).toLocaleString(locale) }}</small></div>
+                <label v-if="assignment.suggestions.length">{{ t('dashboard.replacement') }}<select v-model.number="sickCoverageSelections[assignment.assignment_id]"><option v-for="suggestion in assignment.suggestions" :key="suggestion.employee_id" :value="suggestion.employee_id">{{ suggestion.employee_name }} · {{ suggestion.employee_role }}</option></select></label>
+                <small v-else class="muted">{{ t('dashboard.noReplacement') }}</small>
+              </div>
+              <button class="primary" :disabled="licenseReadOnly || !preview.assignments.some((assignment) => assignment.suggestions.length)" @click="void approveSickCoverage(preview)">{{ t('dashboard.confirmReplacement') }}</button>
+            </article>
+          </section>
+        </template>
+      </main>
+      <main v-else-if="showPlanning" class="content">
         <div class="page-heading">
           <div>
             <p class="eyebrow">{{ t('planning.eyebrow') }}</p>

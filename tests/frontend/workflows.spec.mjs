@@ -101,11 +101,18 @@ async function mockApi(
   return failures
 }
 
-async function login(page, { hasVisibleShift = true } = {}) {
+async function login(page, { openSchedule = true, hasVisibleShift = true } = {}) {
   await page.goto('/')
   await page.getByLabel('Benutzername').fill('planer')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await expect(page.locator('.dashboard-page h1')).toBeVisible()
+  if (!openSchedule) return
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Dienstplan', exact: true }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Dienstplan"]').click()
+  }
   await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
   if (hasVisibleShift) await expect(page.getByText('Frühdienst').first()).toBeVisible()
 }
@@ -135,9 +142,34 @@ test('English login and navigation use the stored locale', async ({ page }) => {
   await page.getByLabel('Username').fill('planer')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Welcome, planer', exact: true })).toBeVisible()
   await expect(page.locator('nav.mobile-navigation')).toHaveAttribute('aria-label', 'Mobile navigation')
   await expect(page.getByRole('button', { name: 'Open notifications' })).toBeVisible()
+  await expect(page).toHaveTitle('ClinicPulse – Overview')
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Schedule', exact: true }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Schedule"]').click()
+  }
   await expect(page).toHaveTitle('ClinicPulse – Schedule')
+})
+
+test('administrator is taken to a useful dashboard with shortcuts to settings', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await mockApi(page, 'ADMIN')
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.goto('/')
+  await page.getByLabel('Username').fill('admin')
+  await page.getByLabel('Password', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Administrator overview' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Important settings' })).toBeVisible()
+  await expect(page.getByLabel('Language')).toBeVisible()
+  await expect(page.locator('.mobile-navigation').getByRole('button', { name: 'Team management' })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Administrator overview' })).toBeVisible()
+  await page.getByRole('button', { name: /Email delivery and invitations/ }).click()
+  await expect(page.getByRole('tab', { name: 'Email delivery' })).toBeVisible()
 })
 
 test('mobile administrator toolbar remains usable when an error is displayed', async ({ page }) => {
@@ -151,7 +183,6 @@ test('mobile administrator toolbar remains usable when an error is displayed', a
   await expect(page.locator('.toast-error')).toContainText('Unexpected test request')
   await expect(page.getByLabel('Language')).toBeVisible()
   await expect(page.locator('.mobile-navigation').getByRole('button', { name: 'Team management' })).toBeVisible()
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5000 })
   await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible()
   await expect(page.locator('.toast-error')).toBeVisible()
@@ -162,7 +193,7 @@ test('notification history switches language without losing shift data or select
   await page.route('**/api/shift-types', (route) => route.fulfill({ json: [
     shift, { ...shift, id: 2, name: 'Spätdienst', position: 'OP', required_staff: 2 },
   ] }))
-  await login(page)
+  await login(page, { openSchedule: false })
   await page.getByRole('button', { name: 'Meldungen öffnen' }).click()
   await expect(page.getByRole('heading', { name: 'Meldungen' })).toBeVisible()
   await expect(page.locator('.notification-item').first()).toContainText('1 unbesetzte Pflege-Stelle · Frühdienst')
@@ -242,6 +273,7 @@ test('an administrator can assign an Oberarzt as department leader', async ({ pa
   await page.getByLabel('Benutzername').fill('admin')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
   const leaderSelect = page.getByLabel('Leitung dieser Abteilung')
   await expect(leaderSelect).toBeVisible()
   await expect(leaderSelect).toContainText('Lea Leitung · lea')
@@ -255,7 +287,7 @@ test('a pending vacation request opens an attention dialog', async ({ page }) =>
     start_date: '2026-12-01', end_date: '2026-12-05', status: 'pending', note: null,
     requested_by: 'alex', created_at: '2026-11-11T10:00:00Z', decided_by: null, decided_at: null,
   }])
-  await login(page)
+  await login(page, { openSchedule: false })
   const alert = page.getByRole('alertdialog')
   await expect(alert).toContainText('Alex Beispiel hat einen Urlaub beantragt.')
   await alert.getByRole('button', { name: 'Anträge ansehen' }).click()
@@ -270,6 +302,12 @@ test('English shift forms and system role use localized labels while preserving 
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.locator('.profile-text').first()).toContainText('Senior physician')
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Schedule', exact: true }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Schedule"]').click()
+  }
+  await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Open day details' }).click()
   await page.getByText('Open position', { exact: true }).click()
   const dialog = page.getByRole('dialog')
@@ -414,7 +452,7 @@ test('team management displays translated labels and preserves account and depar
     const request = page.waitForRequest((req) => req.url().endsWith('/api/settings/account') && req.method() === 'PUT')
     await page.getByRole('button', { name: 'Passwort festlegen' }).click()
     expect((await request).postDataJSON()).toMatchObject({ username: 'planer', current_password: 'test-password', new_password: 'different-password' })
-    await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
   })
 
 test('employees can receive multiple qualifications from their department', async ({ page }) => {
@@ -577,7 +615,6 @@ test('update selector shows the installed image and uses main and test channels'
   await page.getByLabel('Benutzername').fill('admin')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Schließen', exact: true }).click()
   await expect(page.locator('.page-footer')).toContainText('Version v-0.2.1-alpha')
   const selector = page.getByLabel('Update-Kanal')
   await expect(selector).toHaveValue('test')
@@ -633,7 +670,6 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
   await expect(page.locator('.toast-error')).toHaveCount(0)
   await expect(page.getByText('ClinicPulse is up to date.')).toBeVisible()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -767,7 +803,7 @@ test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page
   await expect(page.getByText('Ungültige Zugangsdaten')).toBeVisible()
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/ClinicPulse/')
   await page.getByRole('button', { name: 'Abmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Willkommen zurück' })).toBeVisible()
@@ -893,7 +929,7 @@ test('berechtigte Planer können einen Antrag genehmigen', async ({ page }) => {
     start_date: '2026-11-16', end_date: '2026-11-17', status: 'pending',
     note: null, requested_by: 'alex', created_at: null, decided_by: null, decided_at: null,
   }])
-  await login(page)
+  await login(page, { openSchedule: false })
   await page.getByRole('alertdialog').getByRole('button', { name: 'Anträge ansehen' }).click()
   await page.getByRole('button', { name: /Abwesenheiten/ }).click()
   await page.getByRole('button', { name: 'Genehmigen' }).click()
@@ -943,5 +979,5 @@ test('nicht erreichbare API zeigt eine Fehlermeldung statt leerer Plan-Daten', a
   await page.reload()
 
   await expect(page.locator('.toast.toast-error')).toContainText('Failed to fetch')
-  await expect(page.getByRole('heading', { name: 'Dienstplan', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
 })

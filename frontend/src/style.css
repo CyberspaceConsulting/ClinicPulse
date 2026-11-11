@@ -91,6 +91,37 @@ h1, h2, h3, p { margin-top: 0; }
 .stat-card strong { display: block; font-size: 23px; margin-top: 3px; letter-spacing: -.5px; }
 .stat-card small { align-self: end; color: #9aa6a3; font-size: 10px; white-space: nowrap; padding-bottom: 2px; }
 .panel { background: white; border: 1px solid #e8eeec; border-radius: 9px; overflow: hidden; }
+.dashboard-page { display: grid; gap: 18px; }
+.dashboard-page .page-heading { margin-bottom: 0; }
+.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.admin-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dashboard-card { display: flex; min-height: 150px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px; padding: 20px; }
+.dashboard-card > strong { font-size: 30px; letter-spacing: -.8px; }
+.dashboard-card > span:not(.eyebrow) { color: #64736f; font-size: 12px; }
+.dashboard-card .text-button { padding: 0; }
+.dashboard-shortcuts, .dashboard-calendar, .dashboard-coverage { padding: 20px; }
+.dashboard-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.dashboard-section-heading .eyebrow { margin-bottom: 5px; }
+.dashboard-section-heading h2 { margin: 0; font-size: 17px; }
+.dashboard-shortcuts .dashboard-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dashboard-shortcut { display: grid; min-height: 110px; align-content: start; gap: 6px; border: 1px solid #e8eeec; border-radius: 8px; padding: 13px; background: #fbfdfc; color: #31433f; text-align: left; }
+.dashboard-shortcut:hover { border-color: #9dc7bc; background: #f3faf7; }
+.dashboard-shortcut > span { color: #277365; font-size: 19px; }
+.dashboard-shortcut strong { font-size: 12px; }
+.dashboard-shortcut small { color: #7e8c89; font-size: 10px; line-height: 1.4; }
+.dashboard-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.dashboard-calendar-day { display: grid; justify-items: center; gap: 7px; border: 1px solid #e8eeec; border-radius: 7px; padding: 10px 4px; background: #fbfdfc; color: inherit; }
+.dashboard-calendar-day > span { color: #758580; font-size: 10px; text-transform: uppercase; }
+.dashboard-calendar-day > strong { font-size: 18px; }
+.dashboard-calendar-day > small { color: #758580; font-size: 9px; }
+.coverage-preview { border-top: 1px solid #e8eeec; padding: 14px 0; }
+.coverage-preview > header, .coverage-assignment { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.coverage-assignment { border-top: 1px solid #eef2f1; padding: 10px 0; }
+.coverage-assignment > div { display: grid; gap: 4px; }
+.coverage-assignment small { color: #7e8c89; font-size: 10px; }
+.coverage-assignment label { display: grid; min-width: 190px; gap: 4px; color: #7e8c89; font-size: 10px; }
+.coverage-assignment select { max-width: 100%; }
+.coverage-preview > .primary { margin-top: 8px; }
 .planner-toolbar { min-height: 82px; padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .planner-toolbar h2 { font-size: 15px; margin: 0 0 5px; }
 .toolbar-actions { display: flex; align-items: center; gap: 8px; }
@@ -297,6 +328,8 @@ html[data-theme="dark"] { color-scheme: dark; }
 html[data-theme="dark"] body { color: #e0e9e6; background: #111b1a; }
 html[data-theme="dark"] .topbar,
 html[data-theme="dark"] .panel,
+html[data-theme="dark"] .dashboard-shortcut,
+html[data-theme="dark"] .dashboard-calendar-day,
 html[data-theme="dark"] .stat-card,
 html[data-theme="dark"] .modal,
 html[data-theme="dark"] .login-card,
@@ -321,6 +354,11 @@ html[data-theme="dark"] .audit-row { border-color: #344541; color: #cbd8d4; }
 html[data-theme="dark"] .audit-row time, html[data-theme="dark"] .audit-row code { color: #9eb0aa; }
 html[data-theme="dark"] .breadcrumb strong,
 html[data-theme="dark"] .page-heading h1,
+html[data-theme="dark"] .dashboard-section-heading h2,
+html[data-theme="dark"] .dashboard-card > span:not(.eyebrow),
+html[data-theme="dark"] .dashboard-shortcut strong,
+html[data-theme="dark"] .coverage-preview > header strong,
+html[data-theme="dark"] .coverage-assignment strong,
 html[data-theme="dark"] .planner-toolbar h2,
 html[data-theme="dark"] .stat-card strong,
 html[data-theme="dark"] .shift-section-heading h3,
@@ -383,6 +421,14 @@ html[data-theme="dark"] .management-row { border-color: #344541; }
   .overview-day { min-height: 165px; }
 }
 @media (max-width: 720px) {
+  .admin-summary-grid, .dashboard-shortcuts .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-card { min-height: 125px; padding: 14px; }
+  .dashboard-shortcuts, .dashboard-calendar, .dashboard-coverage { padding: 14px; }
+  .dashboard-calendar-days { gap: 4px; }
+  .dashboard-calendar-day { padding: 8px 2px; }
+  .dashboard-calendar-day > small { font-size: 8px; }
+  .coverage-assignment { align-items: flex-start; flex-direction: column; }
+  .coverage-assignment label { width: 100%; }
   .heading-actions { flex-direction: column; align-items: stretch; }
   .topbar { height: auto; min-height: 48px; padding-top: 6px; padding-bottom: 6px; }
   .topbar-right { flex-wrap: wrap; gap: 6px; }

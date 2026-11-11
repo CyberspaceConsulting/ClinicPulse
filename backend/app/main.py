@@ -69,6 +69,8 @@ from .schemas import (
     OptimizationPreviewRequest,
     PlanningApproval,
     PlanningRequest,
+    SickCoverageApproval,
+    SickCoveragePreviewRequest,
 )
 from .security import (
     idle_timeout_minutes,
@@ -1912,6 +1914,12 @@ def update_user(
     user.can_view = False if changes.role_key == "PERSONNEL" else changes.can_view
     user.can_edit = False if changes.role_key == "HOSPITAL_MANAGEMENT" else changes.can_edit
     user.can_approve = False if changes.role_key == "HOSPITAL_MANAGEMENT" else changes.can_approve
+    if changes.role_key != "OBERARZT":
+        for department in db.scalars(
+            select(models.Department).where(models.Department.manager_user_id == user.id)
+        ):
+            department.manager_user_id = None
+        user.can_manage_department = False
     if changes.role_key == "PERSONNEL":
         user.can_view = user.can_edit = user.can_approve = False
     user.first_name = changes.first_name
@@ -2620,6 +2628,7 @@ def preview_optimized_day(
                 "employee_role": item.employee_role,
                 "shift_type_id": item.shift_type_id,
                 "shift_name": item.shift_name,
+                "position": item.position,
                 "role_match": item.role_match,
                 "starts_at": item.starts_at,
                 "ends_at": item.ends_at,
@@ -2677,6 +2686,7 @@ def preview_planning_period(
                         "employee_role": item.employee_role,
                         "shift_type_id": item.shift_type_id,
                         "shift_name": item.shift_name,
+                        "position": item.position,
                         "role_match": item.role_match,
                         "starts_at": item.starts_at,
                         "ends_at": item.ends_at,
@@ -2695,6 +2705,208 @@ def preview_planning_period(
             for day in days
         ],
     }
+
+
+@app.post("/api/planning/sick-cover/preview")
+def preview_sick_coverage(
+    request: SickCoveragePreviewRequest,
+    principal: Principal = Depends(require_edit),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    absence = db.get(models.Absence, request.absence_id)
+    if absence is None or absence.kind != "sick" or absence.status != "approved":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
+    employee = db.get(models.Employee, absence.employee_id)
+    if employee is None or not can_access_department(principal, employee.department_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
+
+    business_tz = business_timezone(db)
+    range_start = datetime.combine(absence.start_date, time.min, tzinfo=business_tz).astimezone(timezone.utc)
+    range_end = datetime.combine(absence.end_date + timedelta(days=1), time.min, tzinfo=business_tz).astimezone(timezone.utc)
+    affected = list(db.scalars(
+        select(models.Assignment)
+        .join(models.ShiftType)
+        .where(
+            models.Assignment.employee_id == employee.id,
+            models.Assignment.starts_at < range_end,
+            models.Assignment.ends_at > range_start,
+        )
+        .order_by(models.Assignment.starts_at, models.Assignment.id)
+    ))
+    if scoped_to_department(principal):
+        affected = [
+            item for item in affected
+            if can_access_department(principal, item.shift_type.department_id)
+        ]
+
+    grouped: dict[date, list[models.Assignment]] = {}
+    position_by_assignment: dict[int, str] = {}
+    for assignment in affected:
+        starts_at = assignment.starts_at
+        if starts_at.tzinfo is None:
+            starts_at = starts_at.replace(tzinfo=timezone.utc)
+        target_date = starts_at.astimezone(business_tz).date()
+        grouped.setdefault(target_date, []).append(assignment)
+        requirements = assignment.shift_type.staffing_requirements or [
+            models.ShiftStaffingRequirement(
+                position=assignment.shift_type.position,
+                required_staff=assignment.shift_type.required_staff,
+            )
+        ]
+        qualifications = {assignment.employee.role.strip().casefold()}
+        position_by_assignment[assignment.id] = next(
+            (
+                requirement.position.strip()
+                for requirement in requirements
+                if requirement.position.strip().casefold() in qualifications
+            ),
+            requirements[0].position.strip(),
+        )
+
+    suggestions_by_assignment: dict[int, list[dict[str, object]]] = {
+        assignment.id: [] for assignment in affected
+    }
+    for target_date, assignments_for_day in grouped.items():
+        target_vacancies: dict[tuple[int, str], int] = {}
+        slot_assignments: dict[tuple[int, str], list[models.Assignment]] = {}
+        for assignment in assignments_for_day:
+            position = position_by_assignment[assignment.id]
+            key = (assignment.shift_type_id, position.casefold())
+            target_vacancies[key] = target_vacancies.get(key, 0) + 1
+            slot_assignments.setdefault(key, []).append(assignment)
+
+        try:
+            preview = optimize_day(
+                db,
+                target_date,
+                (employee.department_id,) if employee.department_id is not None else None,
+                target_vacancies=target_vacancies,
+            )
+        except OptimizationTooLarge as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+        suggestions_by_slot: dict[tuple[int, str], list[dict[str, object]]] = {}
+        for item in preview.suggestions:
+            key = (item.shift_type_id, item.position.strip().casefold())
+            suggestions_by_slot.setdefault(key, []).append({
+                "employee_id": item.employee_id,
+                "employee_name": item.employee_name,
+                "employee_role": item.employee_role,
+                "role_match": item.role_match,
+            })
+        for key, assignments_for_slot in slot_assignments.items():
+            available = suggestions_by_slot.get(key, [])
+            for assignment in assignments_for_slot:
+                if available:
+                    suggestions_by_assignment[assignment.id].append(available.pop(0))
+
+    return {
+        "absence_id": absence.id,
+        "employee_name": employee.name,
+        "start_date": absence.start_date,
+        "end_date": absence.end_date,
+        "assignments": [
+            {
+                "assignment_id": assignment.id,
+                "shift_type_id": assignment.shift_type_id,
+                "shift_name": assignment.shift_type.name,
+                "position": position_by_assignment[assignment.id],
+                "starts_at": assignment.starts_at,
+                "ends_at": assignment.ends_at,
+                "suggestions": suggestions_by_assignment[assignment.id],
+            }
+            for assignment in affected
+        ],
+    }
+
+
+@app.post("/api/planning/sick-cover/approve", status_code=status.HTTP_201_CREATED)
+def approve_sick_coverage(
+    request: SickCoverageApproval,
+    absence_id: int = Query(gt=0),
+    principal: Principal = Depends(require_edit),
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    absence = db.get(models.Absence, absence_id)
+    if absence is None or absence.kind != "sick" or absence.status != "approved":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
+    absent_employee = db.get(models.Employee, absence.employee_id)
+    if absent_employee is None or not can_access_department(principal, absent_employee.department_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
+    assignment_ids = [item.assignment_id for item in request.replacements]
+    if len(set(assignment_ids)) != len(assignment_ids):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A sick shift can only be replaced once")
+
+    business_tz = business_timezone(db)
+    range_start = datetime.combine(absence.start_date, time.min, tzinfo=business_tz).astimezone(timezone.utc)
+    range_end = datetime.combine(absence.end_date + timedelta(days=1), time.min, tzinfo=business_tz).astimezone(timezone.utc)
+    originals = list(db.scalars(
+        select(models.Assignment)
+        .join(models.ShiftType)
+        .where(
+            models.Assignment.id.in_(assignment_ids),
+            models.Assignment.employee_id == absent_employee.id,
+            models.Assignment.starts_at < range_end,
+            models.Assignment.ends_at > range_start,
+        )
+    ))
+    original_by_id = {assignment.id: assignment for assignment in originals}
+    if len(original_by_id) != len(assignment_ids):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A sick shift changed; regenerate the suggestions")
+    for assignment in originals:
+        if not can_access_department(principal, assignment.shift_type.department_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
+
+    try:
+        replacements: list[tuple[models.Assignment, models.Employee]] = []
+        for item in request.replacements:
+            original = original_by_id[item.assignment_id]
+            replacement = db.get(models.Employee, item.employee_id)
+            if replacement is None or replacement.department_id != original.shift_type.department_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Replacement employee is no longer available")
+            requirements = original.shift_type.staffing_requirements or [
+                models.ShiftStaffingRequirement(
+                    position=original.shift_type.position,
+                    required_staff=original.shift_type.required_staff,
+                )
+            ]
+            original_qualifications = {absent_employee.role.strip().casefold()}
+            position = next(
+                (
+                    requirement.position.strip()
+                    for requirement in requirements
+                    if requirement.position.strip().casefold() in original_qualifications
+                ),
+                requirements[0].position.strip(),
+            )
+            if position.casefold() != replacement.role.strip().casefold():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Replacement employee lacks the required qualification")
+            replacements.append((original, replacement))
+
+        for original, _replacement in replacements:
+            db.delete(original)
+        db.flush()
+        for original, replacement in replacements:
+            starts_at = original.starts_at
+            ends_at = original.ends_at
+            if starts_at.tzinfo is None:
+                starts_at = starts_at.replace(tzinfo=timezone.utc)
+            if ends_at.tzinfo is None:
+                ends_at = ends_at.replace(tzinfo=timezone.utc)
+            proposed = AssignmentCreate(
+                employee_id=replacement.id,
+                shift_type_id=original.shift_type_id,
+                starts_at=starts_at,
+                ends_at=ends_at,
+            )
+            check_assignment_allowed(proposed, replacement, original.shift_type, db)
+            db.add(models.Assignment(**proposed.model_dump()))
+            db.flush()
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    return {"created": len(replacements)}
 
 
 @app.post("/api/planning/approve", status_code=status.HTTP_201_CREATED)

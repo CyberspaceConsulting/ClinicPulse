@@ -239,6 +239,19 @@ class PlanningApproval(BaseModel):
     items: list[PlanningItem] = Field(min_length=1, max_length=500)
 
 
+class SickCoveragePreviewRequest(BaseModel):
+    absence_id: int = Field(gt=0)
+
+
+class SickCoverageReplacement(BaseModel):
+    assignment_id: int = Field(gt=0)
+    employee_id: int = Field(gt=0)
+
+
+class SickCoverageApproval(BaseModel):
+    replacements: list[SickCoverageReplacement] = Field(min_length=1, max_length=100)
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)

@@ -32,3 +32,11 @@ Verstöße werden als HTTP 409 mit einer Erklärung abgelehnt, siehe [Fehlerbehe
 ## Berechtigungen
 
 Ansehen, Bearbeiten und Freigeben sind getrennte Rechte. Die Smart-Auswahl und Planungsvorschläge sind Dienstplanverantwortlichen mit Bearbeitungsrecht vorbehalten. Leitung und Stellvertretung erhalten diese Rechte für ihre zugewiesene Abteilung. Die Systemrolle „Oberarzt“ allein verleiht keine Abteilungsverwaltungsrechte. Dienstpläne und Abwesenheiten sind für den Administrator nicht einsehbar. Die Krankenhausleitung erhält diese Leserechte nur, wenn „Dienstplan ansehen“ für ihr Konto aktiviert ist. Mitarbeitende sehen im Dienstplan nur ihre eigenen Dienste und keine offenen Besetzungslücken. Chefärzte sind schreibgeschützt.
+
+## Krankheitsvertretung
+
+Nach einer Krankmeldung ermittelt die Startseite für betroffene, bereits geplante Dienste geeignete Ersatzvorschläge. Leitende Personen können die Vorschläge neu berechnen und bei Bedarf eine andere vorgeschlagene Person auswählen. Erst nach ausdrücklicher Bestätigung werden die bisherigen Zuweisungen durch die Ersatzzuweisungen ersetzt; Arbeitszeit-, Abwesenheits-, Qualifikations- und Überschneidungsregeln werden dabei erneut geprüft. Nicht besetzbare Dienste bleiben unverändert und werden als ohne passenden Vorschlag angezeigt.
+
+## Startseite
+
+Nach Anmeldung und beim Wiederherstellen einer Sitzung öffnet ClinicPulse zuverlässig die Übersicht. Mitarbeitende sehen dort den nächsten Dienst, eine Wochenübersicht und den Einstieg zum Abwesenheitsantrag. Leitende Personen sehen zusätzlich offene Abwesenheitsanträge und gegebenenfalls Krankheitsvertretungen. Administratorkonten erhalten eine eigene Startseite mit Verknüpfungen zu Teamverwaltung, Betrieb, E-Mail, Lizenz, Backups, Sicherheit, Audit-Protokoll und Archivierung.

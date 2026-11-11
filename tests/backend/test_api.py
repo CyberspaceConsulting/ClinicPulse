@@ -1290,6 +1290,92 @@ def test_employee_self_service_absence_workflow(client):
     assert client.get("/api/absences", headers=_login_headers(client, "erika", "secure-password-123")).json()[-1]["id"] == absence_id
 
 
+def test_sick_coverage_suggests_and_atomically_replaces_a_shift(client):
+    admin = auth_header(client)
+    department_id = client.post(
+        "/api/departments", json={"name": "Sick coverage"}, headers=admin
+    ).json()["id"]
+    sick_employee_id = client.post("/api/employees", headers=admin, json={
+        "first_name": "Sick", "last_name": "Physician", "role": "Oberarzt",
+        "department_id": department_id,
+    }).json()["id"]
+    replacement_id = client.post("/api/employees", headers=admin, json={
+        "first_name": "Available", "last_name": "Physician", "role": "Oberarzt",
+        "department_id": department_id,
+    }).json()["id"]
+    unqualified_id = client.post("/api/employees", headers=admin, json={
+        "first_name": "Other", "last_name": "Employee", "role": "Nurse",
+        "department_id": department_id,
+    }).json()["id"]
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Sick", "last_name": "Physician", "username": "sick-reporter",
+        "password": "secure-password-123", "role_key": "EMPLOYEE",
+        "department_id": department_id, "employee_id": sick_employee_id,
+    }).status_code == 201
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Planning", "last_name": "Lead", "username": "sick-planner",
+        "password": "secure-password-123", "role_key": "OBERARZT",
+        "department_id": department_id, "can_view": True, "can_edit": True,
+        "can_approve": True,
+    }).status_code == 201
+    reporter = _login_headers(client, "sick-reporter", "secure-password-123")
+    planner = _login_headers(client, "sick-planner", "secure-password-123")
+    shift_id = client.post("/api/shift-types", headers=planner, json={
+        "name": "Senior coverage", "start_time": "08:00:00", "end_time": "14:00:00",
+        "position": "Oberarzt", "required_staff": 1, "department_id": department_id,
+    }).json()["id"]
+    assignment = client.post("/api/assignments", headers=planner, json={
+        "employee_id": sick_employee_id, "shift_type_id": shift_id,
+        "starts_at": "2032-05-04T06:00:00Z", "ends_at": "2032-05-04T12:00:00Z",
+    })
+    assert assignment.status_code == 201
+    absence = client.post("/api/absences", headers=reporter, json={
+        "kind": "sick", "start_date": "2032-05-04", "end_date": "2032-05-04",
+    })
+    assert absence.status_code == 201
+
+    preview = client.post("/api/planning/sick-cover/preview", headers=planner, json={
+        "absence_id": absence.json()["id"],
+    })
+    assert preview.status_code == 200
+    affected = preview.json()["assignments"]
+    assert [item["assignment_id"] for item in affected] == [assignment.json()["id"]]
+    assert [item["employee_id"] for item in affected[0]["suggestions"]] == [replacement_id]
+
+    rejected = client.post(
+        f"/api/planning/sick-cover/approve?absence_id={absence.json()['id']}",
+        headers=planner,
+        json={"replacements": [{
+            "assignment_id": assignment.json()["id"], "employee_id": unqualified_id,
+        }]},
+    )
+    assert rejected.status_code == 409
+    assert client.get(
+        "/api/assignments?from=2032-05-04&to=2032-05-04", headers=planner
+    ).json()[0]["employee_id"] == sick_employee_id
+
+    approved = client.post(
+        f"/api/planning/sick-cover/approve?absence_id={absence.json()['id']}",
+        headers=planner,
+        json={"replacements": [{
+            "assignment_id": assignment.json()["id"], "employee_id": replacement_id,
+        }]},
+    )
+    assert approved.status_code == 201
+    stored = client.get(
+        "/api/assignments?from=2032-05-04&to=2032-05-04", headers=planner
+    ).json()
+    assert [(item["employee_id"], item["shift_type_id"]) for item in stored] == [(replacement_id, shift_id)]
+    repeated = client.post(
+        f"/api/planning/sick-cover/approve?absence_id={absence.json()['id']}",
+        headers=planner,
+        json={"replacements": [{
+            "assignment_id": assignment.json()["id"], "employee_id": replacement_id,
+        }]},
+    )
+    assert repeated.status_code == 409
+
+
 def test_admin_cannot_read_schedules_or_absences_and_hospital_management_is_opt_in(client):
     admin = auth_header(client)
     department_id = client.post(
