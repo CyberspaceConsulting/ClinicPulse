@@ -2573,36 +2573,36 @@ onBeforeUnmount(() => {
           <div v-if="busy" class="loading">{{ t('schedule.loading') }}</div>
         </section>
 
-        <footer class="page-footer">
-          <span>ClinicPulse · Version {{ displayVersion }}</span>
-          <span>·</span>
-          <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a>
-          <span>·</span>
-          <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a>
-          <template v-if="roleKey === 'ADMIN'">
-            <span>·</span>
-            <button class="footer-update-button" :disabled="updateCheckBusy" @click="void checkForUpdates(true)">
-              {{ updateCheckBusy ? t('updates.checking') : t('updates.check') }}
-            </button>
-            <label class="update-channel-control">{{ t('updates.channel') }}
-              <select v-model="updateChannel" :aria-label="t('updates.channelLabel')" @change="changeUpdateChannel">
-                <option value="main">Main</option>
-                <option value="test">Test</option>
-              </select>
-            </label>
-            <span>·</span>
-            <span v-if="updateInfo" class="update-channel-label">{{ updateInfo.channel }}</span>
-            <span v-if="updateInfo" class="update-status" :class="`update-${updateInfo.status}`" role="status">
-              <template v-if="updateInfo.update_available">
-                <a :href="updateInfo.release_url ?? repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('updates.available', { version: updateInfo.latest_version ?? '' }) }}</a>
-              </template>
-              <template v-else>{{ apiErrorDetail(updateInfo.message) }}</template>
-            </span>
-          </template>
-        </footer>
         </template>
         <section v-else class="panel restricted-panel"><h2>{{ t('schedule.noAccess') }}</h2><p>{{ t('schedule.noAccessDescription') }}</p></section>
       </main>
+      <footer v-if="hasScheduleAccess || roleKey === 'ADMIN'" class="page-footer">
+        <span>ClinicPulse · Version {{ displayVersion }}</span>
+        <span>·</span>
+        <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a>
+        <span>·</span>
+        <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a>
+        <template v-if="roleKey === 'ADMIN'">
+          <span>·</span>
+          <button class="footer-update-button" :disabled="updateCheckBusy" @click="void checkForUpdates(true)">
+            {{ updateCheckBusy ? t('updates.checking') : t('updates.check') }}
+          </button>
+          <label class="update-channel-control">{{ t('updates.channel') }}
+            <select v-model="updateChannel" :aria-label="t('updates.channelLabel')" @change="changeUpdateChannel">
+              <option value="main">Main</option>
+              <option value="test">Test</option>
+            </select>
+          </label>
+          <span>·</span>
+          <span v-if="updateInfo" class="update-channel-label">{{ updateInfo.channel }}</span>
+          <span v-if="updateInfo" class="update-status" :class="`update-${updateInfo.status}`" role="status">
+            <template v-if="updateInfo.update_available">
+              <a :href="updateInfo.release_url ?? repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('updates.available', { version: updateInfo.latest_version ?? '' }) }}</a>
+            </template>
+            <template v-else>{{ apiErrorDetail(updateInfo.message) }}</template>
+          </span>
+        </template>
+      </footer>
     </section>
 
     <div v-if="authenticated && error" class="toast toast-error" role="alert">
