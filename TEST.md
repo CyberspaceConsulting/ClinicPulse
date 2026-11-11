@@ -51,3 +51,12 @@ npm run test:e2e
 
 Die Browser-Tests verwenden simulierte API-Antworten und ersetzen keine
 Integrationstests mit einem laufenden Backend.
+
+## GitHub Actions
+
+Die Job-Zusammenfassungen zeigen den Status der einzelnen Schritte auch bei
+Fehlern. Backend- und Browser-Jobs zählen erfolgreiche, fehlgeschlagene und
+übersprungene Testfälle anhand ihrer JUnit-Berichte. Diese Berichte stehen als
+Workflow-Artefakte bereit; bei fehlgeschlagenen Browsertests werden zusätzlich
+die Playwright-Traces hochgeladen. Wird vor der Reporterstellung abgebrochen,
+weist die Zusammenfassung auf den fehlenden Bericht und die Logs hin.
