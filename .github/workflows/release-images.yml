@@ -123,6 +123,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/cyberspaceconsulting/clinicpulse-backend:${{ env.IMAGE_TAG }}
+          build-args: |
+            CLINICPULSE_IMAGE_VERSION=${{ env.IMAGE_TAG }}
           provenance: true
           sbom: true
 
@@ -190,7 +192,7 @@ jobs:
       - name: Prepare pinned release artifacts
         run: |
           mkdir -p dist
-          sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g; s/__VERSION__/${IMAGE_TAG#v}/g" \
+          sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g" \
             docker/compose.release.yaml > dist/compose.yaml
           cp deploy/install.sh dist/install.sh
           cp docker/compose.encrypted.yaml dist/compose.encrypted.yaml

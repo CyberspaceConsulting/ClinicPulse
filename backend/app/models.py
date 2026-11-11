@@ -5,6 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 from .encrypted import EncryptedText
+from .update_checker import default_update_channel
 
 
 user_department_access = Table(
@@ -141,7 +142,7 @@ class ApplicationSetting(Base):
     __tablename__ = "application_settings"
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    update_channel: Mapped[str] = mapped_column(String(16), default="stable")
+    update_channel: Mapped[str] = mapped_column(String(16), default=default_update_channel)
     rest_hours: Mapped[int] = mapped_column(Integer, default=11, server_default="11")
     max_daily_hours: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
     max_weekly_hours: Mapped[int] = mapped_column(Integer, default=48, server_default="48")

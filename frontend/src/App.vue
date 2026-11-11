@@ -125,7 +125,7 @@ type OptimizationPreview = {
 type Gap = { date: string; shift: ShiftType }
 type UpdateInfo = {
   current_version: string
-  channel: 'stable' | 'nightly'
+  channel: 'main' | 'test'
   latest_version: string | null
   update_available: boolean
   status: 'up_to_date' | 'update_available' | 'no_release' | 'unavailable'
@@ -292,7 +292,7 @@ const profile = ref<ProfileInfo | null>(null)
 const teamProfiles = ref<TeamProfile[]>([])
 const profileImageData = ref<string | null>(null)
 const profilePhotoVisibility = ref<'private' | 'department'>('private')
-const updateChannel = ref<'stable' | 'nightly'>('stable')
+const updateChannel = ref<'main' | 'test'>('main')
 let idleLogoutTimer: ReturnType<typeof setTimeout> | undefined
 let lastActivityAt = Date.now()
 const idleTimeoutMinutes = ref(5)
@@ -411,7 +411,7 @@ const updateCheckBusy = ref(false)
 const licenseInfo = ref<LicenseInfo | null>(null)
 const licenseCheckBusy = ref(false)
 const licenseTokenInput = ref('')
-const appVersion = ref('0.1.0')
+const appVersion = ref('')
 const appArchitecture = ref('')
 const displayVersion = computed(() => (appArchitecture.value ? `${appVersion.value}-${appArchitecture.value}` : appVersion.value))
 const auditEvents = ref<AuditEvent[]>([])
@@ -1178,15 +1178,16 @@ async function saveProfile() {
 }
 
 async function changeUpdateChannel(event: Event) {
-  const channel = (event.target as HTMLSelectElement).value as 'stable' | 'nightly'
+  const channel = (event.target as HTMLSelectElement).value as 'main' | 'test'
   try {
-    const result = await api<{ channel: 'stable' | 'nightly' }>('/admin/update-channel', {
+    const result = await api<{ channel: 'main' | 'test' }>('/admin/update-channel', {
       method: 'PUT',
       body: JSON.stringify({ channel }),
     })
     updateChannel.value = result.channel
     await checkForUpdates(true)
   } catch (err) {
+    updateChannel.value = updateInfo.value?.channel ?? 'main'
     error.value = err instanceof Error ? err : new TranslatedError('errors.updateChannel')
   }
 }
@@ -1988,7 +1989,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main v-if="!setupChecked" class="login-shell">
-    <section class="login-card"><LanguageSelector /><div class="brand-mark">C</div><h1>{{ t('auth.starting') }}</h1><p class="muted">{{ t('auth.checkingSetup') }}</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a> · Version 0.1.0</footer></section>
+    <section class="login-card"><LanguageSelector /><div class="brand-mark">C</div><h1>{{ t('auth.starting') }}</h1><p class="muted">{{ t('auth.checkingSetup') }}</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a></footer></section>
   </main>
 
   <main v-else-if="setupRequired && !authenticated" class="login-shell">
@@ -2409,8 +2410,8 @@ onBeforeUnmount(() => {
             </button>
             <label class="update-channel-control">{{ t('updates.channel') }}
               <select v-model="updateChannel" :aria-label="t('updates.channelLabel')" @change="changeUpdateChannel">
-                <option value="stable">Stable</option>
-                <option value="nightly">Nightly</option>
+                <option value="main">Main</option>
+                <option value="test">Test</option>
               </select>
             </label>
             <span>·</span>
