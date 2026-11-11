@@ -12,6 +12,8 @@ def test_login_throttle_persists_and_clears_failures(client):
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",
@@ -46,6 +48,8 @@ def test_login_throttle_escalates_and_resets_expired_window(client):
         "/api/setup",
         json={
             "username": "test-admin",
+            "first_name": "Test",
+            "last_name": "Administrator",
             "password": "test-password-with-twelve",
             "license_token": os.environ["TEST_LICENSE_TOKEN"],
             "federal_state": "Nordrhein-Westfalen",

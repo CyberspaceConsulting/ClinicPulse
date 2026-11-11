@@ -10,14 +10,17 @@ const shift = {
   break_minutes: 30, break_start_minutes: 240, department_id: 1,
 }
 
-async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures = {}) {
+async function mockApi(
+  page, role = 'OBERARZT', initialAbsences = [], failures = {},
+  initialEmployees = [employee], initialShifts = [shift],
+) {
   let signedIn = false
   let assignments = []
   let absences = initialAbsences
   const session = {
     username: role === 'EMPLOYEE' ? 'alex' : 'planer', role_key: role, department_id: 1,
     can_view: true, can_edit: role === 'OBERARZT', can_approve: role === 'OBERARZT',
-    can_manage: false, remember_me: false, idle_timeout_minutes: 30,
+    can_manage: role === 'ADMIN', remember_me: false, idle_timeout_minutes: 30,
   }
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -55,8 +58,8 @@ async function mockApi(page, role = 'OBERARZT', initialAbsences = [], failures =
     if (path === '/api/license/status') return reply({ status: 'PAID', read_only: false, suppress_warnings: false })
     if (path === '/api/users') return reply([])
     if (path === '/api/departments') return reply([{ id: 1, name: 'Chirurgie' }])
-    if (path === '/api/employees') return reply([employee])
-    if (path === '/api/shift-types') return reply([shift])
+    if (path === '/api/employees') return reply(initialEmployees)
+    if (path === '/api/shift-types') return reply(initialShifts)
     if (path === '/api/assignments' && method === 'POST') {
       assignments.push({ ...request.postDataJSON(), id: 1, employee_name: employee.name, shift_name: shift.name })
       return reply(assignments[0], 201)
@@ -105,6 +108,8 @@ test('password guidance uses the stored locale on the setup screen', async ({ pa
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await expect(page.getByText('At least 8 characters; a longer and more varied passphrase is safer.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Your administrator account' })).toBeVisible()
+  await expect(page.getByLabel('Administrator first name')).toBeVisible()
+  await expect(page.getByLabel('Administrator last name')).toBeVisible()
   await page.getByLabel('Password (at least 8 characters)').fill('test-password-123')
   await expect(page.getByText(/Found in data breaches \(2 times\)/)).toBeVisible()
   await expect(page.getByText(/Strength:/)).toBeVisible()
@@ -179,6 +184,72 @@ test('schedule overview and day details switch languages without changing custom
   await expect(page.getByRole('heading', { name: 'Tagesdetails' })).toBeVisible()
   await expect(page.getByText('Offene Stelle', { exact: true })).toBeVisible()
   await expect(page.locator('.team-roster')).toContainText('Alex Beispiel')
+})
+
+test('manual staffing of an Oberarzt vacancy only offers qualified employees', async ({ page }) => {
+  const qualified = { id: 2, name: 'Dr. Beispiel', role: 'Oberarzt', department_id: 1 }
+  const seniorShift = {
+    ...shift, position: 'Oberarzt',
+    staffing_requirements: [{ position: 'Oberarzt', required_staff: 1 }],
+  }
+  await mockApi(page, 'OBERARZT', [], {}, [employee, qualified], [seniorShift])
+  await login(page)
+  await page.getByRole('button', { name: 'Tagesdetails öffnen →' }).click()
+  await page.getByText('Offene Stelle', { exact: true }).click()
+  const employeeSelect = page.getByRole('dialog').getByLabel('Mitarbeitende')
+  await expect(employeeSelect.locator('option')).toHaveCount(1)
+  await expect(employeeSelect).toContainText('Dr. Beispiel')
+})
+
+test('a senior physician without department leadership can manage employee accounts only', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
+  await login(page)
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Konten & Rollen' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mitarbeiter', exact: true })).toHaveCount(0)
+})
+
+test('an administrator can assign an Oberarzt as department leader', async ({ page }) => {
+  await mockApi(page, 'ADMIN')
+  const department = { id: 1, name: 'Chirurgie', manager_user_id: null }
+  await page.route('**/api/departments', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: [department] })
+      : route.continue())
+  await page.route('**/api/users', (route) => route.fulfill({ json: [{
+    id: 2, username: 'lea', first_name: 'Lea', last_name: 'Leitung',
+    role_key: 'OBERARZT', department_id: 1, department_ids: [1],
+    can_view: true, can_edit: false, can_approve: false, can_manage_department: false,
+  }] }))
+  let assignedLeader = null
+  await page.route('**/api/departments/1/leader', async (route) => {
+    assignedLeader = route.request().postDataJSON().manager_user_id
+    await route.fulfill({ json: { ...department, manager_user_id: assignedLeader } })
+  })
+  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'de'))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('admin')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  const leaderSelect = page.getByLabel('Leitung dieser Abteilung')
+  await expect(leaderSelect).toBeVisible()
+  await expect(leaderSelect).toContainText('Lea Leitung · lea')
+  await leaderSelect.selectOption('2')
+  await expect.poll(() => assignedLeader).toBe(2)
+})
+
+test('a pending vacation request opens an attention dialog', async ({ page }) => {
+  await mockApi(page, 'OBERARZT', [{
+    id: 22, employee_id: 1, employee_name: 'Alex Beispiel', kind: 'vacation',
+    start_date: '2026-12-01', end_date: '2026-12-05', status: 'pending', note: null,
+    requested_by: 'alex', created_at: '2026-11-11T10:00:00Z', decided_by: null, decided_at: null,
+  }])
+  await login(page)
+  const alert = page.getByRole('alertdialog')
+  await expect(alert).toContainText('Alex Beispiel hat einen Urlaub beantragt.')
+  await alert.getByRole('button', { name: 'Anträge ansehen' }).click()
+  await expect(page.getByRole('heading', { name: 'Abwesenheiten' })).toBeVisible()
 })
 
 test('English shift forms and system role use localized labels while preserving values', async ({ page }) => {
@@ -808,6 +879,7 @@ test('berechtigte Planer können einen Antrag genehmigen', async ({ page }) => {
     note: null, requested_by: 'alex', created_at: null, decided_by: null, decided_at: null,
   }])
   await login(page)
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Anträge ansehen' }).click()
   await page.getByRole('button', { name: /Abwesenheiten/ }).click()
   await page.getByRole('button', { name: 'Genehmigen' }).click()
   await expect(page.getByText(/Genehmigt von planer/)).toBeVisible()

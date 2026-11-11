@@ -175,9 +175,13 @@ def optimize_day(
             )
         ]
         for requirement in requirements:
+            qualification_required = (
+                len(requirements) > 1
+                or requirement.position.strip().casefold() == "oberarzt"
+            )
             existing_count = (
                 existing_counts.get((shift.id, requirement.position.strip().casefold()), 0)
-                if len(requirements) > 1
+                if qualification_required
                 else existing_counts_by_shift.get(shift.id, 0)
             )
             vacancies = max(
@@ -201,7 +205,7 @@ def optimize_day(
     for slot_index, (shift, position, starts_at, ends_at) in enumerate(slots):
         for employee in employees_by_department.get(shift.department_id, ()):
             if (
-                len(shift.staffing_requirements) > 1
+                (len(shift.staffing_requirements) > 1 or position.strip().casefold() == "oberarzt")
                 and employee.role.strip().casefold() != position.strip().casefold()
             ):
                 continue

@@ -25,7 +25,8 @@ def license_token(license_key, **extra) -> str:
 
 def setup(client, token: str):
     return client.post("/api/setup", json={
-        "username": "contract-admin", "password": "secure-password-123", "license_token": token,
+        "username": "contract-admin", "first_name": "Contract", "last_name": "Administrator",
+        "password": "secure-password-123", "license_token": token,
     })
 
 

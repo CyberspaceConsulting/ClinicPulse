@@ -34,6 +34,7 @@ from .schemas import (
     BusinessConfigurationRead,
     BusinessConfigurationUpdate,
     DepartmentCreate,
+    DepartmentLeaderUpdate,
     DepartmentRead,
     EmployeeCreate,
     EmployeeOnboardCreate,
@@ -81,6 +82,8 @@ from .security import (
     require_plan_view,
     require_license_writable,
     require_manage,
+    require_department_manage,
+    require_employee_manage,
     require_team_manage,
     require_principal,
     require_view,
@@ -230,6 +233,10 @@ def migrate_existing_database() -> None:
             connection.exec_driver_sql(
                 "ALTER TABLE admin_account ADD COLUMN profile_photo_visibility VARCHAR(16) NOT NULL DEFAULT 'private'"
             )
+        if "first_name" not in account_columns:
+            connection.exec_driver_sql("ALTER TABLE admin_account ADD COLUMN first_name TEXT")
+        if "last_name" not in account_columns:
+            connection.exec_driver_sql("ALTER TABLE admin_account ADD COLUMN last_name TEXT")
         user_columns = {column["name"] for column in inspect(engine).get_columns("user_accounts")}
         if "email" not in user_columns:
             connection.exec_driver_sql("ALTER TABLE user_accounts ADD COLUMN email TEXT")
@@ -240,6 +247,10 @@ def migrate_existing_database() -> None:
         if "must_change_password" not in user_columns:
             connection.exec_driver_sql(
                 "ALTER TABLE user_accounts ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        if "can_manage_department" not in user_columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE user_accounts ADD COLUMN can_manage_department BOOLEAN NOT NULL DEFAULT FALSE"
             )
         if "profile_image_data" not in user_columns:
             connection.exec_driver_sql("ALTER TABLE user_accounts ADD COLUMN profile_image_data TEXT")
@@ -296,6 +307,13 @@ def migrate_existing_database() -> None:
         with engine.begin() as connection:
             connection.exec_driver_sql(
                 "ALTER TABLE user_accounts ADD COLUMN employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL"
+            )
+    department_columns = {column["name"] for column in inspect(engine).get_columns("departments")}
+    if "manager_user_id" not in department_columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "ALTER TABLE departments ADD COLUMN manager_user_id INTEGER "
+                "REFERENCES user_accounts(id) ON DELETE SET NULL"
             )
     for table, names in (
         ("user_accounts", ("first_name", "last_name", "birth_date", "address", "phone")),
@@ -1043,6 +1061,8 @@ def setup_admin(
     account = models.AdminAccount(
         id=1,
         username=setup.username,
+        first_name=setup.first_name,
+        last_name=setup.last_name,
         password_salt=salt,
         password_hash=password_hash,
         signing_key=secrets.token_urlsafe(48),
@@ -1149,6 +1169,7 @@ def login(
         principal.can_edit,
         principal.can_approve,
         remember_me,
+        principal.can_manage_department,
     ))
 
 
@@ -1162,11 +1183,12 @@ def current_session(principal: Principal = Depends(require_principal), db: Sessi
         principal.can_edit,
         principal.can_approve,
         principal.remember_me,
+        principal.can_manage_department,
     ))
 
 
 def profile_response(principal: Principal, db: Session) -> ProfileResponse:
-    if principal.role_key == "ADMIN":
+    if principal.user_account_id is None:
         account = get_account(db)
         if account is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found")
@@ -1176,11 +1198,11 @@ def profile_response(principal: Principal, db: Session) -> ProfileResponse:
             department_id=None,
             profile_image_data=account.profile_image_data,
             profile_photo_visibility=account.profile_photo_visibility,
+            first_name=account.first_name,
+            last_name=account.last_name,
             remember_me=False,
         )
-    user = db.scalar(select(models.UserAccount).where(
-        models.UserAccount.username_lookup == username_lookup_digest(principal.username)
-    ))
+    user = db.get(models.UserAccount, principal.user_account_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found")
     return ProfileResponse(
@@ -1212,10 +1234,8 @@ def update_my_profile(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ) -> ProfileResponse:
-    account = get_account(db) if principal.role_key == "ADMIN" else db.scalar(
-        select(models.UserAccount).where(
-            models.UserAccount.username_lookup == username_lookup_digest(principal.username)
-        )
+    account = get_account(db) if principal.user_account_id is None else db.get(
+        models.UserAccount, principal.user_account_id
     )
     if account is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found")
@@ -1223,7 +1243,7 @@ def update_my_profile(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Dieses Konto ist keiner Abteilung zugeordnet")
     account.profile_image_data = changes.profile_image_data
     account.profile_photo_visibility = changes.profile_photo_visibility
-    if principal.role_key != "ADMIN":
+    if principal.user_account_id is not None:
         provided = changes.model_fields_set
         if "first_name" in provided and changes.first_name:
             account.first_name = changes.first_name
@@ -1239,6 +1259,11 @@ def update_my_profile(
         if linked is not None and account.first_name and account.last_name:
             linked.first_name, linked.last_name = account.first_name, account.last_name
             linked.name = f"{account.first_name} {account.last_name}"
+    else:
+        if changes.first_name:
+            account.first_name = changes.first_name
+        if changes.last_name:
+            account.last_name = changes.last_name
     db.commit()
     db.refresh(account)
     return profile_response(principal, db)
@@ -1301,7 +1326,7 @@ def update_account_settings(
 ) -> SessionResponse:
     root = get_account(db)
     user = None
-    if principal.role_key == "ADMIN":
+    if principal.user_account_id is None:
         account = root
         subject = "a:1"
     else:
@@ -1321,7 +1346,7 @@ def update_account_settings(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A different new password is required")
         if changes.username != principal.username:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username cannot be changed during the required password change")
-    duplicate_root = root is not None and root.username == changes.username and principal.role_key != "ADMIN"
+    duplicate_root = root is not None and root.username == changes.username and principal.user_account_id is not None
     duplicate_user = db.scalar(select(models.UserAccount.id).where(
         models.UserAccount.username_lookup == username_lookup_digest(changes.username),
         models.UserAccount.username_lookup != username_lookup_digest(principal.username),
@@ -1353,6 +1378,7 @@ def update_account_settings(
         response_principal = create_token_response(
             user.username, user.role_key, user.department_id,
             user.can_view, user.can_edit, user.can_approve, principal.remember_me,
+            user.can_manage_department,
         )
     db.commit()
     db.refresh(account or user)
@@ -1379,12 +1405,31 @@ def can_access_department(principal: Principal, department_id: int | None) -> bo
     return not scoped_to_department(principal) or department_id in accessible_department_ids(principal)
 
 
+def require_department_scope(principal: Principal, department_id: int | None) -> None:
+    if principal.role_key == "OBERARZT" and department_id not in principal.managed_department_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage your own department")
+
+
+def require_user_department_scope(principal: Principal, department_id: int | None) -> None:
+    if principal.role_key == "OBERARZT" and not can_access_department(principal, department_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage accounts in your department")
+
+
+def require_user_scope(principal: Principal, user: models.UserAccount) -> None:
+    if principal.role_key == "PERSONNEL" and user.role_key != "EMPLOYEE":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can manage employee accounts only")
+    if principal.role_key == "OBERARZT" and (
+        user.role_key != "EMPLOYEE" or not can_access_department(principal, user.department_id)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage employee accounts in your department")
+
+
 @app.get("/api/departments", response_model=list[DepartmentRead])
 def list_departments(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ) -> list[models.Department]:
-    if principal.role_key == "PERSONNEL":
+    if principal.role_key in {"PERSONNEL", "OBERARZT"}:
         require_team_manage(principal)
     else:
         require_view(principal)
@@ -1416,13 +1461,14 @@ def create_department(
 def update_department(
     department_id: int,
     changes: DepartmentCreate,
-    _: Principal = Depends(require_manage),
+    principal: Principal = Depends(require_department_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> models.Department:
     department = db.get(models.Department, department_id)
     if department is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+    require_department_scope(principal, department.id)
     department.name = changes.name.strip()
     try:
         db.commit()
@@ -1436,13 +1482,14 @@ def update_department(
 @app.delete("/api/departments/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_department(
     department_id: int,
-    _: Principal = Depends(require_manage),
+    principal: Principal = Depends(require_department_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> Response:
     department = db.get(models.Department, department_id)
     if department is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+    require_department_scope(principal, department.id)
     used_by_user = db.scalar(
         select(models.user_department_access.c.user_id)
         .where(models.user_department_access.c.department_id == department_id)
@@ -1457,6 +1504,38 @@ def delete_department(
     db.delete(department)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.put("/api/departments/{department_id}/leader", response_model=DepartmentRead)
+def set_department_leader(
+    department_id: int,
+    changes: DepartmentLeaderUpdate,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> models.Department:
+    department = db.get(models.Department, department_id)
+    if department is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+    previous_manager_id = department.manager_user_id
+    manager = db.get(models.UserAccount, changes.manager_user_id) if changes.manager_user_id is not None else None
+    if manager is not None:
+        if manager.role_key != "OBERARZT":
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Department leaders must be senior physicians")
+        manager_department_ids = set(
+            manager.department_ids or ([manager.department_id] if manager.department_id is not None else [])
+        )
+        if department_id not in manager_department_ids:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Department leader must have access to this department")
+    department.manager_user_id = manager.id if manager is not None else None
+    for user_id in {previous_manager_id, department.manager_user_id} - {None}:
+        user = db.get(models.UserAccount, user_id)
+        if user is not None:
+            user.can_manage_department = db.scalar(
+                select(models.Department.id).where(models.Department.manager_user_id == user_id).limit(1)
+            ) is not None
+    db.commit()
+    db.refresh(department)
+    return department
 
 
 def linked_employee_id(db: Session, role_key: str, employee_id: int | None, department_ids: list[int]) -> int | None:
@@ -1536,7 +1615,7 @@ def facility_profile(db: Session) -> str | None:
 
 
 def require_role_for_facility(db: Session, role_key: str, current_role_key: str | None = None) -> None:
-    if role_key != current_role_key and not access_role_allowed(facility_profile(db), role_key):
+    if role_key != "ADMIN" and role_key != current_role_key and not access_role_allowed(facility_profile(db), role_key):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Role is not available for this facility type")
 
 
@@ -1551,7 +1630,11 @@ def role_catalog(
 @app.get("/api/roles")
 def list_roles(principal: Principal = Depends(require_team_manage), db: Session = Depends(get_db)) -> list[dict[str, str]]:
     roles = [role for role in catalog_for(facility_profile(db))["access_roles"] if role["key"] != "KIOSK"]  # type: ignore[union-attr]
-    return [role for role in roles if role["key"] == "EMPLOYEE"] if principal.role_key == "PERSONNEL" else roles
+    if principal.role_key in {"PERSONNEL", "OBERARZT"}:
+        return [role for role in roles if role["key"] == "EMPLOYEE"]
+    if principal.role_key == "ADMIN":
+        return [{"key": "ADMIN", "label": "Administrator"}, *roles]
+    return roles
 
 
 @app.get("/api/users", response_model=list[UserRead])
@@ -1562,6 +1645,11 @@ def list_users(
     query = select(models.UserAccount).order_by(models.UserAccount.id)
     if principal.role_key == "PERSONNEL":
         query = query.where(models.UserAccount.role_key == "EMPLOYEE")
+    elif principal.role_key == "OBERARZT":
+        query = query.where(
+            models.UserAccount.role_key == "EMPLOYEE",
+            models.UserAccount.department_id.in_(accessible_department_ids(principal)),
+        )
     users = list(db.scalars(query))
     return sorted(users, key=lambda user: user.username.casefold())
 
@@ -1576,6 +1664,10 @@ def create_user(
     require_role_for_facility(db, user.role_key)
     if principal.role_key == "PERSONNEL" and user.role_key != "EMPLOYEE":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can create employee accounts only")
+    if user.role_key == "ADMIN" and principal.role_key != "ADMIN":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators can create administrator accounts")
+    if principal.role_key == "OBERARZT" and user.role_key != "EMPLOYEE":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Senior physicians can create employee accounts only")
     if user.role_key == "HOSPITAL_MANAGEMENT" and principal.role_key != "ADMIN":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the administrator can add hospital managers")
     if user.role_key == "PERSONNEL" and principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT"}:
@@ -1587,6 +1679,7 @@ def create_user(
     _verify_user_limit(db)
     for department_id in user.department_ids:
         verify_department(db, department_id)
+        require_user_department_scope(principal, department_id)
     employee_id = linked_employee_id(db, user.role_key, user.employee_id, user.department_ids)
     root = get_account(db)
     if root is not None and user.username == root.username:
@@ -1612,10 +1705,10 @@ def create_user(
         invitation_status="pending" if invite else "active",
         must_change_password=not mail_enabled,
         employee_id=employee_id,
-        department_id=user.department_id if user.role_key not in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else None,
+        department_id=user.department_id if user.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"} else None,
         departments=list(db.scalars(
             select(models.Department).where(models.Department.id.in_(user.department_ids))
-        )) if user.department_ids and user.role_key not in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else [],
+        )) if user.department_ids and user.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"} else [],
         can_view=False if user.role_key == "PERSONNEL" else user.can_view,
         can_edit=False if user.role_key in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else user.can_edit,
         can_approve=False if user.role_key in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else user.can_approve,
@@ -1648,13 +1741,18 @@ def update_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     require_role_for_facility(db, changes.role_key, user.role_key)
     if principal.role_key != "ADMIN" and (
-        user.role_key == "HOSPITAL_MANAGEMENT" or changes.role_key == "HOSPITAL_MANAGEMENT"
+        user.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"}
+        or changes.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"}
     ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the administrator can manage hospital managers")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators can manage privileged accounts")
     if principal.role_key == "PERSONNEL" and (
         user.role_key != "EMPLOYEE" or changes.role_key != "EMPLOYEE"
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can manage employee accounts only")
+    if principal.role_key == "OBERARZT":
+        require_user_scope(principal, user)
+        if changes.role_key != "EMPLOYEE":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Senior physicians can manage employee accounts only")
     if changes.role_key == "PERSONNEL" and principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only management can assign the personnel role")
     if changes.role_key in {"OBERARZT", "CHEFARZT"} and not changes.department_ids:
@@ -1663,6 +1761,7 @@ def update_user(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Chief physicians are read-only")
     for department_id in changes.department_ids:
         verify_department(db, department_id)
+        require_user_department_scope(principal, department_id)
     if changes.role_key == "EMPLOYEE" and changes.employee_id == user.employee_id and user.employee_id is not None:
         employee_id = user.employee_id
     else:
@@ -1681,13 +1780,27 @@ def update_user(
     user.username = changes.username
     user.role_key = changes.role_key
     user.employee_id = employee_id
-    user.department_id = changes.department_id if changes.role_key not in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else None
+    user.department_id = changes.department_id if changes.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"} else None
     user.departments = list(db.scalars(
         select(models.Department).where(models.Department.id.in_(changes.department_ids))
-    )) if changes.department_ids and changes.role_key not in {"HOSPITAL_MANAGEMENT", "PERSONNEL"} else []
+    )) if changes.department_ids and changes.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"} else []
+    for department in db.scalars(
+        select(models.Department).where(models.Department.manager_user_id == user.id)
+    ):
+        if changes.role_key != "OBERARZT" or department.id not in changes.department_ids:
+            department.manager_user_id = None
+    user.can_manage_department = db.scalar(
+        select(models.Department.id).where(models.Department.manager_user_id == user.id).limit(1)
+    ) is not None
     user.can_view = False if changes.role_key == "PERSONNEL" else changes.can_view
     user.can_edit = False if changes.role_key == "HOSPITAL_MANAGEMENT" else changes.can_edit
     user.can_approve = False if changes.role_key == "HOSPITAL_MANAGEMENT" else changes.can_approve
+    if changes.role_key != "OBERARZT":
+        for department in db.scalars(
+            select(models.Department).where(models.Department.manager_user_id == user.id)
+        ):
+            department.manager_user_id = None
+        user.can_manage_department = False
     if changes.role_key == "PERSONNEL":
         user.can_view = user.can_edit = user.can_approve = False
     user.first_name = changes.first_name
@@ -1729,10 +1842,13 @@ def delete_user(
     user = db.get(models.UserAccount, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if principal.role_key != "ADMIN" and user.role_key == "HOSPITAL_MANAGEMENT":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the administrator can manage hospital managers")
-    if principal.role_key == "PERSONNEL" and user.role_key != "EMPLOYEE":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can manage employee accounts only")
+    if principal.role_key != "ADMIN" and user.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators can manage privileged accounts")
+    require_user_scope(principal, user)
+    for department in db.scalars(
+        select(models.Department).where(models.Department.manager_user_id == user.id)
+    ):
+        department.manager_user_id = None
     db.delete(user)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1748,10 +1864,9 @@ def set_user_lock(
     user = db.get(models.UserAccount, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if principal.role_key != "ADMIN" and user.role_key == "HOSPITAL_MANAGEMENT":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the administrator can manage hospital managers")
-    if principal.role_key == "PERSONNEL" and user.role_key != "EMPLOYEE":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can manage employee accounts only")
+    if principal.role_key != "ADMIN" and user.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators can manage privileged accounts")
+    require_user_scope(principal, user)
     if not body.locked and user.invitation_status in {"pending", "delivery_failed"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An invited account must accept its invitation before it can be unlocked")
     user.is_locked = body.locked
@@ -1780,8 +1895,7 @@ def resend_user_invitation(
     user = db.get(models.UserAccount, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if principal.role_key == "PERSONNEL" and user.role_key != "EMPLOYEE":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can manage employee accounts only")
+    require_user_scope(principal, user)
     if not user.email:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No invitation email address is stored")
     invitation, token = _create_invitation(db, user, user.email)
@@ -1800,8 +1914,7 @@ def revoke_user_invitation(
     user = db.get(models.UserAccount, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if principal.role_key == "PERSONNEL" and user.role_key != "EMPLOYEE":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can manage employee accounts only")
+    require_user_scope(principal, user)
     invitation = db.scalar(
         select(models.AccountInvitation).where(models.AccountInvitation.user_id == user.id)
     )
@@ -1870,7 +1983,7 @@ def _visible_employee_photos(db: Session, principal: Principal, employee_ids: li
 def list_employees(
     principal: Principal = Depends(require_principal), db: Session = Depends(get_db)
 ) -> list[models.Employee]:
-    if principal.role_key == "PERSONNEL":
+    if principal.role_key in {"PERSONNEL", "OBERARZT"}:
         require_team_manage(principal)
     else:
         require_view(principal)
@@ -1890,11 +2003,12 @@ def list_employees(
 @app.post("/api/employees", response_model=EmployeeRead, status_code=status.HTTP_201_CREATED)
 def create_employee(
     employee: EmployeeCreate,
-    _: Principal = Depends(require_team_manage),
+    principal: Principal = Depends(require_employee_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> models.Employee:
     verify_department(db, employee.department_id)
+    require_department_scope(principal, employee.department_id)
     record = models.Employee(
         name=f"{employee.first_name} {employee.last_name}",
         first_name=employee.first_name,
@@ -1912,14 +2026,16 @@ def create_employee(
 def update_employee(
     employee_id: int,
     changes: EmployeeUpdate,
-    principal: Principal = Depends(require_team_manage),
+    principal: Principal = Depends(require_employee_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> models.Employee:
     employee = db.get(models.Employee, employee_id)
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    require_department_scope(principal, employee.department_id)
     verify_department(db, changes.department_id)
+    require_department_scope(principal, changes.department_id)
     if employee.department_id != changes.department_id and employee.assignments:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1946,11 +2062,12 @@ def update_employee(
 @app.post("/api/employees/onboard", status_code=status.HTTP_201_CREATED)
 def onboard_employee(
     employee: EmployeeOnboardCreate,
-    principal: Principal = Depends(require_team_manage),
+    principal: Principal = Depends(require_employee_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     verify_department(db, employee.department_id)
+    require_department_scope(principal, employee.department_id)
     record = models.Employee(
         name=f"{employee.first_name} {employee.last_name}",
         first_name=employee.first_name,
@@ -2031,13 +2148,14 @@ def onboard_employee(
 @app.delete("/api/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_employee(
     employee_id: int,
-    _: Principal = Depends(require_team_manage),
+    principal: Principal = Depends(require_employee_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> Response:
     employee = db.get(models.Employee, employee_id)
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    require_department_scope(principal, employee.department_id)
     if employee.assignments:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee has scheduled shifts")
     linked_user = db.scalar(
@@ -2435,8 +2553,16 @@ def check_assignment_allowed(
     shift_type: models.ShiftType,
     db: Session,
 ) -> None:
-    requirements = shift_type.staffing_requirements
-    if len(requirements) > 1 and employee.role.strip().casefold() not in {
+    requirements = shift_type.staffing_requirements or [
+        models.ShiftStaffingRequirement(
+            position=shift_type.position,
+            required_staff=shift_type.required_staff,
+        )
+    ]
+    qualification_required = len(requirements) > 1 or any(
+        item.position.strip().casefold() == "oberarzt" for item in requirements
+    )
+    if qualification_required and employee.role.strip().casefold() not in {
         item.position.strip().casefold() for item in requirements
     }:
         raise HTTPException(
@@ -2450,7 +2576,7 @@ def check_assignment_allowed(
         ),
         None,
     )
-    if len(requirements) > 1 and matching_requirement is not None:
+    if qualification_required and matching_requirement is not None:
         staffed_for_position = db.scalar(
             select(func.count(models.Assignment.id))
             .join(models.Employee)
@@ -2554,9 +2680,18 @@ def smart_selection(
         ):
             continue
         role_match = employee.role.strip().casefold() == shift_type.position.strip().casefold()
-        if len(shift_type.staffing_requirements) > 1 and not any(
+        requirements = shift_type.staffing_requirements or [
+            models.ShiftStaffingRequirement(
+                position=shift_type.position,
+                required_staff=shift_type.required_staff,
+            )
+        ]
+        qualification_required = len(requirements) > 1 or any(
+            item.position.strip().casefold() == "oberarzt" for item in requirements
+        )
+        if qualification_required and not any(
             employee.role.strip().casefold() == item.position.strip().casefold()
-            for item in shift_type.staffing_requirements
+            for item in requirements
         ):
             continue
         week_start = starts_at.replace(hour=0, minute=0, second=0, microsecond=0)

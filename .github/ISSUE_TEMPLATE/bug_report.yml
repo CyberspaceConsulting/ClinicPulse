@@ -1,0 +1,89 @@
+name: Bug Report
+description: Report a reproducible problem with ClinicPulse
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem with ClinicPulse. Please search existing issues first and include enough detail to reproduce the problem.
+
+        **Do not post real patient, employee, or other sensitive data.** Remove passwords, license tokens, encryption keys, email addresses, and other secrets from logs, screenshots, and configuration snippets.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the steps that reliably reproduce the problem. Use fictional or anonymized data.
+      placeholder: |
+        1. Sign in with a test account
+        2. Open ...
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ClinicPulse version
+      description: Find the version in the application or deployment image.
+      placeholder: "e.g. v-0.2.0-alpha"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose
+        - Local development setup
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      description: Include browser version and whether this is desktop or mobile, if relevant.
+      placeholder: "e.g. Firefox 132 on Linux desktop"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error messages
+      description: |
+        Include only the relevant excerpt and redact secrets and identifying information first.
+        For Docker Compose, you can inspect recent logs with `docker compose -f docker/docker-compose.yml logs --tail=100`.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add sanitized screenshots or other information that may help investigate the issue.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for a similar report.
+          required: true
+        - label: I removed real personal data, credentials, license tokens, and encryption keys.
+          required: true

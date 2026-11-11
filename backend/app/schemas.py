@@ -227,7 +227,7 @@ class LoginRequest(BaseModel):
     stay_signed_in: bool = False
 
 
-class SetupRequest(BaseModel):
+class SetupRequest(PersonName):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     password: str = Field(min_length=8, max_length=256)
     license_token: str = Field(min_length=1, max_length=4096)
@@ -256,9 +256,14 @@ class DepartmentRead(DepartmentCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    manager_user_id: int | None = None
 
 
-AccessRole = Literal["HOSPITAL_MANAGEMENT", "PERSONNEL", "OBERARZT", "CHEFARZT", "KIOSK", "EMPLOYEE"]
+class DepartmentLeaderUpdate(BaseModel):
+    manager_user_id: int | None = Field(default=None, gt=0)
+
+
+AccessRole = Literal["ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL", "OBERARZT", "CHEFARZT", "KIOSK", "EMPLOYEE"]
 
 
 class UserCreate(PersonName, PersonalDetails):
@@ -362,6 +367,7 @@ class UserRead(BaseModel):
     can_view: bool
     can_edit: bool
     can_approve: bool
+    can_manage_department: bool = False
     is_locked: bool = False
     email: str | None = None
     invitation_status: str = "active"
@@ -398,6 +404,7 @@ class SessionResponse(BaseModel):
     can_edit: bool = True
     can_approve: bool = True
     can_manage: bool = True
+    can_manage_department: bool = False
     remember_me: bool = False
     idle_timeout_minutes: int | None = None
     must_change_password: bool = False

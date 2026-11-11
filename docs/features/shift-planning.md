@@ -13,7 +13,7 @@ Ein Schichttyp beschreibt eine wiederkehrende Schicht:
 | Abteilung             | optional                                                   |
 | Pause / Pausenbeginn  | 0–240 Minuten bzw. 0–360 Minuten nach Schichtbeginn        |
 
-Eine Schichtart kann mehrere Funktionen mit jeweils eigener Soll-Besetzung enthalten. Bestehende Schichtarten mit einer Funktion werden entsprechend weitergeführt. Oberärzte und Dienstplaner können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).
+Eine Schichtart kann mehrere Funktionen mit jeweils eigener Soll-Besetzung enthalten. Dazu gehört auch „Oberarzt“ als eigene Funktion; diese Stelle wird bei der Soll-Besetzung berücksichtigt und kann nur mit Mitarbeitenden besetzt werden, deren Funktion „Oberarzt“ ist. Bei manueller Besetzung werden für qualifikationsgebundene Stellen nur passende Mitarbeitende angeboten. Bestehende Schichtarten mit einer Funktion werden entsprechend weitergeführt. Oberärzte und Dienstplaner können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).
 
 Wird keine Pause angegeben, setzt ClinicPulse die gesetzliche Mindestpause (siehe [Arbeitszeitregeln](work-rules.md)).
 
