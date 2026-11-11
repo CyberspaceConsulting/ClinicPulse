@@ -55,11 +55,12 @@ class EmployeeOnboardCreate(EmployeeCreate):
     create_account: bool = False
     username: str | None = Field(default=None, min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     email: str | None = Field(default=None, min_length=3, max_length=254)
+    password: str | None = Field(default=None, min_length=8, max_length=256)
 
     @model_validator(mode="after")
     def require_invitation_details(self) -> "EmployeeOnboardCreate":
-        if self.create_account and (not self.username or not self.email):
-            raise ValueError("Username and email are required when creating an account")
+        if self.create_account and (not self.username or (not self.email and not self.password)):
+            raise ValueError("Username and email or password are required when creating an account")
         if self.email is not None:
             self.email = self.email.strip()
             if "@" not in self.email:
@@ -366,6 +367,11 @@ class SessionResponse(BaseModel):
     can_manage: bool = True
     remember_me: bool = False
     idle_timeout_minutes: int | None = None
+    must_change_password: bool = False
+
+
+class MailMode(BaseModel):
+    enabled: bool
 
 
 class SecuritySettings(BaseModel):

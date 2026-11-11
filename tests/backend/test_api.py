@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from app import main
+from sqlalchemy import inspect
 
 
 def auth_header(client):
@@ -1629,6 +1630,115 @@ def test_admin_can_lock_users_view_login_log_but_not_schedules(client):
     assert {"login", "login_failed", "locked", "unlocked"} <= {item["action"] for item in log}
     plan = client.get("/api/assignments?from=2025-01-01&to=2025-01-07", headers=admin)
     assert plan.status_code == 403
+
+
+def test_disabled_mail_creates_accounts_with_enforced_password_change(client, monkeypatch):
+    sent = []
+    monkeypatch.setattr(main, "send_invitation", lambda *args: sent.append(args))
+    monkeypatch.setattr(main, "send_test_email", lambda *args: sent.append(args))
+    admin = auth_header(client)
+    assert client.get("/api/account-creation/mail-mode", headers=admin).json() == {"enabled": True}
+    assert client.put("/api/admin/mail-mode", headers=admin, json={"enabled": False}).status_code == 200
+    assert client.get("/api/account-creation/mail-mode", headers=admin).json() == {"enabled": False}
+    assert client.post("/api/admin/mail-settings/test", headers=admin, json={"recipient": "a@example.test"}).status_code == 409
+    department_id = client.post("/api/departments", headers=admin, json={"name": "Station"}).json()["id"]
+    base = {"first_name": "Erika", "last_name": "Beispiel", "username": "offline-user", "role_key": "HOSPITAL_MANAGEMENT"}
+    assert client.post("/api/users", headers=admin, json={**base, "email": "a@example.test"}).status_code == 422
+    created = client.post("/api/users", headers=admin, json={**base, "email": "a@example.test", "password": "start-password"})
+    assert created.status_code == 201
+    assert created.json()["invitation_status"] == "active"
+    assert created.json()["is_locked"] is False
+    assert client.post(f"/api/users/{created.json()['id']}/invitation", headers=admin).status_code == 409
+
+    onboard = {
+        "first_name": "Ada", "last_name": "Beispiel", "role": "Pflege", "department_id": department_id,
+        "create_account": True, "username": "offline-employee",
+    }
+    assert client.post("/api/employees/onboard", headers=admin, json=onboard).status_code == 422
+    assert client.get("/api/employees", headers=admin).json() == []
+    response = client.post("/api/employees/onboard", headers=admin, json={**onboard, "password": "employee-start"})
+    assert response.status_code == 201
+    assert response.json()["invitation_status"] is None
+    assert sent == []
+
+    for username, initial in [("offline-user", "start-password"), ("offline-employee", "employee-start")]:
+        login = client.post("/api/auth/login", json={"username": username, "password": initial})
+        assert login.status_code == 200 and login.json()["must_change_password"] is True
+        token = client.cookies.get("clinicpulse_session")
+        restricted = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/auth/session", headers=restricted).json()["must_change_password"] is True
+        assert client.get("/api/departments", headers=restricted).status_code == 403
+        assert client.get("/api/users", headers=restricted).status_code == 403
+        payload = {"username": username, "current_password": initial}
+        assert client.put("/api/settings/account", headers=restricted, json=payload).status_code == 422
+        assert client.put("/api/settings/account", headers=restricted, json={**payload, "new_password": initial}).status_code == 422
+        assert client.put("/api/settings/account", headers=restricted, json={**payload, "username": "changed", "new_password": "different-password"}).status_code == 422
+        changed = client.put("/api/settings/account", json={**payload, "new_password": "different-password"})
+        assert changed.status_code == 200 and changed.json()["must_change_password"] is False
+        assert client.get("/api/auth/session", headers=restricted).status_code == 401
+        assert client.post("/api/auth/login", json={"username": username, "password": initial}).status_code == 401
+        assert client.post("/api/auth/login", json={"username": username, "password": "different-password"}).status_code == 200
+        assert client.put("/api/admin/mail-mode", json={"enabled": True}).status_code == 403
+        if username == "offline-employee":
+            assert client.get("/api/account-creation/mail-mode").status_code == 403
+    assert client.put("/api/admin/mail-mode", headers=admin, json={"enabled": True}).status_code == 200
+    assert client.get("/api/account-creation/mail-mode", headers=admin).json() == {"enabled": True}
+
+
+def test_existing_invitation_can_be_converted_to_temporary_password(client, monkeypatch):
+    sent = []
+    monkeypatch.setattr(main, "send_invitation", lambda recipient, username, token, config: sent.append(token))
+    admin = auth_header(client)
+    body = {"first_name": "Test", "last_name": "Person", "username": "invited", "role_key": "HOSPITAL_MANAGEMENT", "email": "person@example.test"}
+    created = client.post("/api/users", headers=admin, json=body)
+    assert created.status_code == 201 and created.json()["invitation_status"] == "pending"
+    client.put("/api/admin/mail-mode", headers=admin, json={"enabled": False})
+    changed = client.put(f"/api/users/{created.json()['id']}", headers=admin, json={**body, "new_password": "initial-password"})
+    assert changed.status_code == 200
+    assert changed.json()["invitation_status"] == "active" and not changed.json()["is_locked"]
+    assert client.post("/api/auth/accept-invitation", json={"token": sent[0], "password": "new-password"}).status_code == 400
+    assert client.post("/api/auth/login", json={"username": "invited", "password": "initial-password"}).json()["must_change_password"] is True
+
+
+def test_legacy_mail_and_password_change_columns_migrate_with_safe_defaults(client):
+    admin = auth_header(client)
+    created = client.post("/api/users", headers=admin, json={
+        "first_name": "Alt", "last_name": "Nutzer", "username": "legacy-user",
+        "password": "legacy-password", "role_key": "HOSPITAL_MANAGEMENT",
+    })
+    assert created.status_code == 201
+    with main.engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE user_accounts DROP COLUMN must_change_password")
+        connection.exec_driver_sql("ALTER TABLE application_settings DROP COLUMN mail_enabled")
+    main.migrate_existing_database()
+    main.migrate_existing_database()
+    assert "must_change_password" in {column["name"] for column in inspect(main.engine).get_columns("user_accounts")}
+    assert "mail_enabled" in {column["name"] for column in inspect(main.engine).get_columns("application_settings")}
+    assert client.get("/api/account-creation/mail-mode", headers=admin).json() == {"enabled": True}
+    login = client.post("/api/auth/login", json={"username": "legacy-user", "password": "legacy-password"})
+    assert login.status_code == 200 and login.json()["must_change_password"] is False
+
+
+def test_mail_mode_preserves_smtp_settings_and_reenables_invitations(client, monkeypatch):
+    sent = []
+    monkeypatch.setattr(main, "send_invitation", lambda *args: sent.append(args))
+    admin = auth_header(client)
+    config = {
+        "public_url": "https://clinic.example.test", "smtp_host": "mail.example.test", "smtp_port": 587,
+        "smtp_username": "clinic", "smtp_password": "secret", "from_address": "clinic@example.test",
+        "use_ssl": False, "use_starttls": True,
+    }
+    assert client.put("/api/admin/mail-settings", headers=admin, json=config).status_code == 200
+    assert client.put("/api/admin/mail-mode", headers=admin, json={"enabled": False}).status_code == 200
+    assert client.put("/api/admin/mail-mode", headers=admin, json={"enabled": True}).status_code == 200
+    saved = client.get("/api/admin/mail-settings", headers=admin).json()
+    assert saved["smtp_host"] == config["smtp_host"] and saved["smtp_password_configured"] is True
+    created = client.post("/api/users", headers=admin, json={
+        "first_name": "Test", "last_name": "Person", "username": "mail-user",
+        "email": "person@example.test", "role_key": "HOSPITAL_MANAGEMENT",
+    })
+    assert created.status_code == 201 and created.json()["invitation_status"] == "pending"
+    assert sent[0][0] == "person@example.test" and sent[0][3].smtp_password == "secret"
 
 
 def test_employee_invitation_sets_password_once_and_resend_revokes_old_link(client, monkeypatch):

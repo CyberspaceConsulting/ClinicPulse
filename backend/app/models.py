@@ -106,6 +106,7 @@ class UserAccount(Base):
     address: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     phone: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     invitation_status: Mapped[str] = mapped_column(String(24), default="active", server_default="active")
+    must_change_password: Mapped[bool] = mapped_column(default=False, server_default="false")
     profile_image_data: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     profile_photo_visibility: Mapped[str] = mapped_column(String(16), default="private")
     token_version: Mapped[int] = mapped_column(Integer, default=0)
@@ -153,6 +154,7 @@ class ApplicationSetting(Base):
     mail_from_address: Mapped[str] = mapped_column(String(255), default="", server_default="")
     mail_use_ssl: Mapped[bool] = mapped_column(default=False, server_default="false")
     mail_use_starttls: Mapped[bool] = mapped_column(default=True, server_default="true")
+    mail_enabled: Mapped[bool] = mapped_column(default=True, server_default="true")
 
 
 class BusinessConfiguration(Base):
