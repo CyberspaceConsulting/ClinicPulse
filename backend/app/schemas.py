@@ -45,6 +45,7 @@ class PersonalDetails(BaseModel):
 class EmployeeCreate(PersonName):
     role: str = Field(default="Employee", min_length=1, max_length=80)
     department_id: int = Field(gt=0)
+    qualification_ids: list[int] = Field(default_factory=list)
 
 
 class EmployeeUpdate(EmployeeCreate):
@@ -68,6 +69,22 @@ class EmployeeOnboardCreate(EmployeeCreate):
         return self
 
 
+class DepartmentQualificationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    leadership_eligible: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def clean_qualification_name(cls, value: str) -> str:
+        return _clean_required_name(value)
+
+
+class DepartmentQualificationRead(DepartmentQualificationCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
 class EmployeeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,6 +94,7 @@ class EmployeeRead(BaseModel):
     last_name: str | None = None
     role: str
     department_id: int | None
+    qualifications: list[DepartmentQualificationRead] = Field(default_factory=list)
     profile_image_data: str | None = None
 
 
@@ -252,15 +270,22 @@ class DepartmentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class DepartmentUpdate(DepartmentCreate):
+    qualifications: list[DepartmentQualificationCreate] | None = None
+
+
 class DepartmentRead(DepartmentCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     manager_user_id: int | None = None
+    deputy_user_id: int | None = None
+    qualifications: list[DepartmentQualificationRead] = Field(default_factory=list)
 
 
 class DepartmentLeaderUpdate(BaseModel):
     manager_user_id: int | None = Field(default=None, gt=0)
+    deputy_user_id: int | None = Field(default=None, gt=0)
 
 
 AccessRole = Literal["ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL", "OBERARZT", "CHEFARZT", "KIOSK", "EMPLOYEE"]
@@ -302,8 +327,8 @@ class UserCreate(PersonName, PersonalDetails):
         if self.role_key == "EMPLOYEE":
             if self.employee_id is None:
                 raise ValueError("Employee accounts must be linked to an employee")
-            if not self.can_view or self.can_edit or self.can_approve:
-                raise ValueError("Employee accounts are read-only and have schedule view access")
+            if not self.can_view:
+                raise ValueError("Employee accounts must have schedule view access")
         elif self.employee_id is not None:
             raise ValueError("Only employee accounts can be linked to an employee")
         return self
@@ -343,8 +368,8 @@ class UserUpdate(PersonName, PersonalDetails):
         if self.role_key == "EMPLOYEE":
             if self.employee_id is None:
                 raise ValueError("Employee accounts must be linked to an employee")
-            if not self.can_view or self.can_edit or self.can_approve:
-                raise ValueError("Employee accounts are read-only and have schedule view access")
+            if not self.can_view:
+                raise ValueError("Employee accounts must have schedule view access")
         elif self.employee_id is not None:
             raise ValueError("Only employee accounts can be linked to an employee")
         return self

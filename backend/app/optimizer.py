@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from ortools.sat.python import cp_model
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import models
 from .absences import employee_is_absent
@@ -127,7 +127,9 @@ def optimize_day(
     business_tz = business_timezone(db)
     rules = load_work_rules(db)
     shift_query = select(models.ShiftType).order_by(models.ShiftType.id)
-    employee_query = select(models.Employee).order_by(models.Employee.id)
+    employee_query = select(models.Employee).options(
+        selectinload(models.Employee.qualifications)
+    ).order_by(models.Employee.id)
     if department_ids is not None:
         shift_query = shift_query.where(models.ShiftType.department_id.in_(department_ids))
         employee_query = employee_query.where(models.Employee.department_id.in_(department_ids))
@@ -141,18 +143,12 @@ def optimize_day(
     local_day_end = datetime.combine(target_date + timedelta(days=1), time.min, tzinfo=business_tz)
     day_start = local_day_start.astimezone(timezone.utc)
     day_end = local_day_end.astimezone(timezone.utc)
-    existing_assignments = list(db.execute(
-        select(
-            models.Assignment.employee_id,
-            models.Assignment.shift_type_id,
-            models.Assignment.starts_at,
-            models.Assignment.ends_at,
-            models.Employee.role,
-            models.ShiftType.break_minutes,
-            models.ShiftType.break_start_minutes,
+    existing_assignments = list(db.scalars(
+        select(models.Assignment)
+        .options(
+            selectinload(models.Assignment.employee).selectinload(models.Employee.qualifications),
+            selectinload(models.Assignment.shift_type).selectinload(models.ShiftType.staffing_requirements),
         )
-        .join(models.ShiftType)
-        .join(models.Employee)
         .where(
             models.Assignment.starts_at >= day_start,
             models.Assignment.starts_at < day_end,
@@ -160,10 +156,22 @@ def optimize_day(
     ))
     existing_counts: dict[tuple[int, str], int] = {}
     existing_counts_by_shift: dict[int, int] = {}
-    for row in existing_assignments:
-        key = (row.shift_type_id, row.role.strip().casefold())
-        existing_counts[key] = existing_counts.get(key, 0) + 1
-        existing_counts_by_shift[row.shift_type_id] = existing_counts_by_shift.get(row.shift_type_id, 0) + 1
+    for assignment in existing_assignments:
+        shift = assignment.shift_type
+        employee = assignment.employee
+        requirements = shift.staffing_requirements or [
+            models.ShiftStaffingRequirement(
+                position=shift.position,
+                required_staff=shift.required_staff,
+            )
+        ]
+        for requirement in requirements:
+            if requirement.position.strip().casefold() in {
+                name.strip().casefold() for name in employee.qualification_names
+            }:
+                key = (shift.id, requirement.position.strip().casefold())
+                existing_counts[key] = existing_counts.get(key, 0) + 1
+        existing_counts_by_shift[shift.id] = existing_counts_by_shift.get(shift.id, 0) + 1
 
     slots: list[tuple[models.ShiftType, str, datetime, datetime]] = []
     for shift in shifts:
@@ -206,7 +214,9 @@ def optimize_day(
         for employee in employees_by_department.get(shift.department_id, ()):
             if (
                 (len(shift.staffing_requirements) > 1 or position.strip().casefold() == "oberarzt")
-                and employee.role.strip().casefold() != position.strip().casefold()
+                and position.strip().casefold() not in {
+                    name.strip().casefold() for name in employee.qualification_names
+                }
             ):
                 continue
             cache_key = (employee.id, shift.id)
@@ -233,7 +243,9 @@ def optimize_day(
                     position=position,
                     starts_at=starts_at,
                     ends_at=ends_at,
-                    role_match=employee.role.strip().casefold() == position.strip().casefold(),
+                    role_match=position.strip().casefold() in {
+                        name.strip().casefold() for name in employee.qualification_names
+                    },
                 ))
     if len(candidates) > MAX_CANDIDATE_VARIABLES:
         raise OptimizationTooLarge("Optimization has too many eligible employee-position combinations")

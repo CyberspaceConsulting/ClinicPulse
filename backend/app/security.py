@@ -8,13 +8,13 @@ from hmac import compare_digest
 import jwt
 from fastapi import Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .database import get_db
 from .encrypted import username_lookup_digest
 from .license_manager import license_is_read_only
-from .models import AdminAccount, ApplicationSetting, LicenseState, UserAccount
+from .models import AdminAccount, ApplicationSetting, Department, LicenseState, UserAccount
 
 ALGORITHM = "HS256"
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -146,22 +146,24 @@ def authenticate(db: Session, username: str, password: str) -> tuple[AdminAccoun
     )
     if user is None or user.is_locked or not verify_password(user.password_salt, user.password_hash, password):
         return None
-    managed_department_ids = tuple(
-        department.id for department in user.departments
-        if department.manager_user_id == user.id
-    )
+    managed_department_ids = tuple(db.scalars(
+        select(Department.id).where(
+            or_(Department.manager_user_id == user.id, Department.deputy_user_id == user.id)
+        )
+    ))
+    department_ids = tuple(dict.fromkeys((*user.department_ids, *managed_department_ids)))
     return (
         root,
         Principal(
             user.username,
             user.role_key,
             user.department_id,
-            user.can_view,
-            user.can_edit,
-            user.can_approve,
+            user.can_view or bool(managed_department_ids),
+            user.can_edit or bool(managed_department_ids),
+            user.can_approve or bool(managed_department_ids),
             user.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"},
             False,
-            tuple(user.department_ids or ([user.department_id] if user.department_id is not None else [])),
+            department_ids or ((user.department_id,) if user.department_id is not None else ()),
             user.employee_id,
             user.must_change_password,
             bool(managed_department_ids),
@@ -223,20 +225,22 @@ def require_principal(
             user_id = 0
         user = db.get(UserAccount, user_id)
         if user is not None and not user.is_locked and version == user.token_version:
-            managed_department_ids = tuple(
-                department.id for department in user.departments
-                if department.manager_user_id == user.id
-            )
+            managed_department_ids = tuple(db.scalars(
+                select(Department.id).where(
+                    or_(Department.manager_user_id == user.id, Department.deputy_user_id == user.id)
+                )
+            ))
+            department_ids = tuple(dict.fromkeys((*user.department_ids, *managed_department_ids)))
             principal = Principal(
                 user.username,
                 user.role_key,
                 user.department_id,
-                user.can_view,
-                user.can_edit,
-                user.can_approve,
+                user.can_view or bool(managed_department_ids),
+                user.can_edit or bool(managed_department_ids),
+                user.can_approve or bool(managed_department_ids),
                 user.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT"},
                 remember_me,
-                tuple(user.department_ids or ([user.department_id] if user.department_id is not None else [])),
+                department_ids or ((user.department_id,) if user.department_id is not None else ()),
                 user.employee_id,
                 user.must_change_password,
                 bool(managed_department_ids),
@@ -277,14 +281,14 @@ def require_manage(principal: Principal = Depends(require_principal)) -> Princip
 
 
 def require_team_manage(principal: Principal = Depends(require_principal)) -> Principal:
-    if principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL", "OBERARZT"}:
+    if principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"} and not principal.can_manage_department:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Team management access required")
     return principal
 
 
 def require_employee_manage(principal: Principal = Depends(require_principal)) -> Principal:
     if principal.role_key not in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL"} and not (
-        principal.role_key == "OBERARZT" and principal.managed_department_ids
+        principal.can_manage_department and principal.managed_department_ids
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Employee management access required")
     return principal
@@ -292,7 +296,7 @@ def require_employee_manage(principal: Principal = Depends(require_principal)) -
 
 def require_department_manage(principal: Principal = Depends(require_principal)) -> Principal:
     if not principal.can_manage and not (
-        principal.role_key == "OBERARZT" and principal.managed_department_ids
+        principal.can_manage_department and principal.managed_department_ids
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Department management access required")
     return principal
@@ -316,7 +320,7 @@ def require_edit(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ) -> Principal:
-    if principal.role_key != "OBERARZT" or not principal.can_edit:
+    if principal.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL", "KIOSK"} or not principal.can_edit:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule editing permission required")
     license_state = db.get(LicenseState, 1)
     account = get_account(db)
@@ -335,7 +339,7 @@ def require_approve(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ) -> Principal:
-    if principal.role_key != "OBERARZT" or not principal.can_approve:
+    if principal.role_key in {"ADMIN", "HOSPITAL_MANAGEMENT", "PERSONNEL", "KIOSK"} or not principal.can_approve:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule approval permission required")
     license_state = db.get(LicenseState, 1)
     account = get_account(db)
