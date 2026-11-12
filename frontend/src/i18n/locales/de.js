@@ -811,6 +811,8 @@ export default {
   'language.de': 'Deutsch',
   'language.en': 'English',
   'language.incomplete': 'Die englische Übersetzung ist unvollständig; einige Texte erscheinen weiterhin auf Deutsch.',
+  'date.choose': 'Datum auswählen',
+  'date.invalid': 'Bitte ein gültiges Datum im Format TT/MM/JJJJ eingeben.',
   'auth.starting': 'ClinicPulse startet …',
   'auth.retry': 'Erneut versuchen',
   'auth.checkingSetup': 'Installationsstatus wird geprüft.',
