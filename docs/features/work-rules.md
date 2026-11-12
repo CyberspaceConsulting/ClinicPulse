@@ -30,6 +30,7 @@ Die Pause muss in die Schicht passen und spätestens nach sechs Stunden beginnen
 - **Einrichtungsart:** bestimmt Rollen und Funktionen.
 - **Zeitzone:** Standard `Europe/Berlin`.
 - **Sonntagsarbeit zulässig:** muss ausdrücklich aktiviert werden, sonst werden Sonntage und Feiertage als Verstoß gemeldet.
+- **Begriffe und Struktur (nur Einrichtungsart „Sonstige“):** Bezeichnung der Organisationseinheit (Einzahl, Mehrzahl, grammatisches Geschlecht), Bezeichnung der Leitung, „nur eine Organisationseinheit“ und „Fahrzeuge verwalten“. Die Werte werden in der Ersteinrichtung festgelegt und unter Einstellungen → Betrieb geändert; für die anderen Einrichtungsarten sind sie fest vorgegeben. „Nur eine Einheit“ lässt sich nur setzen, wenn höchstens eine Einheit existiert („A single organizational unit requires that only one exists“). Siehe [Einrichtungsarten](roles-and-permissions.md#einrichtungsarten).
 
 Zusätzlich muss mindestens 15 Sonntage pro Kalenderjahr arbeitsfrei bleiben (§ 11 ArbZG).
 

@@ -37,6 +37,18 @@ Er benötigt Docker Compose v2, `curl`, `openssl`, Python 3 und einen freien
 lokalen TCP-Port. Der Test verwendet ein eigenes Compose-Projekt und räumt seine
 Container, sein Volume und temporäre Schlüsseldateien anschließend wieder auf.
 
+### Datenschutz-Tests
+
+Die Datenschutz-Prüfungen (`tests/backend/test_privacy.py`, Markierung `privacy`) laufen im
+normalen Backend-Lauf mit und zusätzlich als eigener Workflow „Datenschutz“, der als
+Pflicht-Check vorgesehen ist. Einzeln:
+
+```sh
+./tests/run-tests.sh -m privacy
+```
+
+Beschreibung und Einrichtung des Pflicht-Checks: [Datenschutz-Prüfungen](docs/development/privacy-checks.md).
+
 ## Frontend
 
 Build und Browser-Tests:
@@ -68,6 +80,14 @@ Die Tests verwenden simulierte API-Antworten und ersetzen keine
 Integrationstests mit einem laufenden Backend.
 
 ## GitHub Actions
+
+| Workflow          | Inhalt                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `Test`            | Backend (amd64 und arm64, inkl. PostgreSQL-Tests), Frontend-Build und Übersetzungen, Browser-Tests **je Browser als eigener Job** (Chromium, Firefox) und der Docker-Compose-Smoke-Test |
+| `Datenschutz`     | Datenschutz-Tests; als Pflicht-Check vorgesehen, siehe [Datenschutz-Prüfungen](docs/development/privacy-checks.md) |
+| Release           | dieselben Prüfungen vor dem Veröffentlichen der Images; das Veröffentlichen wartet auf alle |
+
+Jeder Job schreibt am Ende eine Zusammenfassung (Status je Schritt, Testzahlen aus dem JUnit-Bericht, Link zum Bericht).
 
 Die Job-Zusammenfassungen zeigen den Status der einzelnen Schritte auch bei
 Fehlern. Backend- und Browser-Jobs zählen erfolgreiche, fehlgeschlagene und

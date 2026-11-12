@@ -3,7 +3,7 @@
 | Funktion                                                        | Kurzbeschreibung                                              |
 | --------------------------------------------------------------- | ------------------------------------------------------------- |
 | [Rollen und Berechtigungen](roles-and-permissions.md)           | Zugriffsrollen und Funktionen je Einrichtungsart              |
-| [Abteilungen und Mitarbeitende](departments-and-employees.md)   | Stammdaten der Teams                                          |
+| [Abteilungen und Mitarbeitende](departments-and-employees.md)   | Stammdaten der Teams, Mehrfach-Zuordnung, Standorte und Fahrzeuge |
 | [Benutzer und Einladungen](users-and-invitations.md)            | Konten, Sperren und Einladungs-E-Mails                        |
 | [Dienstplanung](shift-planning.md)                              | Schichttypen und Dienstzuweisungen                            |
 | [Planungsvorschläge](planning-suggestions.md)                   | Automatische Entwürfe und Smart Selection                     |

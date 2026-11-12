@@ -66,6 +66,17 @@ diese Datei nicht aktualisiert wird.
    Umgebungsvariablen wie beim bisherigen Betrieb. Prüfe, ob die Dienste laufen
    und die Anwendung erreichbar ist.
 
+## Datenbankänderungen
+
+Neue Tabellen und Spalten legt das Backend beim Start automatisch an; bestehende
+Daten bleiben erhalten. Dazu gehören zuletzt die Zuordnung von Personen zu
+weiteren Abteilungen (`employee_department_access`), Fahrzeuge (`vehicles`,
+`shift_types.vehicle_id`) und die Begriffs- und Strukturfelder der
+Betriebskonfiguration. Eine Rückkehr zur älteren Version nach dem Start der
+neuen ist nur mit der zuvor erstellten Sicherung möglich. Bestehende Dienste
+werden nicht verändert; neue Zuweisungen verlangen jedoch die passende
+Qualifikation, siehe [Dienstplanung](../features/shift-planning.md).
+
 ## Installation aus dem Quellcode aktualisieren
 
 Im bestehenden Repository-Hauptverzeichnis:
