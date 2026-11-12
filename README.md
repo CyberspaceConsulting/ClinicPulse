@@ -62,25 +62,19 @@ Neuere Versionen findest du unter [GitHub Releases](https://github.com/Cyberspac
 
 Den Schlüssel unter `clinicpulse/secrets/data_encryption_key` separat sichern.
 Ohne ihn können verschlüsselte Daten nicht wiederhergestellt werden.
+Dieses Beispielrelease verwendet noch die dateibasierte Schlüsselverwaltung.
+Der aktuelle Quellcode verwaltet Schlüssel dagegen in einem eigenen Docker-Volume;
+siehe [Backup und Wiederherstellung](docs/features/backup.md).
 
 ## Schnellstart aus dem Quellcode
 
-Voraussetzungen: Docker Engine, Docker Compose v2 und OpenSSL.
+Voraussetzungen: Docker Engine und Docker Compose v2.
 
 ```sh
 git clone https://github.com/CyberspaceConsulting/ClinicPulse.git
 cd ClinicPulse
 
-mkdir -p secrets
-chmod 700 secrets
-umask 077
-if [ ! -f secrets/data_encryption_key ]; then
-  openssl rand -base64 48 > secrets/data_encryption_key
-fi
-touch secrets/smtp_password
-chmod 600 secrets/data_encryption_key secrets/smtp_password
-
-docker compose -f docker/docker-compose.yml up --build -d
+sh deploy/install.sh "$PWD"
 ```
 
 Rufe anschließend <http://localhost:8080> auf. Für die Ersteinrichtung ist ein
@@ -95,9 +89,10 @@ docker compose -f docker/docker-compose.yml logs -f
 docker compose -f docker/docker-compose.yml down
 ```
 
-Die Datenbank wird in einem Docker-Volume gespeichert. Sichere
-`secrets/data_encryption_key` getrennt und geschützt: Ohne diesen Schlüssel
-können verschlüsselte Daten nicht mehr gelesen werden. SMTP ist optional; für
+Die Datenbank und der automatisch erzeugte Datenschlüssel werden in getrennten
+Docker-Volumes gespeichert. Sichere den Schlüssel verschlüsselt und getrennt
+von der Datenbank: Ohne ihn können verschlüsselte Daten nicht mehr gelesen
+werden. SMTP ist optional; für
 Einladungs-E-Mails müssen SMTP und die öffentliche HTTPS-Adresse der Instanz
 konfiguriert werden. Details zu verfügbaren Installationsartefakten findest du
 unter [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).

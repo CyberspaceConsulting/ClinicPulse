@@ -137,6 +137,47 @@ async function login(page, { openSchedule = true, hasVisibleShift = true } = {})
   if (hasVisibleShift) await expect(page.getByText('Frühdienst').first()).toBeVisible()
 }
 
+test('unknown paths show a translated not-found page without querying the API', async ({ page }) => {
+  let apiRequests = 0
+  await page.route('**/api/**', (route) => {
+    apiRequests += 1
+    return route.abort()
+  })
+  await page.goto('/does-not-exist')
+  await expect(page.getByRole('heading', { name: 'Seite nicht gefunden' })).toBeVisible()
+  await expect(page).toHaveTitle('ClinicPulse - Seite nicht gefunden')
+  await expect(page.getByRole('link', { name: 'Zur Startseite' })).toHaveAttribute('href', '/')
+  await page.getByLabel('Sprache').selectOption('en')
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await expect(page).toHaveTitle('ClinicPulse - Page not found')
+  expect(apiRequests).toBe(0)
+})
+
+test('unexpected rendering errors show a recovery page', async ({ page }) => {
+  await page.route('**/src/App.vue*', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: 'export default { setup() { throw new Error("test failure") } }',
+  }))
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Ein Fehler ist aufgetreten' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Erneut laden' })).toHaveAttribute('href', '/')
+})
+
+test('startup failure does not display login and can be retried', async ({ page }) => {
+  await mockApi(page)
+  let unavailable = true
+  await page.route('**/api/health', (route) => unavailable
+    ? route.fulfill({ status: 502, body: 'Bad Gateway' })
+    : route.fulfill({ json: { version: 'test', architecture: 'test' } }))
+  await page.route('**/api/setup/status', (route) => route.fulfill({ json: { setup_required: true, institution_name: null } }))
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Installationsstatus konnte nicht geladen werden' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Anmelden', exact: true })).toHaveCount(0)
+  unavailable = false
+  await page.getByRole('button', { name: 'Erneut versuchen' }).click()
+  await expect(page.getByLabel('Lizenz vom Vertrieb')).toBeVisible()
+})
+
 test('password guidance uses the stored locale on the setup screen', async ({ page }) => {
   await mockApi(page)
   await page.route('**/api/setup/status', (route) => route.fulfill({ json: { setup_required: true, institution_name: null } }))
@@ -1287,7 +1328,7 @@ test('setup for the facility type other asks for terms and structure', async ({ 
   await page.route('**/api/setup/status', (route) => route.fulfill({ json: { setup_required: true, institution_name: null } }))
   await page.goto('/')
   const claims = Buffer.from(JSON.stringify({ operational_profile: 'other' })).toString('base64url')
-  await page.getByLabel('Lizenz-Token aus dem Licensing-Tool').fill(`header.${claims}.signature`)
+  await page.getByLabel('Lizenz vom Vertrieb').fill(`header.${claims}.signature`)
   await expect(page.getByLabel('Bezeichnung der Organisationseinheit (Einzahl)')).toBeVisible()
   await page.getByLabel('Bezeichnung der Organisationseinheit (Einzahl)').fill('Bereich')
   await page.getByLabel('Bezeichnung der Organisationseinheit (Mehrzahl)').fill('Bereiche')

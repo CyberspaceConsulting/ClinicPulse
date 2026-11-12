@@ -339,19 +339,23 @@ def migrate_existing_database() -> None:
                 if name not in existing:
                     connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} TEXT")
     shift_columns = {column["name"] for column in inspect(engine).get_columns("shift_types")}
-    if "break_minutes" not in shift_columns:
-        with engine.begin() as connection:
+    with engine.begin() as connection:
+        if "vehicle_id" not in shift_columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE shift_types ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE RESTRICT"
+            )
+        if "break_minutes" not in shift_columns:
             connection.exec_driver_sql("ALTER TABLE shift_types ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 0")
+        if "break_start_minutes" not in shift_columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE shift_types ADD COLUMN break_start_minutes INTEGER NOT NULL DEFAULT 0"
+            )
+    if "break_minutes" not in shift_columns:
         with SessionLocal() as db:
             for shift in db.scalars(select(models.ShiftType)):
                 shift.break_minutes = required_break_minutes(gross_duration(shift.start_time, shift.end_time))
             db.commit()
-    shift_columns = {column["name"] for column in inspect(engine).get_columns("shift_types")}
     if "break_start_minutes" not in shift_columns:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(
-                "ALTER TABLE shift_types ADD COLUMN break_start_minutes INTEGER NOT NULL DEFAULT 0"
-            )
         with SessionLocal() as db:
             for shift in db.scalars(select(models.ShiftType)):
                 shift.break_start_minutes = default_break_start_minutes(

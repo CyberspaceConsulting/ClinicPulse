@@ -21,19 +21,20 @@ services:
   backend:
     build:
       context: ../backend
-      dockerfile: ../docker/api.Dockerfile
+      dockerfile: Dockerfile
     environment:
       DB_HOST: db
       DB_NAME: clinicpulse
       DB_USER: clinicpulse
       DB_PASSWORD: ${POSTGRES_PASSWORD:-}
-      CLINICPULSE_DATA_ENCRYPTION_KEY_FILE: /run/secrets/clinicpulse_data_encryption_key
+      CLINICPULSE_MANAGED_KEY_FILE: /var/lib/clinicpulse-secrets/data_encryption_key
+      CLINICPULSE_MANAGED_SMTP_PASSWORD_FILE: /var/lib/clinicpulse-secrets/smtp_password
       CLINICPULSE_LICENSE_API_URL: ${CLINICPULSE_LICENSE_API_URL:-https://lic.api.cyberspaceconsulting.de/api/v1}
       CLINICPULSE_PUBLIC_URL: ${CLINICPULSE_PUBLIC_URL:-}
       CLINICPULSE_SMTP_HOST: ${CLINICPULSE_SMTP_HOST:-}
       CLINICPULSE_SMTP_PORT: ${CLINICPULSE_SMTP_PORT:-587}
       CLINICPULSE_SMTP_USERNAME: ${CLINICPULSE_SMTP_USERNAME:-}
-      CLINICPULSE_SMTP_PASSWORD_FILE: ${CLINICPULSE_SMTP_PASSWORD_FILE:-/run/secrets/smtp_password}
+      CLINICPULSE_SMTP_PASSWORD_FILE: ${CLINICPULSE_SMTP_PASSWORD_FILE:-}
       CLINICPULSE_SMTP_FROM: ${CLINICPULSE_SMTP_FROM:-}
       CLINICPULSE_SMTP_USE_SSL: ${CLINICPULSE_SMTP_USE_SSL:-false}
       CLINICPULSE_SMTP_USE_STARTTLS: ${CLINICPULSE_SMTP_USE_STARTTLS:-true}
@@ -41,9 +42,7 @@ services:
       CLINICPULSE_VERSION: ${CLINICPULSE_VERSION:-0.1.0}
     volumes:
       - ${CLINICPULSE_BACKUP_HOST_DIR:-../backups}:/backups
-    secrets:
-      - clinicpulse_data_encryption_key
-      - smtp_password
+      - clinicpulse_keys:/var/lib/clinicpulse-secrets
     depends_on:
       db:
         condition: service_healthy
@@ -71,9 +70,4 @@ networks:
 
 volumes:
   clinicpulse_data:
-
-secrets:
-  clinicpulse_data_encryption_key:
-    file: ${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-../secrets/data_encryption_key}
-  smtp_password:
-    file: ${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-../secrets/smtp_password}
+  clinicpulse_keys:

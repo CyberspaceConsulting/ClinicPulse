@@ -5,10 +5,10 @@ ClinicPulse besteht aus drei Docker-Compose-Diensten (`docker/docker-compose.yml
 | Dienst | Aufgabe                                                                  | Netzwerke                 |
 | ------ | ------------------------------------------------------------------------ | ------------------------- |
 | `web`  | Vue-3-Frontend über nginx; einziger Dienst mit veröffentlichtem Port     | `application`             |
-| `api`  | Backend-API (Python), Lizenzprüfung, Planung, Backup                     | `application`, `database` |
+| `backend` | Backend-API (Python), Lizenzprüfung, Planung, Backup                  | `application`, `database` |
 | `db`   | PostgreSQL                                                               | `database` (intern)       |
 
-Das Netzwerk `database` ist als `internal` konfiguriert: Die Datenbank ist nicht von außen erreichbar. Sensible Daten werden mit dem Schlüssel aus `secrets/data_encryption_key` verschlüsselt.
+Das Netzwerk `database` ist als `internal` konfiguriert: Die Datenbank ist nicht von außen erreichbar. Sensible Datenbankfelder werden mit einem Schlüssel aus dem separaten Docker-Volume `clinicpulse_keys` verschlüsselt; das Volume selbst ist nicht automatisch verschlüsselt.
 
 ## Backend (`backend/app/`)
 
