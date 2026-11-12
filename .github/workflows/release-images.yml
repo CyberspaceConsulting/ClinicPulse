@@ -303,9 +303,10 @@ jobs:
             docker/compose.release.yaml > dist/compose.yaml
           cp deploy/install.sh dist/install.sh
           cp docker/compose.encrypted.yaml dist/compose.encrypted.yaml
+          cp docker/compose.external-key.yaml dist/compose.external-key.yaml
           cp deploy/dependency_track_upload.py dist/dependency_track_upload.py
           chmod +x dist/install.sh
-          (cd dist && sha256sum compose.yaml compose.encrypted.yaml install.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)
+          (cd dist && sha256sum compose.yaml compose.encrypted.yaml compose.external-key.yaml install.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)
 
       - name: Publish release artifacts
         id: publish
@@ -315,7 +316,7 @@ jobs:
           prerelease=""
           case "$IMAGE_TAG" in *-*) prerelease="--prerelease";; esac
           gh release view "$IMAGE_TAG" >/dev/null 2>&1 || gh release create "$IMAGE_TAG" --title "$IMAGE_TAG" --generate-notes $prerelease
-          gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/install.sh dist/clinicpulse.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS --clobber
+          gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/compose.external-key.yaml dist/install.sh dist/clinicpulse.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS --clobber
       - name: Summarize release publication
         if: always()
         env:

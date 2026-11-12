@@ -10,12 +10,13 @@ case "$(uname -m)" in
   *) echo "Unsupported CPU architecture $(uname -m): ClinicPulse needs 64-bit x86 or ARM (e.g. Raspberry Pi 4/5 with a 64-bit OS)" >&2; exit 1 ;;
 esac
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required" >&2; exit 1; }
-command -v openssl >/dev/null 2>&1 || { echo "openssl is required to create the encryption key" >&2; exit 1; }
-
 mkdir -p "$target"
 target="$(cd "$target" && pwd)"
-mkdir -p "$target/secrets"
-chmod 700 "$target/secrets"
+if [ -n "${CLINICPULSE_EXTERNAL_KEY_FILE:-}" ] || { [ -f "$target/.env" ] && \
+  grep -Eq '^[[:space:]]*(export[[:space:]]+)?CLINICPULSE_EXTERNAL_KEY_FILE[[:space:]]*=' "$target/.env"; }; then
+  echo "External-key installations must be updated with their existing Compose files, not the installer" >&2
+  exit 1
+fi
 mkdir -p "$target/backups"
 chmod 700 "$target/backups"
 
@@ -63,6 +64,11 @@ if [ -z "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ] && [ -f "$target/.env" ] &
   echo "Set CLINICPULSE_DATA_ENCRYPTION_KEY_FILE in the environment when rerunning the installer with an external key" >&2
   exit 1
 fi
+if [ -z "${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-}" ] && [ -f "$target/.env" ] && \
+  grep -Eq '^[[:space:]]*(export[[:space:]]+)?CLINICPULSE_SMTP_PASSWORD_SECRET_FILE[[:space:]]*=' "$target/.env"; then
+  echo "Set CLINICPULSE_SMTP_PASSWORD_SECRET_FILE in the environment when rerunning the installer with an external SMTP secret" >&2
+  exit 1
+fi
 if [ -n "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ]; then
   case "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" in
     /*) ;;
@@ -71,29 +77,76 @@ if [ -n "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ]; then
   [ -f "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" ] && [ -r "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" ] || {
     echo "The configured encryption key file must already exist and be readable" >&2; exit 1
   }
-  echo "Using the configured encryption key file."
-elif [ ! -f "$target/secrets/data_encryption_key" ]; then
-  (umask 077 && openssl rand -base64 48 > "$target/secrets/data_encryption_key")
-  echo "Created $target/secrets/data_encryption_key. Back it up separately from the database; without it encrypted data is unrecoverable."
+  legacy_key="$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"
+elif [ -f "$target/secrets/data_encryption_key" ]; then
+  legacy_key="$target/secrets/data_encryption_key"
+  chmod 700 "$target/secrets"
+  chmod 600 "$legacy_key"
 else
-  echo "Keeping existing encryption key."
+  legacy_key=""
 fi
-if [ -z "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ]; then
-  chmod 600 "$target/secrets/data_encryption_key"
+legacy_smtp="${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-$target/secrets/smtp_password}"
+case "$legacy_smtp" in
+  /*) ;;
+  *) legacy_smtp="$target/$legacy_smtp" ;;
+esac
+if [ -n "${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-}" ] && [ ! -f "$legacy_smtp" ]; then
+  echo "The configured SMTP password file must already exist" >&2
+  exit 1
 fi
-if [ ! -f "$target/secrets/smtp_password" ]; then
-  (umask 077 && : > "$target/secrets/smtp_password")
-fi
-chmod 600 "$target/secrets/smtp_password"
 
 cd "$target"
+compose() {
+  if [ -n "$source_compose" ]; then
+    docker compose --file "$source_compose" "$@"
+  else
+    docker compose "$@"
+  fi
+}
+
+import_secret() {
+  compose run --rm --no-deps --volume "$1:/run/clinicpulse-import:ro" --entrypoint /bin/sh backend -c '
+    set -eu
+    umask 077
+    destination="/var/lib/clinicpulse-secrets/$1"
+    mkdir -p /var/lib/clinicpulse-secrets
+    chmod 700 /var/lib/clinicpulse-secrets
+    if [ -e "$destination" ]; then
+      cmp -s /run/clinicpulse-import "$destination" || {
+        echo "Existing managed secret differs from the original; refusing to overwrite it" >&2
+        exit 1
+      }
+    else
+      temporary="$(mktemp /var/lib/clinicpulse-secrets/.import.XXXXXXXX)"
+      trap '\''rm -f "$temporary"'\'' EXIT
+      cp /run/clinicpulse-import "$temporary"
+      if ! ln "$temporary" "$destination"; then
+        cmp -s /run/clinicpulse-import "$destination" || exit 1
+      fi
+    fi
+  ' -- "$2"
+}
+
 if [ -n "$source_compose" ]; then
-  export CLINICPULSE_DATA_ENCRYPTION_KEY_FILE="${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-$target/secrets/data_encryption_key}"
-  export CLINICPULSE_SMTP_PASSWORD_SECRET_FILE="$target/secrets/smtp_password"
   export CLINICPULSE_BACKUP_HOST_DIR="$target/backups"
-  docker compose --file "$source_compose" up --build -d
+  if [ -n "$legacy_key" ] || [ -s "$legacy_smtp" ]; then
+    compose build backend
+  fi
 else
-  docker compose pull
-  docker compose up -d
+  compose pull
 fi
+if [ -n "$legacy_key" ]; then
+  import_secret "$legacy_key" data_encryption_key
+  echo "Imported the existing encryption key without deleting the original."
+fi
+if [ -s "$legacy_smtp" ]; then
+  import_secret "$legacy_smtp" smtp_password
+  echo "Imported the existing SMTP password without deleting the original."
+fi
+if [ -n "$source_compose" ]; then
+  compose up --build -d
+else
+  compose up -d
+fi
+echo "Back up the clinicpulse_keys volume separately from the database; without its key encrypted data is unrecoverable."
 echo "ClinicPulse is starting on http://localhost:${CLINICPULSE_PORT:-8080}"

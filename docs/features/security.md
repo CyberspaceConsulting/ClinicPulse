@@ -12,7 +12,7 @@ Neue Passwörter können gegen „Have I Been Pwned“ geprüft werden. Dabei wi
 
 ## Verschlüsselung
 
-Sensible Daten werden mit dem Schlüssel aus `secrets/data_encryption_key` verschlüsselt. Backups sind zusätzlich nur mit einem Wiederherstellungsschlüssel lesbar, siehe [Backup](backup.md). Die Datenbank liegt in einem internen Docker-Netzwerk.
+Sensible Datenbankfelder werden mit einem Schlüssel aus dem Docker-Volume `clinicpulse_keys` verschlüsselt. Das Volume ist selbst nicht automatisch verschlüsselt und für Docker-Administratoren zugänglich. Anwendungsbackups und separate Schlüssel-Backups sind verschlüsselt, siehe [Backup](backup.md). Die Datenbank liegt in einem internen Docker-Netzwerk.
 
 ## Berechtigungen
 

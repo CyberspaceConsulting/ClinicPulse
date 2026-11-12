@@ -1,6 +1,6 @@
 # Docker Compose
 
-Die Datei `docker/docker-compose.yml` definiert drei Dienste. Pfade wie `../secrets` sind relativ zu dieser Datei; starte sie daher aus dem Repository-Hauptverzeichnis mit `-f docker/docker-compose.yml`.
+Die Datei `docker/docker-compose.yml` definiert drei Dienste. Starte sie aus dem Repository-Hauptverzeichnis mit `-f docker/docker-compose.yml`.
 
 ## Dienste
 
@@ -22,20 +22,16 @@ Alle Dienste starten mit `restart: unless-stopped`.
 | Volume / Pfad                                   | Inhalt                                              |
 | ----------------------------------------------- | --------------------------------------------------- |
 | `clinicpulse_data`                              | PostgreSQL-Daten                                    |
+| `clinicpulse_keys`                              | Verwalteter Datenschlüssel und optionales SMTP-Passwort |
 | `${CLINICPULSE_BACKUP_HOST_DIR:-../backups}`    | Sicherungen, im API-Container unter `/backups`      |
 
-## Secrets
+## Schlüsselverwaltung
 
-| Secret                            | Quelle                                                  |
-| --------------------------------- | ------------------------------------------------------- |
-| `clinicpulse_data_encryption_key` | `${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-../secrets/data_encryption_key}` |
-| `smtp_password`                   | `../secrets/smtp_password`                              |
-
-Die Secrets werden als Dateien unter `/run/secrets/` in den API-Container eingebunden.
+Das Backend erzeugt den Datenschlüssel bei einer leeren Datenbank automatisch im separaten Volume `clinicpulse_keys`. Bei einer vorhandenen Datenbank ohne Schlüssel verweigert es den Start. Das Volume ist nicht automatisch verschlüsselt; Docker- und Host-Administratoren können darauf zugreifen. Sichere den Schlüssel wie unter [Backup und Wiederherstellung](../features/backup.md#verschlusseltes-schlussel-backup) beschrieben.
 
 ## Weitere Compose-Dateien
 
-`docker/compose.release.yaml` und `docker/compose.encrypted.yaml` ergänzen den Betrieb mit Release-Images bzw. verschlüsseltem Datenverzeichnis (`CLINICPULSE_ENCRYPTED_PGDATA`).
+`docker/compose.release.yaml` und `docker/compose.encrypted.yaml` ergänzen den Betrieb mit Release-Images bzw. verschlüsseltem Datenverzeichnis (`CLINICPULSE_ENCRYPTED_PGDATA`). `docker/compose.external-key.yaml` bindet einen [extern verwalteten Schlüssel](environment-variables.md#externer-schlussel-auf-verschlusseltem-speicher) schreibgeschützt ein.
 
 ## Befehle
 

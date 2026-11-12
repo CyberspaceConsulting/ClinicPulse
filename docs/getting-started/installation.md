@@ -42,10 +42,10 @@ Sichere den Datenverschlüsselungsschlüssel getrennt von der Datenbank. Ohne de
 | Speicher | Zweck |
 | --- | --- |
 | Docker-Volume `clinicpulse_data` | PostgreSQL-Datenbank |
+| Docker-Volume `clinicpulse_keys` | Automatisch verwalteter Schlüssel und optionales SMTP-Passwort |
 | `clinicpulse/backups` | Verschlüsselte Anwendungssicherungen |
-| `clinicpulse/secrets` | Standardpfad für Schlüssel und optionales SMTP-Passwort |
 
-Die Datenbank bleibt beim Neustart und Update erhalten. Lösche das Volume nicht, solange Daten benötigt werden.
+Die Volume-Verwaltung gilt für den aktuellen Quellcode und künftige Releases mit dieser Funktion. Das Beispielrelease `v-0.3.4.1-alpha` verwendet weiterhin Dateien unter `clinicpulse/secrets`. Beide Volumes bleiben beim Neustart und Update erhalten und dürfen nicht gelöscht werden, solange Daten benötigt werden.
 
 ## Anderer Port
 

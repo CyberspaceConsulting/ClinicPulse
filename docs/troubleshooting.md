@@ -46,9 +46,9 @@ Meldet das Backend danach einen anderen Fehler, dessen Logs prüfen. Eine bereit
 | Problem                                         | Ursache und Lösung                                                                                                       |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `docker compose` findet keine Datei             | Compose-Datei liegt unter `docker/docker-compose.yml`; Befehle mit `-f docker/docker-compose.yml` im Hauptverzeichnis ausführen. |
-| `backend` startet nicht / Secret fehlt          | Schlüssel- und SMTP-Datei müssen existieren (siehe [Installation](getting-started/installation.md)). |
+| `backend` startet nicht / Schlüssel fehlt       | Bei vorhandener Datenbank den ursprünglichen Schlüssel wiederherstellen, nicht neu erzeugen (siehe [Backup](features/backup.md)). |
 | `backend` wartet auf `db`                       | Datenbank noch nicht gesund; `docker compose ... logs db` prüfen.                                                        |
-| Verschlüsselte Daten nicht lesbar               | Der Schlüssel in `secrets/data_encryption_key` wurde geändert oder fehlt. Ursprünglichen Schlüssel wiederherstellen.      |
+| Verschlüsselte Daten nicht lesbar               | Datenschlüssel fehlt, ist falsch oder die Daten sind beschädigt. Ursprünglichen Schlüssel wiederherstellen.             |
 | Port 8080 belegt                                | `CLINICPULSE_PORT` auf einen freien Port setzen.                                                                         |
 | Einrichtung scheitert an der Lizenz             | Ausgehenden HTTPS-Zugriff auf `CLINICPULSE_LICENSE_API_URL` prüfen (Firewall, Proxy, DNS).                               |
 | Einladungs-E-Mails kommen nicht an              | [E-Mail](features/mail.md) prüfen: SMTP-Daten, TLS, öffentliche HTTPS-Adresse; Testversand nutzen.                       |

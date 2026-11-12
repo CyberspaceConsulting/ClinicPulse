@@ -1,13 +1,14 @@
 import os
 import base64
 from collections.abc import Generator
+from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from .encrypted import SQLITE_TEST_KEY, load_encryption_key
+from .encrypted import SQLITE_TEST_KEY, ensure_managed_key, load_encryption_key
 
 
 class Base(DeclarativeBase):
@@ -33,6 +34,22 @@ if str(database_url).startswith("sqlite"):
 engine = create_engine(database_url, **engine_options)
 if engine.dialect.name == "sqlite" and not str(database_url).endswith(":memory:"):
     raise RuntimeError("SQLite is supported only for in-memory tests; ClinicPulse requires PostgreSQL")
+
+managed_key_file = os.environ.get("CLINICPULSE_MANAGED_KEY_FILE")
+if (engine.dialect.name == "postgresql" and managed_key_file
+        and not os.environ.get("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE")
+        and not os.environ.get("CLINICPULSE_DATA_ENCRYPTION_KEY")):
+    ensure_managed_key(managed_key_file, lambda: bool(inspect(engine).get_table_names()))
+    engine.dispose()
+    os.environ["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = managed_key_file
+
+managed_smtp_file = os.environ.get("CLINICPULSE_MANAGED_SMTP_PASSWORD_FILE")
+smtp_file = os.environ.get("CLINICPULSE_SMTP_PASSWORD_FILE")
+if managed_smtp_file and smtp_file in (None, "", "/run/secrets/smtp_password"):
+    smtp_path = Path(managed_smtp_file)
+    smtp_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    smtp_path.touch(mode=0o600, exist_ok=True)
+    os.environ["CLINICPULSE_SMTP_PASSWORD_FILE"] = managed_smtp_file
 
 
 @event.listens_for(engine, "connect")
