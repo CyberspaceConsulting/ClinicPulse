@@ -99,6 +99,9 @@ def test_release_image_version_is_built_from_the_actual_tag():
     assert "CLINICPULSE_IMAGE_VERSION=${{ env.IMAGE_TAG }}" in workflow
     assert "CLINICPULSE_IMAGE_VERSION=${CLINICPULSE_IMAGE_VERSION}" in dockerfile
     assert "clinicpulse-backend:__IMAGE_TAG__" in compose
+    assert "clinicpulse-web:__IMAGE_TAG__" in compose
+    assert "@${BACKEND_DIGEST}" in workflow
+    assert "@${WEB_DIGEST}" in workflow
     assert "CLINICPULSE_VERSION:" not in compose
 
 
@@ -106,6 +109,8 @@ def test_release_publishes_external_key_overlay_with_checksum():
     workflow = (ROOT / ".github" / "workflows" / "release-images.yml").read_text(encoding="utf-8")
     assert "cp docker/compose.external-key.yaml dist/compose.external-key.yaml" in workflow
     assert "sha256sum compose.yaml compose.encrypted.yaml compose.external-key.yaml" in workflow
+    assert "cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS" in workflow
+    assert "id-token: write" in workflow
     assert "gh release upload" in workflow and "dist/compose.external-key.yaml" in workflow
 
 

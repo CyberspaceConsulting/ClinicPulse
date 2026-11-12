@@ -5,12 +5,12 @@ ClinicPulse wird als Release mit Docker Compose gestartet. Weboberfläche, API u
 ## Voraussetzungen
 
 - Docker Engine mit Docker Compose v2
-- `curl`, `openssl` und `sha256sum`
+- `curl`, `openssl`, `sha256sum` und [Cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
 - Ein gültiger Lizenzzugang und ausgehender HTTPS-Zugriff des Backends auf den Lizenzdienst
 
 ## Release installieren
 
-Wähle ein Release auf [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases) und ersetze den Tag im Beispiel. Das Skript prüft die Prüfsummen von Installer und Compose-Datei und installiert nach `./clinicpulse`. Alpha-Releases werden von GitHubs `releases/latest` nicht erfasst.
+Wähle ein Release auf [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases) und ersetze den Tag im Beispiel. Das Skript prüft die Sigstore-Signatur der Release-Prüfsummen und die Prüfsummen von Installer und Compose-Datei. Die Compose-Datei pinnt Backend und Web per Image-Digest. Alpha-Releases werden von GitHubs `releases/latest` nicht erfasst.
 
 Bei einem Update mit bestehender Datenbank kann `v-0.3.4.1-alpha` beim Start scheitern; siehe [Fehlerbehebung](../troubleshooting.md#fehlende-fahrzeugspalte-beim-start).
 
@@ -24,8 +24,15 @@ Bei einem Update mit bestehender Datenbank kann `v-0.3.4.1-alpha` beim Start sch
   curl -fsSL -o "$tmpdir/install.sh" "$url/install.sh"
   curl -fsSL -o "$tmpdir/compose.yaml" "$url/compose.yaml"
   curl -fsSL -o "$tmpdir/SHA256SUMS" "$url/SHA256SUMS"
+  curl -fsSL -o "$tmpdir/SHA256SUMS.sigstore.json" "$url/SHA256SUMS.sigstore.json"
+  curl -fsSL -o "$tmpdir/verify-integrity.sh" "$url/verify-integrity.sh"
   cd "$tmpdir"
-  awk '$2 == "install.sh" { install++; print } $2 == "compose.yaml" { compose++; print } END { if (install != 1 || compose != 1) exit 1 }' SHA256SUMS > install.sha256
+  cosign verify-blob \
+    --bundle SHA256SUMS.sigstore.json \
+    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    SHA256SUMS
+  awk '$2 == "install.sh" || $2 == "compose.yaml" || $2 == "verify-integrity.sh" { print; count++ } END { if (count != 3) exit 1 }' SHA256SUMS > install.sha256
   sha256sum --check install.sha256
   sh ./install.sh "$target"
 )
@@ -54,6 +61,35 @@ Setze vor der Installation `CLINICPULSE_PORT`, zum Beispiel `export CLINICPULSE_
 ## Updates
 
 Release-Images sind versionsgebunden. Ein `docker compose pull` allein wechselt nicht auf eine neue Version. Sichere Daten und Schlüssel und folge der [Update-Anleitung](update.md).
+
+## Manuelle Integritätsprüfung
+
+Der Installer prüft die signierte Release-Prüfsummenliste automatisch. Für die unabhängige Notfallprüfung nicht dem installierten Prüfer vertrauen, sondern Prüfer und Signaturdateien frisch aus demselben GitHub-Release laden. Das folgende Beispiel im Installationsverzeichnis ausführen und `v-0.3.4.1-alpha` durch den installierten Release-Tag ersetzen:
+
+```sh
+(
+  set -eu
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT
+  url=https://github.com/CyberspaceConsulting/ClinicPulse/releases/download/v-0.3.4.1-alpha
+  for asset in compose.yaml SHA256SUMS SHA256SUMS.sigstore.json verify-integrity.sh; do
+    curl -fsSL -o "$tmpdir/$asset" "$url/$asset"
+  done
+  (
+    cd "$tmpdir"
+    cosign verify-blob \
+      --bundle SHA256SUMS.sigstore.json \
+      --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      SHA256SUMS
+    awk '$2 == "compose.yaml" || $2 == "verify-integrity.sh" { print; count++ } END { if (count != 2) exit 1 }' SHA256SUMS > assets.sha256
+    sha256sum --check assets.sha256
+  )
+  sh "$tmpdir/verify-integrity.sh" --release-dir "$tmpdir" --project-dir "$PWD"
+)
+```
+
+Die manuelle Prüfung läuft außerhalb der Anwendung. Cosign prüft die Signatur gegen die festgelegte GitHub-Actions-Identität; der frisch geladene Prüfer vergleicht danach die laufenden Backend- und Web-Container mit den signierten Image-Digests. Benötigt werden Cosign, Docker Compose, `curl` und `sha256sum`.
 
 ## Aus dem Quellcode
 

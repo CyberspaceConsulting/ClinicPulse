@@ -637,6 +637,45 @@ test('team management displays translated labels and preserves account and depar
   expect(deleteRequests).toBe(1)
 })
 
+  test('employee management searches 200 employees by name, qualification, and department', async ({ page }) => {
+    const employees = Array.from({ length: 199 }, (_, index) => ({
+      ...employee,
+      id: index + 1,
+      name: `Mitarbeiter ${String(index + 1).padStart(3, '0')}`,
+    }))
+    employees.push({
+      ...employee,
+      id: 200,
+      name: 'Mira Muster',
+      department_id: 2,
+      qualifications: [{ ...qualifications[0], id: 3, name: 'Intensivpflege', department_id: 2 }],
+    })
+    await mockApi(page, 'ADMIN', [], {
+      departments: [department, { ...department, id: 2, name: 'Intensivstation' }],
+    }, employees)
+    await page.goto('/')
+    await page.getByLabel('Benutzername').fill('admin')
+    await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+    await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('tab', { name: 'Mitarbeitende' }).click()
+    const employeeRows = dialog.getByRole('heading', { name: 'Mitarbeiter', exact: true }).locator('..').locator('.management-row')
+    const search = dialog.getByRole('searchbox', { name: 'Mitarbeitende durchsuchen' })
+
+    await expect(employeeRows).toHaveCount(200)
+    await search.fill('mIrA')
+    await expect(employeeRows).toHaveCount(1)
+    await expect(employeeRows).toContainText('Mira Muster')
+    await search.fill('Intensivpflege')
+    await expect(employeeRows).toHaveCount(1)
+    await search.fill('Intensivstation')
+    await expect(employeeRows).toHaveCount(1)
+    await search.fill('nicht vorhanden')
+    await expect(employeeRows).toHaveCount(0)
+    await expect(dialog.getByText('Keine passenden Mitarbeitenden gefunden.')).toBeVisible()
+  })
+
   test('disabled email offers temporary passwords for both account creation flows', async ({ page }) => {
     await mockApi(page, 'HOSPITAL_MANAGEMENT')
     await page.route('**/api/account-creation/mail-mode', (route) => route.fulfill({ json: { enabled: false } }))

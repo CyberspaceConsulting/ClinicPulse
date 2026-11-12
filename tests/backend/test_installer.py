@@ -9,24 +9,64 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "deploy" / "install.sh"
+BACKEND_IMAGE = f"ghcr.io/cyberspaceconsulting/clinicpulse-backend:test@sha256:{'a' * 64}"
+WEB_IMAGE = f"ghcr.io/cyberspaceconsulting/clinicpulse-web:test@sha256:{'b' * 64}"
 
 
-def installer_environment(tmp_path, *, checksum=None, docker_failure=""):
+def installer_environment(tmp_path, *, checksum=None, docker_failure="", cosign_failure=False):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fixtures = tmp_path / "release"
     fixtures.mkdir()
-    compose = b"services:\n  backend:\n    image: clinicpulse-backend:test\n"
+    compose = (
+        b"services:\n"
+        + f"  backend:\n    image: {BACKEND_IMAGE}\n".encode()
+        + f"  web:\n    image: {WEB_IMAGE}\n".encode()
+    )
     (fixtures / "compose.yaml").write_bytes(compose)
-    digest = checksum or hashlib.sha256(compose).hexdigest()
-    (fixtures / "SHA256SUMS").write_text(f"{digest}  compose.yaml\n", encoding="utf-8")
+    verifier = ROOT / "deploy" / "verify-integrity.sh"
+    (fixtures / "verify-integrity.sh").write_bytes(verifier.read_bytes())
+    compose_digest = checksum or hashlib.sha256(compose).hexdigest()
+    verifier_digest = hashlib.sha256(verifier.read_bytes()).hexdigest()
+    (fixtures / "SHA256SUMS").write_text(
+        f"{compose_digest}  compose.yaml\n{verifier_digest}  verify-integrity.sh\n",
+        encoding="utf-8",
+    )
+    (fixtures / "SHA256SUMS.sigstore.json").write_text("{}\n", encoding="utf-8")
 
     (bin_dir / "docker").write_text(
         """#!/bin/sh
 printf "%s\\n" "$*" >> "$DOCKER_LOG"
 printf "%s|%s\\n" "$PWD" "$*" >> "$DOCKER_CWD_LOG"
 printf "%s|%s\\n" "$PWD" "${COMPOSE_ENV_FILES:-}" >> "$DOCKER_ENV_FILES_LOG"
+printf "docker:%s\\n" "$*" >> "$EVENT_LOG"
+case " $* " in
+    *" config --images "*) sed -n 's/^[[:space:]]*image:[[:space:]]*//p' "$PWD/compose.yaml" ;;
+    *" ps -q backend "*) printf "backend-container\\n" ;;
+    *" ps -q web "*) printf "web-container\\n" ;;
+esac
+if [ "$1" = inspect ] && [ "$2" = --format ]; then
+    case "$3:$4" in
+        '{{.Config.Image}}:backend-container') printf "%s\\n" "$RUNNING_BACKEND_REF" ;;
+        '{{.Image}}:backend-container') printf "sha256:backend-image\\n" ;;
+        '{{.Config.Image}}:web-container') printf "%s\\n" "$RUNNING_WEB_REF" ;;
+        '{{.Image}}:web-container') printf "sha256:web-image\\n" ;;
+    esac
+elif [ "$1" = image ] && [ "$2" = inspect ]; then
+    case "$3" in
+        *clinicpulse-backend*) printf "sha256:backend-image\\n" ;;
+        *clinicpulse-web*) printf "sha256:web-image\\n" ;;
+    esac
+fi
 [ "$*" != "$DOCKER_FAIL_ON" ] || exit 23
+""",
+        encoding="utf-8",
+    )
+    (bin_dir / "cosign").write_text(
+        """#!/bin/sh
+printf "%s\\n" "$*" >> "$COSIGN_LOG"
+printf "cosign:%s\\n" "$*" >> "$EVENT_LOG"
+[ "$COSIGN_FAIL" != 1 ]
 """,
         encoding="utf-8",
     )
@@ -41,6 +81,8 @@ done
 case "$url" in
   */compose.yaml) cp "$RELEASE_FIXTURES/compose.yaml" "$output" ;;
   */SHA256SUMS) cp "$RELEASE_FIXTURES/SHA256SUMS" "$output" ;;
+    */SHA256SUMS.sigstore.json) cp "$RELEASE_FIXTURES/SHA256SUMS.sigstore.json" "$output" ;;
+    */verify-integrity.sh) cp "$RELEASE_FIXTURES/verify-integrity.sh" "$output" ;;
   *) exit 1 ;;
 esac
 """,
@@ -59,8 +101,13 @@ esac
         "DOCKER_LOG": str(tmp_path / "docker.log"),
         "DOCKER_CWD_LOG": str(tmp_path / "docker-cwd.log"),
         "DOCKER_ENV_FILES_LOG": str(tmp_path / "docker-env-files.log"),
+        "COSIGN_LOG": str(tmp_path / "cosign.log"),
+        "EVENT_LOG": str(tmp_path / "events.log"),
         "DOCKER_FAIL_ON": docker_failure,
+        "COSIGN_FAIL": "1" if cosign_failure else "0",
         "RELEASE_FIXTURES": str(fixtures),
+        "RUNNING_BACKEND_REF": BACKEND_IMAGE,
+        "RUNNING_WEB_REF": WEB_IMAGE,
     })
     return environment, compose
 
@@ -85,11 +132,62 @@ def test_piped_installer_downloads_verifies_and_starts_release(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert (install_dir / "compose.yaml").read_bytes() == compose
+    assert (install_dir / "SHA256SUMS.sigstore.json").is_file()
     assert not (install_dir / "secrets").exists()
     docker_commands = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
     assert "compose pull" in docker_commands
+    assert any(command.endswith("config --images") for command in docker_commands)
     assert "compose up -d" in docker_commands
+    cosign_commands = (tmp_path / "cosign.log").read_text(encoding="utf-8").splitlines()
+    assert any(command.startswith("verify-blob ") for command in cosign_commands)
+    events = (tmp_path / "events.log").read_text(encoding="utf-8").splitlines()
+    assert next(index for index, event in enumerate(events) if event.startswith("cosign:verify-blob")) < events.index("docker:compose pull")
     assert "http://localhost:8080" in result.stdout
+
+
+def test_invalid_release_signature_stops_before_pull_or_start(tmp_path):
+    environment, _ = installer_environment(tmp_path, cosign_failure=True)
+    install_dir = tmp_path / "installation"
+
+    result = run_piped_installer(tmp_path, environment, install_dir)
+
+    assert result.returncode != 0
+    assert "checksum signature is invalid" in result.stderr
+    assert (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines() == ["compose version"]
+    assert not (install_dir / "compose.yaml").exists()
+
+
+def test_manual_verifier_checks_running_container_images_against_signed_release(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    install_dir = tmp_path / "installation"
+    install_result = run_piped_installer(tmp_path, environment, install_dir)
+    assert install_result.returncode == 0, install_result.stderr
+
+    verifier = ROOT / "deploy" / "verify-integrity.sh"
+    result = subprocess.run(
+        ["sh", str(verifier)],
+        cwd=install_dir,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "running backend and web containers match" in result.stdout
+
+    environment["RUNNING_BACKEND_REF"] = "ghcr.io/cyberspaceconsulting/clinicpulse-backend:modified"
+    result = subprocess.run(
+        ["sh", str(verifier)],
+        cwd=install_dir,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "does not use a digest-pinned official image" in result.stderr
 
 
 @pytest.mark.parametrize("with_dotenv, fail_build, with_env_files", [(False, False, False), (True, False, False), (False, True, False), (True, False, True)])
