@@ -21,3 +21,8 @@ dependencies = [
 [tool.uv]
 package = false
 required-version = ">=0.13.7,<0.14"
+
+[tool.pytest.ini_options]
+markers = [
+    "privacy: Datenschutz-Prüfungen (Pflicht-Check \"Datenschutz\")",
+]

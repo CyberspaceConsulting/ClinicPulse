@@ -589,6 +589,14 @@ app.include_router(archive_settings_router)
 app.include_router(backup_router)
 
 
+@app.middleware("http")
+async def forbid_caching_of_api_responses(request: Request, call_next):
+    """Personal data must not end up in browser or proxy caches."""
+    response = await call_next(request)
+    if request.url.path.startswith("/api/") and request.url.path != "/api/health":
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
 def has_core_feature(features: object) -> bool:
     return isinstance(features, list) and ("core_scheduling" in features or "all" in features)
 

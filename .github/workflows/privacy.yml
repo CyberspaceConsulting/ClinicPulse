@@ -1,0 +1,50 @@
+name: Datenschutz
+
+on:
+  push:
+    branches: [main, alpha]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Der Jobname "Datenschutz" ist der Name des Pflicht-Checks in den Branch-Schutzregeln.
+  privacy:
+    name: Datenschutz
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Datenschutz-Tests
+        id: privacy
+        run: ./tests/run-tests.sh -m privacy --junitxml="$RUNNER_TEMP/privacy-tests.xml"
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: privacy-test-report
+          path: ${{ runner.temp }}/privacy-tests.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Summary
+        if: always()
+        env:
+          STATUS: ${{ steps.privacy.outcome }}
+        run: |
+          {
+            printf '## Datenschutz\n\n'
+            if [ "$STATUS" = "success" ]; then
+              printf 'Alle Datenschutz-Prüfungen bestanden.\n'
+            else
+              printf 'Mindestens eine Datenschutz-Prüfung ist fehlgeschlagen. Siehe `tests/backend/test_privacy.py` und `docs/development/privacy-checks.md`.\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$STATUS" = "success" ]
