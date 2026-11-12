@@ -202,6 +202,10 @@ jobs:
   publish:
     needs: [test, frontend-browser, compose-smoke]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     env:
       IMAGE_TAG: ${{ github.ref_name }}
     steps:
@@ -297,16 +301,30 @@ jobs:
 
       - name: Prepare pinned release artifacts
         id: prepare
+        env:
+          BACKEND_DIGEST: ${{ steps.backend_image.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web_image.outputs.digest }}
         run: |
           mkdir -p dist
-          sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g" \
-            docker/compose.release.yaml > dist/compose.yaml
+          sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g" docker/compose.release.yaml \
+            | sed "s|clinicpulse-backend:${IMAGE_TAG}|clinicpulse-backend:${IMAGE_TAG}@${BACKEND_DIGEST}|" \
+            | sed "s|clinicpulse-web:${IMAGE_TAG}|clinicpulse-web:${IMAGE_TAG}@${WEB_DIGEST}|" \
+            > dist/compose.yaml
           cp deploy/install.sh dist/install.sh
+          cp deploy/verify-integrity.sh dist/verify-integrity.sh
           cp docker/compose.encrypted.yaml dist/compose.encrypted.yaml
           cp docker/compose.external-key.yaml dist/compose.external-key.yaml
           cp deploy/dependency_track_upload.py dist/dependency_track_upload.py
           chmod +x dist/install.sh
-          (cd dist && sha256sum compose.yaml compose.encrypted.yaml compose.external-key.yaml install.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)
+          (cd dist && sha256sum compose.yaml compose.encrypted.yaml compose.external-key.yaml install.sh verify-integrity.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)
+
+      - name: Install Cosign
+        id: cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release checksums
+        id: sign_checksums
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
 
       - name: Publish release artifacts
         id: publish
@@ -316,7 +334,7 @@ jobs:
           prerelease=""
           case "$IMAGE_TAG" in *-*) prerelease="--prerelease";; esac
           gh release view "$IMAGE_TAG" >/dev/null 2>&1 || gh release create "$IMAGE_TAG" --title "$IMAGE_TAG" --generate-notes $prerelease
-          gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/compose.external-key.yaml dist/install.sh dist/clinicpulse.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS --clobber
+          gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/compose.external-key.yaml dist/install.sh dist/verify-integrity.sh dist/clinicpulse.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS dist/SHA256SUMS.sigstore.json --clobber
       - name: Summarize release publication
         if: always()
         env:

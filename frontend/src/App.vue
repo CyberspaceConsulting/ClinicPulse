@@ -526,6 +526,7 @@ const userCanEdit = ref(false)
 const userCanApprove = ref(false)
 const userEmployeeId = ref<number | null>(null)
 const allEmployees = ref<Employee[]>([])
+const managementEmployeeSearch = ref('')
 const showAbsences = ref(false)
 const showNextShifts = ref(false)
 const showDashboard = ref(false)
@@ -2117,6 +2118,17 @@ function employeeQualifications(employee: Employee | undefined, departmentId?: n
     : qualifications.filter((qualification) => qualification.department_id === undefined || qualification.department_id === departmentId)
 }
 
+const filteredManagementEmployees = computed(() => {
+  const query = managementEmployeeSearch.value.trim().toLocaleLowerCase()
+  if (!query) return allEmployees.value
+  return allEmployees.value.filter((employee) => [
+    employee.name,
+    employee.role,
+    employeeDepartmentNames(employee),
+    ...employeeQualifications(employee).map((qualification) => qualification.name),
+  ].some((value) => value.toLocaleLowerCase().includes(query)))
+})
+
 const selectedAssignmentShift = computed(() =>
   shiftTypes.value.find((shift) => String(shift.id) === selectedShift.value),
 )
@@ -3608,8 +3620,12 @@ onBeforeUnmount(() => {
             </section>
             <section v-if="canManageStaff" v-show="managementTab === 'employees'">
               <h3>{{ t('management.employees') }}</h3>
-              <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
-              <div v-for="employee in allEmployees" :key="employee.id" class="management-row">
+              <div class="employee-management-toolbar">
+                <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
+                <input v-model="managementEmployeeSearch" class="employee-management-search" type="search" :aria-label="t('management.searchEmployees')" :placeholder="t('management.searchEmployeesPlaceholder')" />
+              </div>
+              <p v-if="managementEmployeeSearch.trim() && !filteredManagementEmployees.length" class="muted">{{ t('management.noEmployeesFound') }}</p>
+              <div v-for="employee in filteredManagementEmployees" :key="employee.id" class="management-row">
                 <div><strong>{{ employee.name }}</strong><small>{{ employeeQualifications(employee).map((qualification) => qualification.name).join(', ') || employee.role }} · {{ employeeDepartmentNames(employee) }}</small></div>
                 <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">{{ t('management.edit') }}</button>
               </div>

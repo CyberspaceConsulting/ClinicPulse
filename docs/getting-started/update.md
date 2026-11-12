@@ -4,7 +4,7 @@ Plane eine kurze Unterbrechung ein und lies vor dem Update die Hinweise zum
 neuen Release auf [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).
 Der Update-Hinweis in der Anwendung vergleicht die verfügbaren Backend- und
 Web-Images in GitHub Packages; prüfe vor dem Update zusätzlich, ob für den Tag
-bereits ein Release mit Compose-Datei und Prüfsummen veröffentlicht wurde.
+bereits ein Release mit Compose-Datei, signierter Prüfsummenliste und Signatur-Bundle veröffentlicht wurde.
 Erstelle zunächst eine Sicherung und prüfe, ob sie wiederhergestellt werden
 kann; siehe [Backup und Wiederherstellung](../features/backup.md). Sichere auch
 den vorhandenen Verschlüsselungsschlüssel und deine Konfiguration separat und
@@ -32,8 +32,9 @@ Bei bereits eingerichtetem Betrieb mit `compose.external-key.yaml` darf der Inst
 2. Wähle auf [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases)
    eine Version und ersetze `v-0.2.0-alpha` im folgenden Beispiel durch deren
    Tag. Es gibt derzeit nur Alpha-Vorabversionen; GitHubs `releases/latest`
-   liefert diese nicht. Lade die Compose-Datei und ihre Prüfsumme aus demselben
-   Release herunter und prüfe sie, bevor du die bestehende Datei ersetzt:
+   liefert diese nicht. Lade Compose-Datei, Prüfsummenliste, Signatur-Bundle und
+   Prüfer aus demselben Release. Verifiziere die Signatur und Dateien, bevor du
+   die bestehende Datei ersetzt:
 
    ```sh
    cd clinicpulse
@@ -42,33 +43,35 @@ Bei bereits eingerichtetem Betrieb mit `compose.external-key.yaml` darf der Inst
      tmpdir=$(mktemp -d)
      trap 'rm -rf "$tmpdir"' EXIT
      url=https://github.com/CyberspaceConsulting/ClinicPulse/releases/download/v-0.2.0-alpha
-     curl -fsSL -o "$tmpdir/compose.yaml" "$url/compose.yaml"
-     curl -fsSL -o "$tmpdir/SHA256SUMS" "$url/SHA256SUMS"
-     (
-       cd "$tmpdir"
-       awk '$2 == "compose.yaml" { print; count++ } END { if (count != 1) exit 1 }' SHA256SUMS > compose.sha256
-       sha256sum --check compose.sha256
-     )
-     cp "$tmpdir/compose.yaml" compose.yaml
+       curl -fsSL -o "$tmpdir/compose.yaml" "$url/compose.yaml"
+       curl -fsSL -o "$tmpdir/SHA256SUMS" "$url/SHA256SUMS"
+       curl -fsSL -o "$tmpdir/SHA256SUMS.sigstore.json" "$url/SHA256SUMS.sigstore.json"
+       curl -fsSL -o "$tmpdir/verify-integrity.sh" "$url/verify-integrity.sh"
+       (
+          cd "$tmpdir"
+          cosign verify-blob \
+             --bundle SHA256SUMS.sigstore.json \
+             --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+             SHA256SUMS
+          awk '$2 == "compose.yaml" || $2 == "verify-integrity.sh" { print; count++ } END { if (count != 2) exit 1 }' SHA256SUMS > assets.sha256
+          sha256sum --check assets.sha256
+       )
+       cp "$tmpdir/compose.yaml" compose.yaml
+       cp "$tmpdir/verify-integrity.sh" verify-integrity.sh
+       cp "$tmpdir/SHA256SUMS" SHA256SUMS
+       cp "$tmpdir/SHA256SUMS.sigstore.json" SHA256SUMS.sigstore.json
+       docker compose pull
+       docker compose up -d
+       sh "$tmpdir/verify-integrity.sh" --release-dir "$tmpdir" --project-dir "$PWD"
    )
    ```
 
-   Fahre nur fort, wenn der Download und die Prüfsummenprüfung erfolgreich
-   waren.
-   Übertrage gegebenenfalls deine eigenen Änderungen in die neue
-   `compose.yaml`, bevor du die Dienste aktualisierst.
-3. Lade die Images und starte die Dienste mit der neuen Konfiguration:
-
-   ```sh
-   docker compose pull
-   docker compose up -d
-   docker compose ps
-   docker compose logs --tail=100 backend
-   ```
-
-   Bei zusätzlichen Compose-Dateien verwende dieselben `-f`-Optionen und
-   Umgebungsvariablen wie beim bisherigen Betrieb. Prüfe, ob die Dienste laufen
-   und die Anwendung erreichbar ist.
+    Bei zusätzlichen Compose-Dateien verwende für `docker compose pull` und
+    `docker compose up -d` dieselben `-f`-Optionen wie beim bisherigen Betrieb.
+    Übertrage eigene Änderungen in `compose.yaml` nur nach der Signatur- und
+    Prüfsummenprüfung. Fahre nur fort, wenn Signatur, Prüfsummen und die
+    anschließende Prüfung der laufenden Images erfolgreich sind.
 
 ## Datenbankänderungen
 

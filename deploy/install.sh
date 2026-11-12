@@ -28,8 +28,34 @@ else
 fi
 
 if [ -n "$here" ] && [ -f "$here/compose.yaml" ]; then
+  command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the ClinicPulse release" >&2; exit 1; }
+  cosign verify-blob \
+    --bundle "$here/SHA256SUMS.sigstore.json" \
+    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    "$here/SHA256SUMS" >/dev/null || {
+      echo "The release checksum signature is invalid" >&2
+      exit 1
+    }
+  for asset in compose.yaml verify-integrity.sh; do
+    expected_checksum="$(awk -v name="$asset" '$2 == name { print $1; count++ } END { if (count != 1) exit 1 }' "$here/SHA256SUMS")" || {
+      echo "The signed release checksum for $asset is missing or ambiguous" >&2
+      exit 1
+    }
+    case "$expected_checksum" in
+      *[!0-9a-fA-F]*|'') echo "The signed release contains an invalid $asset checksum" >&2; exit 1 ;;
+    esac
+    [ "${#expected_checksum}" -eq 64 ] || { echo "The signed release contains an invalid $asset checksum" >&2; exit 1; }
+    if ! printf '%s  %s\n' "$expected_checksum" "$here/$asset" | sha256sum --check --status -; then
+      echo "The downloaded $asset failed checksum verification" >&2
+      exit 1
+    fi
+  done
   if [ "$here" != "$target" ]; then
     cp "$here/compose.yaml" "$target/compose.yaml"
+    cp "$here/verify-integrity.sh" "$target/verify-integrity.sh"
+    cp "$here/SHA256SUMS" "$target/SHA256SUMS"
+    cp "$here/SHA256SUMS.sigstore.json" "$target/SHA256SUMS.sigstore.json"
   fi
 elif [ -n "$here" ] && [ -f "$here/../docker/docker-compose.yml" ]; then
   source_compose="$(cd "$here/../docker" && pwd)/docker-compose.yml"
@@ -37,6 +63,7 @@ elif [ -n "$here" ] && [ -f "$here/../docker/docker-compose.yml" ]; then
 else
   command -v curl >/dev/null 2>&1 || { echo "curl is required to download the ClinicPulse release" >&2; exit 1; }
   command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required to verify the ClinicPulse release" >&2; exit 1; }
+  command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the ClinicPulse release" >&2; exit 1; }
   download_dir="$(mktemp -d)"
   trap 'rm -rf "$download_dir"' EXIT HUP INT TERM
   release_url="https://github.com/CyberspaceConsulting/ClinicPulse/releases/latest/download"
@@ -44,19 +71,36 @@ else
     -o "$download_dir/compose.yaml" "$release_url/compose.yaml"
   curl --fail --location --retry 3 --silent --show-error \
     -o "$download_dir/SHA256SUMS" "$release_url/SHA256SUMS"
-  expected_checksum="$(awk '$2 == "compose.yaml" { print $1; count++ } END { if (count != 1) exit 1 }' "$download_dir/SHA256SUMS")" || {
-    echo "The release checksum for compose.yaml is missing or ambiguous" >&2
-    exit 1
-  }
-  case "$expected_checksum" in
-    *[!0-9a-fA-F]*|'') echo "The release contains an invalid compose.yaml checksum" >&2; exit 1 ;;
-  esac
-  [ "${#expected_checksum}" -eq 64 ] || { echo "The release contains an invalid compose.yaml checksum" >&2; exit 1; }
-  if ! printf '%s  %s\n' "$expected_checksum" "$download_dir/compose.yaml" | sha256sum --check --status -; then
-    echo "The downloaded compose.yaml failed checksum verification" >&2
-    exit 1
-  fi
+  curl --fail --location --retry 3 --silent --show-error \
+    -o "$download_dir/SHA256SUMS.sigstore.json" "$release_url/SHA256SUMS.sigstore.json"
+  curl --fail --location --retry 3 --silent --show-error \
+    -o "$download_dir/verify-integrity.sh" "$release_url/verify-integrity.sh"
+  cosign verify-blob \
+    --bundle "$download_dir/SHA256SUMS.sigstore.json" \
+    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    "$download_dir/SHA256SUMS" >/dev/null || {
+      echo "The release checksum signature is invalid" >&2
+      exit 1
+    }
+  for asset in compose.yaml verify-integrity.sh; do
+    expected_checksum="$(awk -v name="$asset" '$2 == name { print $1; count++ } END { if (count != 1) exit 1 }' "$download_dir/SHA256SUMS")" || {
+      echo "The signed release checksum for $asset is missing or ambiguous" >&2
+      exit 1
+    }
+    case "$expected_checksum" in
+      *[!0-9a-fA-F]*|'') echo "The signed release contains an invalid $asset checksum" >&2; exit 1 ;;
+    esac
+    [ "${#expected_checksum}" -eq 64 ] || { echo "The signed release contains an invalid $asset checksum" >&2; exit 1; }
+    if ! printf '%s  %s\n' "$expected_checksum" "$download_dir/$asset" | sha256sum --check --status -; then
+      echo "The downloaded $asset failed checksum verification" >&2
+      exit 1
+    fi
+  done
   cp "$download_dir/compose.yaml" "$target/compose.yaml"
+  cp "$download_dir/verify-integrity.sh" "$target/verify-integrity.sh"
+  cp "$download_dir/SHA256SUMS" "$target/SHA256SUMS"
+  cp "$download_dir/SHA256SUMS.sigstore.json" "$target/SHA256SUMS.sigstore.json"
 fi
 
 if [ -z "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ] && [ -f "$target/.env" ] && \
@@ -156,6 +200,7 @@ if [ -n "$source_compose" ]; then
     fi
   )
 else
+  sh ./verify-integrity.sh --release-only
   compose pull
 fi
 if [ -n "$legacy_key" ]; then
@@ -170,6 +215,7 @@ if [ -n "$source_compose" ]; then
   compose up --no-build -d
 else
   compose up -d
+  sh ./verify-integrity.sh --check-running
 fi
 echo "Back up the clinicpulse_keys volume separately from the database; without its key encrypted data is unrecoverable."
 echo "ClinicPulse is starting on http://localhost:${CLINICPULSE_PORT:-8080}"

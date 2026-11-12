@@ -316,6 +316,9 @@ h1, h2, h3, p { margin-top: 0; }
 .management-section .inline-form input, .management-section .inline-form .secondary { font-size: 12px; }
 .management-section .stack label, .management-section .permission-note { font-size: 12px; }
 .management-section .stack input, .management-section .stack select { font-size: 13px; }
+.employee-management-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.employee-management-toolbar .secondary { margin: 0; }
+.employee-management-search { flex: 1 1 220px; min-width: 0; border: 1px solid #dce5e2; border-radius: 6px; padding: 8px 9px; font-size: 12px; }
 .inline-form { display: flex; gap: 7px; margin: 0 0 8px; }
 .inline-form input { min-width: 0; flex: 1; border: 1px solid #dce5e2; border-radius: 6px; padding: 8px 9px; font-size: 11px; }
 .inline-form .secondary { padding: 7px 9px; font-size: 10px; }
