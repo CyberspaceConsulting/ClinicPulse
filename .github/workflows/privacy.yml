@@ -27,6 +27,7 @@ jobs:
         id: privacy
         run: ./tests/run-tests.sh -m privacy --junitxml="$RUNNER_TEMP/privacy-tests.xml"
       - name: Upload test report
+        id: report
         if: always()
         uses: actions/upload-artifact@v6
         with:
@@ -34,17 +35,30 @@ jobs:
           path: ${{ runner.temp }}/privacy-tests.xml
           if-no-files-found: ignore
           retention-days: 7
-      - name: Summary
+      - name: Summarize privacy tests
         if: always()
         env:
-          STATUS: ${{ steps.privacy.outcome }}
+          PRIVACY_STATUS: ${{ steps.privacy.outcome }}
+          REPORT_URL: ${{ steps.report.outputs.artifact-url }}
         run: |
+          summary_status=0
           {
-            printf '## Datenschutz\n\n'
-            if [ "$STATUS" = "success" ]; then
-              printf 'Alle Datenschutz-Prüfungen bestanden.\n'
+            echo '## Privacy checks (Datenschutz)'
+            echo
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Privacy tests | %s |\n\n' "${PRIVACY_STATUS:-not run}"
+            if [ -f tests/junit_summary.py ]; then
+              python3 tests/junit_summary.py "Privacy" "$RUNNER_TEMP/privacy-tests.xml" || summary_status=1
             else
-              printf 'Mindestens eine Datenschutz-Prüfung ist fehlgeschlagen. Siehe `tests/backend/test_privacy.py` und `docs/development/privacy-checks.md`.\n'
+              echo 'JUnit summary unavailable: repository checkout did not complete.'
+            fi
+            echo
+            if [ "$PRIVACY_STATUS" != "success" ]; then
+              echo 'See `tests/backend/test_privacy.py` and `docs/development/privacy-checks.md` for how to resolve a failing check.'
+              echo
+            fi
+            if [ -n "$REPORT_URL" ]; then
+              printf '[Download JUnit report](%s)\n' "$REPORT_URL"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          [ "$STATUS" = "success" ]
+          exit "$summary_status"
