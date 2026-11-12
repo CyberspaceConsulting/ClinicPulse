@@ -43,6 +43,7 @@ export default defineConfig({
       },
       { text: 'Fehlerbehebung', link: '/troubleshooting' },
       { text: 'Architektur', link: '/architecture' },
+      { text: 'Datenschutz-Prüfungen', link: '/development/privacy-checks' },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/CyberspaceConsulting/ClinicPulse' }],
     editLink: {

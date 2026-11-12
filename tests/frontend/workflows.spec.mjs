@@ -671,6 +671,35 @@ test('employees can receive multiple qualifications from their department', asyn
   expect((await request).postDataJSON()).toMatchObject({ role: 'Pflege', qualification_ids: [1, 2] })
 })
 
+test('employees can work in several departments with qualifications from each', async ({ page }) => {
+  await mockApi(page, 'HOSPITAL_MANAGEMENT')
+  const second = {
+    id: 2, name: 'Innere', manager_user_id: null, deputy_user_id: null,
+    qualifications: [{ id: 3, name: 'Praxisanleiter', leadership_eligible: false, department_id: 2 }],
+  }
+  await page.route('**/api/departments', (route) =>
+    route.request().method() === 'GET' ? route.fulfill({ json: [department, second] }) : route.continue())
+  await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('planer')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: 'Mitarbeitende' }).click()
+  await dialog.getByRole('button', { name: '＋ Mitarbeiter' }).click()
+  await dialog.getByLabel('Vorname').fill('Eva')
+  await dialog.getByLabel('Nachname').fill('Muster')
+  await dialog.getByLabel('Innere', { exact: true }).check()
+  await dialog.getByLabel('Chirurgie · Pflege').check()
+  await dialog.getByLabel('Innere · Praxisanleiter').check()
+  const request = page.waitForRequest((req) => req.url().endsWith('/api/employees/onboard') && req.method() === 'POST')
+  await dialog.getByRole('button', { name: 'Mitarbeiter erstellen' }).click()
+  expect((await request).postDataJSON()).toMatchObject({
+    role: 'Pflege', department_id: 1, additional_department_ids: [2], qualification_ids: [1, 3],
+  })
+})
+
 test('English profile editing keeps user data and submits unchanged API values', async ({ page }) => {
   await mockApi(page)
   const profile = { username: 'planer', role_key: 'OBERARZT', department_id: 1, profile_image_data: null,
@@ -1176,4 +1205,109 @@ test('nicht erreichbare API zeigt eine Fehlermeldung statt leerer Plan-Daten', a
 
   await expect(page.locator('.toast.toast-error')).toContainText(/Failed to fetch|NetworkError when attempting to fetch resource/)
   await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
+})
+
+const facilityStructure = (overrides = {}) => ({
+  single_unit: false, uses_vehicles: false, unit_label: null, unit_label_plural: null,
+  unit_gender: null, lead_label: null, ...overrides,
+})
+
+async function openTeamManagement(page, { profile, structure, vehicles = [] }) {
+  await mockApi(page, 'HOSPITAL_MANAGEMENT')
+  await page.route('**/api/role-catalog', (route) => route.fulfill({ json: {
+    functions: ['Pflege'], access_roles: [], operational_profile: profile, structure,
+  } }))
+  await page.route('**/api/vehicles', (route) => route.request().method() === 'GET'
+    ? route.fulfill({ json: vehicles }) : route.continue())
+  await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('planer')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  return page.getByRole('dialog')
+}
+
+test('rescue service calls departments locations and manages vehicles with deactivation', async ({ page }) => {
+  const dialog = await openTeamManagement(page, {
+    profile: 'rescue_service',
+    structure: facilityStructure({ uses_vehicles: true }),
+    vehicles: [{ id: 1, department_id: 1, vehicle_type: 'RTW', name: 'RTW 1/83-1', is_active: true }],
+  })
+  await expect(dialog.getByRole('tab', { name: 'Standorte' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Standort anlegen' })).toBeVisible()
+  await expect(dialog.getByText('Abteilung')).toHaveCount(0)
+  await expect(dialog.getByRole('heading', { name: 'Fahrzeuge' })).toBeVisible()
+  await expect(dialog.getByText('RTW 1/83-1')).toBeVisible()
+
+  const update = page.waitForRequest((req) => req.url().endsWith('/api/vehicles/1') && req.method() === 'PUT')
+  await page.route('**/api/vehicles/1', (route) => route.fulfill({
+    json: { id: 1, department_id: 1, vehicle_type: 'RTW', name: 'RTW 1/83-1', is_active: false },
+  }))
+  await dialog.getByRole('button', { name: 'Deaktivieren' }).click()
+  expect((await update).postDataJSON()).toMatchObject({ is_active: false })
+
+  const create = page.waitForRequest((req) => req.url().endsWith('/api/vehicles') && req.method() === 'POST')
+  await dialog.getByPlaceholder('Kennung, z. B. RTW 1/83-1').fill('KTW 2')
+  await dialog.locator('select[aria-label="Fahrzeugtyp"]').selectOption('KTW')
+  await dialog.getByRole('button', { name: 'Fahrzeug hinzufügen' }).click()
+  expect((await create).postDataJSON()).toMatchObject({ department_id: 1, vehicle_type: 'KTW', name: 'KTW 2' })
+})
+
+test('control center has a single unit without creating or deleting units', async ({ page }) => {
+  const dialog = await openTeamManagement(page, {
+    profile: 'ils', structure: facilityStructure({ single_unit: true }),
+  })
+  await expect(dialog.getByRole('tab', { name: 'Leitstellen', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Leitstelle anlegen' })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Löschen' })).toHaveCount(0)
+  await expect(dialog.getByRole('heading', { name: 'Fahrzeuge' })).toHaveCount(0)
+})
+
+test('hospital keeps departments and does not show vehicles', async ({ page }) => {
+  const dialog = await openTeamManagement(page, { profile: 'hospital', structure: facilityStructure() })
+  await expect(dialog.getByRole('tab', { name: 'Abteilungen' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Abteilung anlegen' })).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: 'Fahrzeuge' })).toHaveCount(0)
+})
+
+test('custom facility terms from the role catalog are used in the interface', async ({ page }) => {
+  const dialog = await openTeamManagement(page, {
+    profile: 'other',
+    structure: facilityStructure({
+      unit_label: 'Bereich', unit_label_plural: 'Bereiche', unit_gender: 'm', lead_label: 'Bereichsleitung',
+    }),
+  })
+  await expect(dialog.getByRole('tab', { name: 'Bereiche' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Bereich anlegen' })).toBeVisible()
+})
+
+test('setup for the facility type other asks for terms and structure', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/setup/status', (route) => route.fulfill({ json: { setup_required: true, institution_name: null } }))
+  await page.goto('/')
+  const claims = Buffer.from(JSON.stringify({ operational_profile: 'other' })).toString('base64url')
+  await page.getByLabel('Lizenz-Token aus dem Licensing-Tool').fill(`header.${claims}.signature`)
+  await expect(page.getByLabel('Bezeichnung der Organisationseinheit (Einzahl)')).toBeVisible()
+  await page.getByLabel('Bezeichnung der Organisationseinheit (Einzahl)').fill('Bereich')
+  await page.getByLabel('Bezeichnung der Organisationseinheit (Mehrzahl)').fill('Bereiche')
+  await page.getByLabel('Grammatisches Geschlecht der Bezeichnung').selectOption('m')
+  await page.getByLabel('Bezeichnung der Leitung').fill('Bereichsleitung')
+  await expect(page.getByLabel('Name der Hauptleitstelle bzw. Haupteinheit')).toHaveCount(0)
+  await page.getByLabel('Nur eine Organisationseinheit (wie bei einer Leitstelle)').check()
+  await expect(page.getByLabel('Name der Hauptleitstelle bzw. Haupteinheit')).toBeVisible()
+
+  await page.getByLabel('Vorname des Administrators').fill('Ada')
+  await page.getByLabel('Nachname des Administrators').fill('Admin')
+  await page.getByLabel('Admin-Benutzername').fill('ada-admin')
+  await page.getByLabel('Passwort (mindestens 8 Zeichen)').fill('sicheres-passwort-1')
+  await page.getByLabel('Passwort wiederholen').fill('sicheres-passwort-1')
+  await page.getByLabel('Name der Hauptleitstelle bzw. Haupteinheit').fill('Zentrale Mitte')
+  const request = page.waitForRequest((req) => req.url().endsWith('/api/setup') && req.method() === 'POST')
+  await page.route('**/api/setup', (route) => route.fulfill({ status: 422, json: { detail: 'stop' } }))
+  await page.getByRole('button', { name: 'Admin-Zugang erstellen' }).click()
+  expect((await request).postDataJSON()).toMatchObject({
+    unit_label: 'Bereich', unit_label_plural: 'Bereiche', unit_gender: 'm', lead_label: 'Bereichsleitung',
+    single_unit: true, uses_vehicles: false, unit_name: 'Zentrale Mitte',
+  })
 })

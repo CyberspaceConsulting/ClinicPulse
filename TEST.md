@@ -52,6 +52,14 @@ npm run test:e2e
 Die Browser-Tests laufen mit Chromium und Firefox jeweils mit Desktop- und
 schmalem Bildschirm. Firefox nutzt dabei auch für den schmalen Bildschirm
 den Desktop-Browser, da Playwright keine mobile Firefox-Emulation unterstützt.
+Beide Browser lassen sich getrennt ausführen (so laufen sie auch in GitHub
+Actions als eigene, voneinander unabhängige Jobs):
+
+```sh
+npm run test:e2e:chromium   # Projekte desktop und mobile
+npm run test:e2e:firefox    # Projekte firefox und firefox-mobile
+```
+
 Einzelne Projekte lassen sich beispielsweise mit `npm run test:e2e -- --project=firefox`
 ausführen. `PLAYWRIGHT_CHROMIUM_PATH` ersetzt nur die Chromium-Binärdatei;
 Firefox verwendet den von Playwright installierten Browser.

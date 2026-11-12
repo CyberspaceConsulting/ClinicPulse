@@ -45,7 +45,15 @@ class PersonalDetails(BaseModel):
 class EmployeeCreate(PersonName):
     role: str = Field(default="Employee", min_length=1, max_length=80)
     department_id: int = Field(gt=0)
+    additional_department_ids: list[int] = Field(default_factory=list, max_length=50)
     qualification_ids: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_additional_departments(self) -> "EmployeeCreate":
+        ids = self.additional_department_ids
+        if len(set(ids)) != len(ids) or self.department_id in ids or any(item <= 0 for item in ids):
+            raise ValueError("Additional departments must be unique and differ from the home department")
+        return self
 
 
 class EmployeeUpdate(EmployeeCreate):
@@ -83,6 +91,7 @@ class DepartmentQualificationRead(DepartmentQualificationCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    department_id: int | None = None
 
 
 class EmployeeRead(BaseModel):
@@ -94,6 +103,7 @@ class EmployeeRead(BaseModel):
     last_name: str | None = None
     role: str
     department_id: int | None
+    additional_department_ids: list[int] = Field(default_factory=list)
     qualifications: list[DepartmentQualificationRead] = Field(default_factory=list)
     profile_image_data: str | None = None
 
@@ -115,6 +125,24 @@ class ShiftStaffingRequirementRead(ShiftStaffingRequirementCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class VehicleCreate(BaseModel):
+    department_id: int = Field(gt=0)
+    vehicle_type: Literal["RTW", "NEF", "KTW", "ITW", "ELW", "MTW", "Sonstige"]
+    name: str = Field(min_length=1, max_length=60)
+    is_active: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def clean_vehicle_name(cls, value: str) -> str:
+        return _clean_required_name(value)
+
+
+class VehicleRead(VehicleCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
 class ShiftTypeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     start_time: time
@@ -123,6 +151,7 @@ class ShiftTypeCreate(BaseModel):
     position: str = Field(default="Pflegefachkraft", min_length=1, max_length=80)
     required_staff: int = Field(default=1, ge=1, le=100)
     department_id: int | None = Field(default=None, gt=0)
+    vehicle_id: int | None = Field(default=None, gt=0)
     break_minutes: int | None = Field(default=None, ge=0, le=240)
     break_start_minutes: int | None = Field(default=None, ge=0, le=360)
     staffing_requirements: list[ShiftStaffingRequirementCreate] | None = Field(default=None, min_length=1)
@@ -159,7 +188,30 @@ class WorkRulesUpdate(BaseModel):
     max_weekly_hours: int = Field(ge=1, le=48)
 
 
-class BusinessConfigurationRead(BaseModel):
+def _clean_optional_label(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = " ".join(value.split())
+    return value or None
+
+
+class FacilityUnitSettings(BaseModel):
+    """Terminology and structure; only applied for the facility type "other"."""
+
+    unit_label: str | None = Field(default=None, max_length=40)
+    unit_label_plural: str | None = Field(default=None, max_length=40)
+    unit_gender: Literal["f", "m", "n"] | None = None
+    lead_label: str | None = Field(default=None, max_length=60)
+    single_unit: bool | None = None
+    uses_vehicles: bool | None = None
+
+    @field_validator("unit_label", "unit_label_plural", "lead_label")
+    @classmethod
+    def clean_labels(cls, value: str | None) -> str | None:
+        return _clean_optional_label(value)
+
+
+class BusinessConfigurationRead(FacilityUnitSettings):
     federal_state: str
     operational_profile: str
     operational_profile_managed: bool = False
@@ -168,7 +220,7 @@ class BusinessConfigurationRead(BaseModel):
     sunday_work_authorized: bool
 
 
-class BusinessConfigurationUpdate(BaseModel):
+class BusinessConfigurationUpdate(FacilityUnitSettings):
     federal_state: Literal[
         "Baden-Württemberg", "Bayern", "Berlin", "Brandenburg", "Bremen", "Hamburg", "Hessen",
         "Mecklenburg-Vorpommern", "Niedersachsen", "Nordrhein-Westfalen", "Rheinland-Pfalz",
@@ -258,10 +310,11 @@ class LoginRequest(BaseModel):
     stay_signed_in: bool = False
 
 
-class SetupRequest(PersonName):
+class SetupRequest(PersonName, FacilityUnitSettings):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     password: str = Field(min_length=8, max_length=256)
     license_token: str = Field(min_length=1, max_length=4096)
+    unit_name: str | None = Field(default=None, max_length=100)
     federal_state: Literal[
         "Baden-Württemberg", "Bayern", "Berlin", "Brandenburg", "Bremen", "Hamburg", "Hessen",
         "Mecklenburg-Vorpommern", "Niedersachsen", "Nordrhein-Westfalen", "Rheinland-Pfalz",
@@ -269,6 +322,11 @@ class SetupRequest(PersonName):
     ] | None = None
     operational_profile: Literal["hospital", "rescue_service", "ils", "care_facility", "other"] | None = None
     sunday_work_authorized: bool = False
+
+    @field_validator("unit_name")
+    @classmethod
+    def clean_unit_name(cls, value: str | None) -> str | None:
+        return _clean_optional_label(value)
 
     @field_validator("license_token")
     @classmethod

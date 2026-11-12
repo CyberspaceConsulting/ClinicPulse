@@ -265,7 +265,7 @@ def test_create_and_list_staff_shifts_and_assignments(client):
     )
     assert suggestions.status_code == 200
     assert [candidate["employee_id"] for candidate in suggestions.json()["candidates"]] == [
-        second_employee_id, nonmatching_employee_id,
+        second_employee_id,
     ]
     approved = client.post(
         "/api/smart-selection/approve",
@@ -329,6 +329,49 @@ def test_create_and_list_staff_shifts_and_assignments(client):
     assert overlapping.status_code == 409
 
 
+def test_optimizer_excludes_existing_overlapping_assignments(client):
+    admin = auth_header(client)
+    department_id = client.post(
+        "/api/departments", json={"name": "Overlap"}, headers=admin
+    ).json()["id"]
+    employee_id = client.post("/api/employees", headers=admin, json={
+        "first_name": "Alex", "last_name": "Nurse", "role": "Nurse", "department_id": department_id,
+    }).json()["id"]
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Test", "last_name": "Nutzer", "username": "overlap-planner",
+        "password": "overlap-password-123", "role_key": "OBERARZT",
+        "department_id": department_id, "can_view": True, "can_edit": True,
+    }).status_code == 201
+    planner = _login_headers(client, "overlap-planner", "overlap-password-123")
+    first_shift = client.post("/api/shift-types", headers=planner, json={
+        "name": "First", "start_time": "08:00:00", "end_time": "11:00:00",
+        "position": "Nurse", "department_id": department_id,
+    }).json()["id"]
+    second_shift = client.post("/api/shift-types", headers=planner, json={
+        "name": "Second", "start_time": "09:00:00", "end_time": "12:00:00",
+        "position": "Nurse", "department_id": department_id,
+    }).json()["id"]
+    assert client.post("/api/assignments", headers=planner, json={
+        "employee_id": employee_id, "shift_type_id": first_shift,
+        "starts_at": "2031-02-05T08:00:00+01:00",
+        "ends_at": "2031-02-05T11:00:00+01:00",
+    }).status_code == 201
+
+    day = client.post("/api/optimization/preview", headers=planner, json={
+        "target_date": "2031-02-05", "department_id": department_id,
+    })
+    assert day.status_code == 200
+    assert day.json()["suggestions"] == []
+    assert [slot["shift_type_id"] for slot in day.json()["unfilled_slots"]] == [second_shift]
+
+    period = client.post("/api/planning/preview", headers=planner, json={
+        "start_date": "2031-02-05", "end_date": "2031-02-05", "department_id": department_id,
+    })
+    assert period.status_code == 200
+    assert period.json()["days"][0]["suggestions"] == []
+    assert [slot["shift_type_id"] for slot in period.json()["days"][0]["unfilled_slots"]] == [second_shift]
+
+
 def test_optimizer_returns_a_non_persisted_role_aware_day_draft(client):
     admin = auth_header(client)
     department_id = client.post(
@@ -358,9 +401,9 @@ def test_optimizer_returns_a_non_persisted_role_aware_day_draft(client):
     assert preview.status_code == 200
     result = preview.json()
     assert result["status"] in {"OPTIMAL", "FEASIBLE"}
-    assert {item["employee_id"] for item in result["suggestions"]} == {nurse, other}
-    assert sum(item["role_match"] for item in result["suggestions"]) == 1
-    assert result["unfilled_slots"] == []
+    assert {item["employee_id"] for item in result["suggestions"]} == {nurse}
+    assert all(item["role_match"] for item in result["suggestions"])
+    assert [slot["position"] for slot in result["unfilled_slots"]] == ["Nurse"]
     assert client.get(
         "/api/assignments?from=2031-02-04&to=2031-02-04", headers=planner
     ).json() == []
@@ -375,8 +418,8 @@ def test_optimizer_returns_a_non_persisted_role_aware_day_draft(client):
     with_absence = client.post("/api/optimization/preview", headers=planner, json={
         "target_date": "2031-02-04", "department_id": department_id,
     })
-    assert {item["employee_id"] for item in with_absence.json()["suggestions"]} == {other}
-    assert len(with_absence.json()["unfilled_slots"]) == 1
+    assert {item["employee_id"] for item in with_absence.json()["suggestions"]} == set()
+    assert len(with_absence.json()["unfilled_slots"]) == 2
 
     forbidden = client.post("/api/optimization/preview", headers=admin, json={
         "target_date": "2031-02-04", "department_id": department_id,
@@ -991,7 +1034,7 @@ def test_department_planner_cannot_read_or_plan_for_another_department(client):
         planner_headers = _login_headers(client, planner_username, planner_password)
         shifts[name] = client.post("/api/shift-types", headers=planner_headers, json={
             "name": f"{name} Früh", "start_time": "08:00:00", "end_time": "16:00:00",
-            "department_id": department_id,
+            "position": "Pflege", "department_id": department_id,
         }).json()["id"]
         assignment = client.post("/api/assignments", headers=planner_headers, json={
             "employee_id": employees[name],
@@ -1681,6 +1724,12 @@ def test_business_configuration_is_selected_during_setup_and_admin_editable(clie
         "federal_state_managed": False,
         "timezone": "Europe/Berlin",
         "sunday_work_authorized": False,
+        "single_unit": False,
+        "uses_vehicles": True,
+        "unit_label": None,
+        "unit_label_plural": None,
+        "unit_gender": None,
+        "lead_label": None,
     }
     assert client.put("/api/admin/business-configuration", headers=admin, json={
         "federal_state": "Sachsen",
@@ -2811,3 +2860,255 @@ def test_deputy_is_qualification_gated_and_receives_department_permissions(clien
         "department_id": department_id, "employee_id": managed_employee.json()["id"],
     })
     assert created_user.status_code == 201
+
+
+def _shared_setup(client):
+    """Two departments, one physician who works in both, and one planner per department."""
+    admin = auth_header(client)
+    departments = {}
+    qualifications = {}
+    for name in ("Innere", "Chirurgie"):
+        department = client.post("/api/departments", headers=admin, json={"name": name}).json()
+        department = client.put(f"/api/departments/{department['id']}", headers=admin, json={
+            "name": name,
+            "qualifications": [
+                {"name": "Arzt"},
+                {"name": "Praxisanleiter"},
+                {"name": "Teamleitung", "leadership_eligible": True},
+            ],
+        }).json()
+        departments[name] = department["id"]
+        qualifications[name] = {item["name"]: item["id"] for item in department["qualifications"]}
+    shared = client.post("/api/employees", headers=admin, json={
+        "first_name": "Eva", "last_name": "Muster", "role": "Arzt",
+        "department_id": departments["Innere"],
+        "additional_department_ids": [departments["Chirurgie"]],
+        "qualification_ids": [qualifications["Innere"]["Arzt"], qualifications["Chirurgie"]["Arzt"]],
+    })
+    assert shared.status_code == 201
+    planners = {}
+    for name, department_id in departments.items():
+        username = f"planner-{name.lower()}"
+        assert client.post("/api/users", headers=admin, json={
+            "first_name": name, "last_name": "Planung", "username": username,
+            "password": f"{username}-password", "role_key": "OBERARZT",
+            "department_id": department_id, "can_view": True, "can_edit": True, "can_approve": True,
+        }).status_code == 201
+        planners[name] = _login_headers(client, username, f"{username}-password")
+    return admin, departments, qualifications, shared.json(), planners
+
+
+def _shift(client, headers, department_id, name, start, end, requirements):
+    response = client.post("/api/shift-types", headers=headers, json={
+        "name": name, "start_time": start, "end_time": end, "department_id": department_id,
+        "staffing_requirements": [
+            {"position": position, "required_staff": count} for position, count in requirements
+        ],
+    })
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def test_employee_can_belong_to_several_departments(client):
+    admin, departments, qualifications, shared, _planners = _shared_setup(client)
+    assert shared["department_id"] == departments["Innere"]
+    assert shared["additional_department_ids"] == [departments["Chirurgie"]]
+    assert len(shared["qualifications"]) == 2
+
+    foreign = client.post("/api/employees", headers=admin, json={
+        "first_name": "Fehler", "last_name": "Test", "role": "Arzt",
+        "department_id": departments["Innere"],
+        "qualification_ids": [qualifications["Chirurgie"]["Arzt"]],
+    })
+    assert foreign.status_code == 422
+    assert client.post("/api/employees", headers=admin, json={
+        "first_name": "Doppelt", "last_name": "Test", "role": "Arzt",
+        "department_id": departments["Innere"],
+        "additional_department_ids": [departments["Innere"]],
+    }).status_code == 422
+    assert client.delete(f"/api/departments/{departments['Chirurgie']}", headers=admin).status_code == 409
+
+
+def test_shared_employee_cannot_be_double_booked_or_violate_rest_time_across_departments(client):
+    _admin, departments, _qualifications, shared, planners = _shared_setup(client)
+    inner_late = _shift(client, planners["Innere"], departments["Innere"], "Innere Spät", "14:00:00", "22:00:00", [("Arzt", 1)])
+    surgery_late = _shift(client, planners["Chirurgie"], departments["Chirurgie"], "Chirurgie Spät", "14:00:00", "22:00:00", [("Arzt", 1)])
+    surgery_early = _shift(client, planners["Chirurgie"], departments["Chirurgie"], "Chirurgie Früh", "06:00:00", "12:00:00", [("Arzt", 1)])
+    surgery_midday = _shift(client, planners["Chirurgie"], departments["Chirurgie"], "Chirurgie Mittag", "10:00:00", "16:00:00", [("Arzt", 1)])
+
+    assert client.post("/api/assignments", headers=planners["Innere"], json={
+        "employee_id": shared["id"], "shift_type_id": inner_late,
+        "starts_at": "2031-02-05T14:00:00+00:00", "ends_at": "2031-02-05T22:00:00+00:00",
+    }).status_code == 201
+    # The same person is already working in the other department at that time.
+    overlapping = client.post("/api/assignments", headers=planners["Chirurgie"], json={
+        "employee_id": shared["id"], "shift_type_id": surgery_late,
+        "starts_at": "2031-02-05T14:00:00+00:00", "ends_at": "2031-02-05T22:00:00+00:00",
+    })
+    assert overlapping.status_code == 409
+    assert "overlapping" in overlapping.json()["detail"]
+    rest = client.post("/api/assignments", headers=planners["Chirurgie"], json={
+        "employee_id": shared["id"], "shift_type_id": surgery_early,
+        "starts_at": "2031-02-06T06:00:00+00:00", "ends_at": "2031-02-06T12:00:00+00:00",
+    })
+    assert rest.status_code == 409
+    assert "rest period" in rest.json()["detail"]
+    assert client.post("/api/assignments", headers=planners["Chirurgie"], json={
+        "employee_id": shared["id"], "shift_type_id": surgery_midday,
+        "starts_at": "2031-02-06T10:00:00+00:00", "ends_at": "2031-02-06T16:00:00+00:00",
+    }).status_code == 201
+
+    # Other departments' shifts stay invisible to the planner, but conflicts are still detected.
+    visible = client.get("/api/assignments?from=2031-02-05&to=2031-02-06", headers=planners["Chirurgie"]).json()
+    assert [item["shift_name"] for item in visible] == ["Chirurgie Mittag"]
+
+
+def test_planning_uses_shared_employee_only_once_across_departments(client):
+    admin, departments, _qualifications, shared, _planners = _shared_setup(client)
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Beide", "last_name": "Planung", "username": "planner-both",
+        "password": "planner-both-password", "role_key": "OBERARZT",
+        "department_id": departments["Innere"],
+        "department_ids": [departments["Innere"], departments["Chirurgie"]],
+        "can_view": True, "can_edit": True,
+    }).status_code == 201
+    both = _login_headers(client, "planner-both", "planner-both-password")
+    _shift(client, both, departments["Innere"], "Innere Tag", "08:00:00", "14:00:00", [("Arzt", 1)])
+    _shift(client, both, departments["Chirurgie"], "Chirurgie Tag", "08:00:00", "14:00:00", [("Arzt", 1)])
+
+    preview = client.post("/api/optimization/preview", headers=both, json={"target_date": "2031-02-05"})
+    assert preview.status_code == 200
+    result = preview.json()
+    assert [item["employee_id"] for item in result["suggestions"]] == [shared["id"]]
+    assert len(result["unfilled_slots"]) == 1
+
+    period = client.post("/api/planning/preview", headers=both, json={
+        "start_date": "2031-02-05", "end_date": "2031-02-05",
+    })
+    day = period.json()["days"][0]
+    assert [item["employee_id"] for item in day["suggestions"]] == [shared["id"]]
+    assert len(day["unfilled_slots"]) == 1
+
+
+def test_one_person_can_cover_physician_and_practice_instructor_positions(client):
+    admin, departments, qualifications, _shared, planners = _shared_setup(client)
+    inner = departments["Innere"]
+    instructor = client.post("/api/employees", headers=admin, json={
+        "first_name": "Ina", "last_name": "Anleitung", "role": "Arzt", "department_id": inner,
+        "qualification_ids": [qualifications["Innere"]["Arzt"], qualifications["Innere"]["Praxisanleiter"]],
+    }).json()
+    colleague = client.post("/api/employees", headers=admin, json={
+        "first_name": "Carl", "last_name": "Kollege", "role": "Arzt", "department_id": inner,
+        "qualification_ids": [qualifications["Innere"]["Arzt"]],
+    }).json()
+    shift = _shift(client, planners["Innere"], inner, "Team", "08:00:00", "14:00:00", [("Arzt", 2), ("Praxisanleiter", 1)])
+
+    preview = client.post("/api/optimization/preview", headers=planners["Innere"], json={
+        "target_date": "2031-02-04", "department_id": inner,
+    }).json()
+    assert preview["unfilled_slots"] == []
+    assert {item["employee_id"] for item in preview["suggestions"]} == {instructor["id"], colleague["id"]}
+    covering = next(item for item in preview["suggestions"] if item["employee_id"] == instructor["id"])
+    assert set(covering["positions"]) == {"Arzt", "Praxisanleiter"}
+
+    # Without the instructor, the physician position is filled by the shared employee and the instructor position stays open.
+    assert client.post("/api/assignments", headers=planners["Innere"], json={
+        "employee_id": colleague["id"], "shift_type_id": shift,
+        "starts_at": "2031-02-05T08:00:00+00:00", "ends_at": "2031-02-05T14:00:00+00:00",
+    }).status_code == 201
+    assert client.post("/api/absences", headers=planners["Innere"], json={
+        "employee_id": instructor["id"], "kind": "vacation",
+        "start_date": "2031-02-05", "end_date": "2031-02-05",
+    }).status_code == 201
+    open_day = client.post("/api/optimization/preview", headers=planners["Innere"], json={
+        "target_date": "2031-02-05", "department_id": inner,
+    }).json()
+    assert [slot["position"] for slot in open_day["unfilled_slots"]] == ["Praxisanleiter"]
+    assert [item["employee_id"] for item in open_day["suggestions"]] == [_shared["id"]]
+
+
+def test_department_leader_manages_only_own_department_of_shared_employee(client):
+    admin, departments, qualifications, shared, _planners = _shared_setup(client)
+    surgery = departments["Chirurgie"]
+    lea = client.post("/api/employees", headers=admin, json={
+        "first_name": "Lea", "last_name": "Leitung", "role": "Teamleitung", "department_id": surgery,
+        "qualification_ids": [qualifications["Chirurgie"]["Teamleitung"]],
+    }).json()
+    account = client.post("/api/users", headers=admin, json={
+        "first_name": "Lea", "last_name": "Leitung", "username": "surgery-lead",
+        "password": "surgery-lead-password", "role_key": "EMPLOYEE", "department_id": surgery,
+        "employee_id": lea["id"], "can_view": True,
+    }).json()
+    assert client.put(f"/api/departments/{surgery}/leader", headers=admin, json={
+        "manager_user_id": account["id"],
+    }).status_code == 200
+    lead = _login_headers(client, "surgery-lead", "surgery-lead-password")
+
+    visible = next(item for item in client.get("/api/employees", headers=lead).json() if item["id"] == shared["id"])
+    assert {item["department_id"] for item in visible["qualifications"]} == {surgery}
+
+    def update(**changes):
+        body = {
+            "first_name": "Eva", "last_name": "Muster", "role": "Arzt",
+            "department_id": departments["Innere"],
+            "additional_department_ids": [surgery],
+            "qualification_ids": [qualifications["Chirurgie"]["Arzt"]],
+        }
+        body.update(changes)
+        return client.put(f"/api/employees/{shared['id']}", headers=lead, json=body)
+
+    assert update(first_name="Anders").status_code == 403
+    assert update(department_id=surgery, additional_department_ids=[]).status_code == 403
+    assert update(qualification_ids=[qualifications["Innere"]["Praxisanleiter"]]).status_code == 403
+    saved = update(qualification_ids=[
+        qualifications["Chirurgie"]["Arzt"], qualifications["Chirurgie"]["Praxisanleiter"],
+    ])
+    assert saved.status_code == 200
+    assert {(item["department_id"], item["name"]) for item in saved.json()["qualifications"]} == {
+        (surgery, "Arzt"), (surgery, "Praxisanleiter"),
+    }
+
+    stored = next(item for item in client.get("/api/employees", headers=admin).json() if item["id"] == shared["id"])
+    assert stored["department_id"] == departments["Innere"]
+    assert {(item["department_id"], item["name"]) for item in stored["qualifications"]} == {
+        (departments["Innere"], "Arzt"), (surgery, "Arzt"), (surgery, "Praxisanleiter"),
+    }
+
+
+def test_home_department_decides_absences_of_shared_employee(client):
+    _admin, departments, _qualifications, shared, planners = _shared_setup(client)
+    created = client.post("/api/absences", headers=planners["Innere"], json={
+        "employee_id": shared["id"], "kind": "vacation", "start_date": "2031-03-03", "end_date": "2031-03-04",
+        "note": "Privater Anlass",
+    })
+    assert created.status_code == 201
+    # Only the home department may enter or decide absences, but approved ones are visible for planning.
+    assert client.post("/api/absences", headers=planners["Chirurgie"], json={
+        "employee_id": shared["id"], "kind": "vacation", "start_date": "2031-04-01", "end_date": "2031-04-01",
+    }).status_code == 404
+    listed = client.get("/api/absences", headers=planners["Chirurgie"]).json()
+    assert [item["employee_id"] for item in listed] == [shared["id"]]
+    assert listed[0]["note"] is None and listed[0]["requested_by"] is None
+    own_view = client.get("/api/absences", headers=planners["Innere"]).json()
+    assert own_view[0]["note"] == "Privater Anlass"
+    shift = _shift(client, planners["Chirurgie"], departments["Chirurgie"], "Chirurgie Tag", "08:00:00", "14:00:00", [("Arzt", 1)])
+    blocked = client.post("/api/assignments", headers=planners["Chirurgie"], json={
+        "employee_id": shared["id"], "shift_type_id": shift,
+        "starts_at": "2031-03-03T08:00:00+00:00", "ends_at": "2031-03-03T14:00:00+00:00",
+    })
+    assert blocked.status_code == 409
+
+
+def test_department_cannot_be_removed_from_employee_with_scheduled_shifts(client):
+    admin, departments, qualifications, shared, planners = _shared_setup(client)
+    shift = _shift(client, planners["Chirurgie"], departments["Chirurgie"], "Chirurgie Tag", "08:00:00", "14:00:00", [("Arzt", 1)])
+    assert client.post("/api/assignments", headers=planners["Chirurgie"], json={
+        "employee_id": shared["id"], "shift_type_id": shift,
+        "starts_at": "2031-02-05T08:00:00+00:00", "ends_at": "2031-02-05T14:00:00+00:00",
+    }).status_code == 201
+    removal = client.put(f"/api/employees/{shared['id']}", headers=admin, json={
+        "first_name": "Eva", "last_name": "Muster", "role": "Arzt",
+        "department_id": departments["Innere"],
+        "qualification_ids": [qualifications["Innere"]["Arzt"]],
+    })
+    assert removal.status_code == 409

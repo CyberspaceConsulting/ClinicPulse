@@ -33,4 +33,6 @@ Die Pause muss in die Schicht passen und spätestens nach sechs Stunden beginnen
 
 Zusätzlich muss mindestens 15 Sonntage pro Kalenderjahr arbeitsfrei bleiben (§ 11 ArbZG).
 
+Alle Prüfungen beziehen sich auf die Person, nicht auf eine Abteilung: Arbeitet jemand in mehreren Abteilungen, werden Überschneidungen, Ruhezeiten, Tageshöchstarbeitszeit und der 24-Wochen-Durchschnitt über alle Dienste gemeinsam bewertet.
+
 Ein Verstoß verhindert die Zuweisung (HTTP 409); die Meldung nennt die verletzte Regel.

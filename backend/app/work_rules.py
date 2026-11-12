@@ -28,6 +28,18 @@ def business_timezone(db: Session) -> ZoneInfo:
     return ZoneInfo(configuration.timezone if configuration is not None else "Europe/Berlin")
 
 
+def has_overlapping_assignment(
+    db: Session, employee_id: int, starts_at: datetime, ends_at: datetime
+) -> bool:
+    return db.scalar(
+        select(models.Assignment.id).where(
+            models.Assignment.employee_id == employee_id,
+            models.Assignment.starts_at < ends_at,
+            models.Assignment.ends_at > starts_at,
+        ).limit(1)
+    ) is not None
+
+
 def gross_duration(start: time, end: time) -> timedelta:
     start_delta = timedelta(hours=start.hour, minutes=start.minute)
     end_delta = timedelta(hours=end.hour, minutes=end.minute)

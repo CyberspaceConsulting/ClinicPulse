@@ -1,6 +1,7 @@
 import { ref, watch } from 'vue'
 import de from './locales/de.js'
 import en from './locales/en.js'
+import { terminologyValue } from './terms'
 
 export type TranslationKey = keyof typeof en
 
@@ -27,7 +28,7 @@ watch(locale, (value) => {
 
 export function t(key: TranslationKey, values: Record<string, string | number> = {}): string {
   return translations[locale.value][key].replace(/\{(\w+)\}/g, (placeholder, name: string) => {
-    const value = values[name]
+    const value = values[name] ?? terminologyValue(locale.value, name)
     if (value === undefined) throw new Error(`Missing value for ${placeholder} in translation ${key}`)
     return String(value)
   })

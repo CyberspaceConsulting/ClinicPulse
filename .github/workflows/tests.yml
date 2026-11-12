@@ -94,8 +94,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$summary_status"
 
-  frontend-browser:
-    name: Frontend browser (Chromium and Firefox)
+  frontend-build:
+    name: Frontend build and translations
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -114,37 +114,70 @@ jobs:
         id: translations
         working-directory: frontend
         run: npm run test:i18n
-      - name: Install Chromium and Firefox
+      - name: Summarize frontend build
+        if: always()
+        env:
+          INSTALL_STATUS: ${{ steps.install.outcome }}
+          BUILD_STATUS: ${{ steps.build.outcome }}
+          TRANSLATIONS_STATUS: ${{ steps.translations.outcome }}
+        run: |
+          printf '## Frontend build and translations\n\n| Check | Status |\n| --- | --- |\n| Install dependencies | %s |\n| Frontend build | %s |\n| Translations | %s |\n' \
+            "${INSTALL_STATUS:-not run}" "${BUILD_STATUS:-not run}" "${TRANSLATIONS_STATUS:-not run}" >> "$GITHUB_STEP_SUMMARY"
+
+  # Chromium (desktop and narrow viewport) and Firefox run as separate, independent jobs.
+  frontend-browser:
+    name: Frontend browser (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            label: Chromium
+          - browser: firefox
+            label: Firefox
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        id: install
+        working-directory: frontend
+        run: npm ci
+      - name: Install ${{ matrix.label }}
         id: browsers
         working-directory: frontend
-        run: npx playwright install --with-deps chromium firefox
-      - name: Browser tests
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Browser tests (${{ matrix.label }})
         id: browser
         working-directory: frontend
-        run: npm run test:e2e
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: test-reports/browser-${{ matrix.browser }}.xml
+        run: npm run test:e2e:${{ matrix.browser }}
       - name: Upload browser report
         id: report
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: frontend-browser-junit
-          path: frontend/test-reports/browser.xml
+          name: frontend-browser-junit-${{ matrix.browser }}
+          path: frontend/test-reports/browser-${{ matrix.browser }}.xml
           if-no-files-found: ignore
           retention-days: 7
       - uses: actions/upload-artifact@v6
         id: traces
         if: failure()
         with:
-          name: frontend-browser-test-results
+          name: frontend-browser-test-results-${{ matrix.browser }}
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
-      - name: Summarize frontend tests
+      - name: Summarize ${{ matrix.label }} browser tests
         if: always()
         env:
+          LABEL: ${{ matrix.label }}
+          BROWSER: ${{ matrix.browser }}
           INSTALL_STATUS: ${{ steps.install.outcome }}
-          BUILD_STATUS: ${{ steps.build.outcome }}
-          TRANSLATIONS_STATUS: ${{ steps.translations.outcome }}
           BROWSERS_STATUS: ${{ steps.browsers.outcome }}
           BROWSER_STATUS: ${{ steps.browser.outcome }}
           REPORT_URL: ${{ steps.report.outputs.artifact-url }}
@@ -152,16 +185,13 @@ jobs:
         run: |
           summary_status=0
           {
-            echo '## Frontend build and browser tests'
-            echo
+            printf '## Frontend browser tests (%s)\n\n' "$LABEL"
             printf '| Check | Status |\n| --- | --- |\n'
             printf '| Install dependencies | %s |\n' "${INSTALL_STATUS:-not run}"
-            printf '| Frontend build | %s |\n' "${BUILD_STATUS:-not run}"
-            printf '| Translations | %s |\n' "${TRANSLATIONS_STATUS:-not run}"
-            printf '| Install Chromium and Firefox | %s |\n' "${BROWSERS_STATUS:-not run}"
+            printf '| Install %s | %s |\n' "$LABEL" "${BROWSERS_STATUS:-not run}"
             printf '| Browser tests | %s |\n\n' "${BROWSER_STATUS:-not run}"
             if [ -f tests/junit_summary.py ]; then
-              python tests/junit_summary.py "Chromium and Firefox" frontend/test-reports/browser.xml || summary_status=1
+              python3 tests/junit_summary.py "$LABEL" "frontend/test-reports/browser-$BROWSER.xml" || summary_status=1
             else
               echo 'JUnit summary unavailable: repository checkout did not complete.'
             fi

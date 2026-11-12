@@ -3,13 +3,15 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from ortools.sat.python import cp_model
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from . import models
 from .absences import employee_is_absent
+from .staffing import qualified_requirements, shift_requirements
 from .work_rules import (
     business_timezone,
+    has_overlapping_assignment,
     load_work_rules,
     work_rule_violation,
 )
@@ -34,6 +36,7 @@ class SuggestedAssignment:
     role_match: bool
     starts_at: datetime
     ends_at: datetime
+    positions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -51,14 +54,21 @@ class OptimizationPreview:
 
 
 @dataclass(frozen=True)
-class _Candidate:
-    slot_index: int
-    employee: models.Employee
+class _Need:
     shift: models.ShiftType
     position: str
+    vacancies: int
     starts_at: datetime
     ends_at: datetime
-    role_match: bool
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    employee: models.Employee
+    shift: models.ShiftType
+    starts_at: datetime
+    ends_at: datetime
+    need_indices: tuple[int, ...]
 
 
 def _shift_interval(target_date: date, shift: models.ShiftType, business_tz: ZoneInfo) -> tuple[datetime, datetime]:
@@ -66,16 +76,6 @@ def _shift_interval(target_date: date, shift: models.ShiftType, business_tz: Zon
     local_end_date = target_date + timedelta(days=shift.end_time <= shift.start_time)
     local_end = datetime.combine(local_end_date, shift.end_time, tzinfo=business_tz)
     return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
-
-
-def _has_rest_between(
-    first: _Candidate, second: _Candidate, rest_hours: int
-) -> bool:
-    if first.starts_at <= second.starts_at:
-        earlier, later = first, second
-    else:
-        earlier, later = second, first
-    return later.starts_at - earlier.ends_at >= timedelta(hours=rest_hours)
 
 
 def _slot_dates(candidate: _Candidate, business_tz: ZoneInfo) -> set[date]:
@@ -129,13 +129,19 @@ def optimize_day(
 ) -> OptimizationPreview:
     business_tz = business_timezone(db)
     rules = load_work_rules(db)
-    shift_query = select(models.ShiftType).order_by(models.ShiftType.id)
+    shift_query = select(models.ShiftType).where(
+        or_(
+            models.ShiftType.vehicle_id.is_(None),
+            models.ShiftType.vehicle_id.in_(select(models.Vehicle.id).where(models.Vehicle.is_active.is_(True))),
+        )
+    ).order_by(models.ShiftType.id)
     employee_query = select(models.Employee).options(
-        selectinload(models.Employee.qualifications)
+        selectinload(models.Employee.qualifications),
+        selectinload(models.Employee.additional_departments),
     ).order_by(models.Employee.id)
     if department_ids is not None:
         shift_query = shift_query.where(models.ShiftType.department_id.in_(department_ids))
-        employee_query = employee_query.where(models.Employee.department_id.in_(department_ids))
+        employee_query = employee_query.where(models.employee_in_departments(department_ids))
     if target_vacancies is not None:
         shift_query = shift_query.where(
             models.ShiftType.id.in_({shift_id for shift_id, _ in target_vacancies})
@@ -144,7 +150,8 @@ def optimize_day(
     employees = list(db.scalars(employee_query))
     employees_by_department: dict[int | None, list[models.Employee]] = {}
     for employee in employees:
-        employees_by_department.setdefault(employee.department_id, []).append(employee)
+        for member_department_id in employee.department_ids:
+            employees_by_department.setdefault(member_department_id, []).append(employee)
 
     local_day_start = datetime.combine(target_date, time.min, tzinfo=business_tz)
     local_day_end = datetime.combine(target_date + timedelta(days=1), time.min, tzinfo=business_tz)
@@ -161,77 +168,65 @@ def optimize_day(
             models.Assignment.starts_at < day_end,
         )
     ))
+    # Existing staff counts for every requirement they qualify for, so one person
+    # holding several qualifications can cover several requirements of a shift.
     existing_counts: dict[tuple[int, str], int] = {}
-    existing_counts_by_shift: dict[int, int] = {}
     for assignment in existing_assignments:
-        shift = assignment.shift_type
-        employee = assignment.employee
-        requirements = shift.staffing_requirements or [
-            models.ShiftStaffingRequirement(
-                position=shift.position,
-                required_staff=shift.required_staff,
-            )
-        ]
-        for requirement in requirements:
-            if requirement.position.strip().casefold() in {
-                name.strip().casefold() for name in employee.qualification_names
-            }:
-                key = (shift.id, requirement.position.strip().casefold())
-                existing_counts[key] = existing_counts.get(key, 0) + 1
-        existing_counts_by_shift[shift.id] = existing_counts_by_shift.get(shift.id, 0) + 1
+        for requirement in qualified_requirements(assignment.employee, assignment.shift_type):
+            key = (assignment.shift_type.id, requirement.position.strip().casefold())
+            existing_counts[key] = existing_counts.get(key, 0) + 1
 
-    slots: list[tuple[models.ShiftType, str, datetime, datetime]] = []
+    needs: list[_Need] = []
     for shift in shifts:
         starts_at, ends_at = _shift_interval(target_date, shift, business_tz)
-        requirements = shift.staffing_requirements or [
-            models.ShiftStaffingRequirement(
-                position=shift.position,
-                required_staff=shift.required_staff,
-            )
-        ]
-        for requirement in requirements:
-            qualification_required = (
-                len(requirements) > 1
-                or requirement.position.strip().casefold() == "oberarzt"
-            )
-            existing_count = (
-                existing_counts.get((shift.id, requirement.position.strip().casefold()), 0)
-                if qualification_required
-                else existing_counts_by_shift.get(shift.id, 0)
-            )
+        for requirement in shift_requirements(shift):
+            key = (shift.id, requirement.position.strip().casefold())
             vacancies = (
-                target_vacancies.get((shift.id, requirement.position.strip().casefold()), 0)
+                target_vacancies.get(key, 0)
                 if target_vacancies is not None
-                else max(0, requirement.required_staff - existing_count)
+                else max(0, requirement.required_staff - existing_counts.get(key, 0))
             )
-            slots.extend((shift, requirement.position, starts_at, ends_at) for _ in range(vacancies))
-    if not slots:
+            if vacancies:
+                needs.append(_Need(shift, requirement.position, vacancies, starts_at, ends_at))
+    if not needs:
         return OptimizationPreview((), (), "OPTIMAL")
-    if len(slots) > MAX_OPEN_SLOTS:
+    if sum(need.vacancies for need in needs) > MAX_OPEN_SLOTS:
         raise OptimizationTooLarge("Limit optimization to a maximum of 150 open positions per day")
     possible_combinations = sum(
-        len(employees_by_department.get(shift.department_id, ()))
-        for shift, _position, _starts_at, _ends_at in slots
+        len(employees_by_department.get(need.shift.department_id, ()))
+        for need in needs
     )
     if possible_combinations > MAX_CANDIDATE_VARIABLES:
         raise OptimizationTooLarge("Select a smaller department for day optimization")
 
+    needs_by_shift: dict[int, list[int]] = {}
+    for need_index, need in enumerate(needs):
+        needs_by_shift.setdefault(need.shift.id, []).append(need_index)
+    shifts_with_needs = {need.shift.id: need.shift for need in needs}
+
     candidate_cache: dict[tuple[int, int], bool] = {}
     candidates: list[_Candidate] = []
-    for slot_index, (shift, position, starts_at, ends_at) in enumerate(slots):
+    for shift_id, shift in shifts_with_needs.items():
+        need_positions = {
+            needs[need_index].position.strip().casefold(): need_index
+            for need_index in needs_by_shift[shift_id]
+        }
+        starts_at = needs[needs_by_shift[shift_id][0]].starts_at
+        ends_at = needs[needs_by_shift[shift_id][0]].ends_at
         for employee in employees_by_department.get(shift.department_id, ()):
-            if (
-                (len(shift.staffing_requirements) > 1 or position.strip().casefold() == "oberarzt")
-                and position.strip().casefold() not in {
-                    name.strip().casefold() for name in employee.qualification_names
-                }
-            ):
+            covered = tuple(
+                need_positions[requirement.position.strip().casefold()]
+                for requirement in qualified_requirements(employee, shift)
+                if requirement.position.strip().casefold() in need_positions
+            )
+            if not covered:
                 continue
             cache_key = (employee.id, shift.id)
             eligible = candidate_cache.get(cache_key)
             if eligible is None:
                 eligible = (
-                    not employee_is_absent(db, employee.id, starts_at, ends_at)
+                    not has_overlapping_assignment(db, employee.id, starts_at, ends_at)
+                    and not employee_is_absent(db, employee.id, starts_at, ends_at)
                     and work_rule_violation(
                         db,
                         employee.id,
@@ -245,48 +240,59 @@ def optimize_day(
                 candidate_cache[cache_key] = eligible
             if eligible:
                 candidates.append(_Candidate(
-                    slot_index=slot_index,
                     employee=employee,
                     shift=shift,
-                    position=position,
                     starts_at=starts_at,
                     ends_at=ends_at,
-                    role_match=position.strip().casefold() in {
-                        name.strip().casefold() for name in employee.qualification_names
-                    },
+                    need_indices=covered,
                 ))
     if len(candidates) > MAX_CANDIDATE_VARIABLES:
         raise OptimizationTooLarge("Optimization has too many eligible employee-position combinations")
 
     model = cp_model.CpModel()
     candidate_variables = [
-        model.NewBoolVar(f"assign_{candidate.slot_index}_{candidate.employee.id}")
+        model.NewBoolVar(f"assign_{candidate.shift.id}_{candidate.employee.id}")
         for candidate in candidates
     ]
-    unfilled_variables = [
-        model.NewBoolVar(f"unfilled_{index}") for index in range(len(slots))
+    shortage_variables = [
+        model.NewIntVar(0, need.vacancies, f"shortage_{index}")
+        for index, need in enumerate(needs)
     ]
-    variables_by_slot: dict[int, list[int]] = {index: [] for index in range(len(slots))}
     variables_by_employee: dict[int, list[int]] = {}
     for index, candidate in enumerate(candidates):
-        variables_by_slot[candidate.slot_index].append(index)
         variables_by_employee.setdefault(candidate.employee.id, []).append(index)
-    for slot_index, variable_indices in variables_by_slot.items():
-        model.AddExactlyOne(
-            [candidate_variables[index] for index in variable_indices]
-            + [unfilled_variables[slot_index]]
-        )
 
+    fill_variables: dict[tuple[int, int], cp_model.IntVar] = {}
+    if target_vacancies is not None:
+        # Every absent person needs an individual replacement for their own position.
+        for index, candidate in enumerate(candidates):
+            for need_index in candidate.need_indices:
+                fill_variables[(index, need_index)] = model.NewBoolVar(f"fill_{index}_{need_index}")
+            model.Add(
+                candidate_variables[index]
+                == sum(fill_variables[(index, need_index)] for need_index in candidate.need_indices)
+            )
+        for need_index, need in enumerate(needs):
+            model.Add(
+                sum(
+                    variable for (_index, filled), variable in fill_variables.items()
+                    if filled == need_index
+                ) + shortage_variables[need_index] == need.vacancies
+            )
+    else:
+        for need_index, need in enumerate(needs):
+            model.Add(
+                sum(
+                    candidate_variables[index]
+                    for index, candidate in enumerate(candidates)
+                    if need_index in candidate.need_indices
+                ) + shortage_variables[need_index] >= need.vacancies
+            )
+
+    # One person can work at most one of the candidate shifts of the day, whichever
+    # department it belongs to.
     for variable_indices in variables_by_employee.values():
         model.AddAtMostOne(candidate_variables[index] for index in variable_indices)
-        for offset, first_index in enumerate(variable_indices):
-            for second_index in variable_indices[offset + 1:]:
-                first = candidates[first_index]
-                second = candidates[second_index]
-                if not _has_rest_between(first, second, rules.rest_hours):
-                    model.Add(
-                        candidate_variables[first_index] + candidate_variables[second_index] <= 1
-                    )
 
     employee_day_candidates: dict[tuple[int, date], list[tuple[int, int]]] = {}
     for index, candidate in enumerate(candidates):
@@ -390,13 +396,11 @@ def optimize_day(
     else:
         model.Add(maximum_weekly_load == 0)
 
-    total_unfilled = sum(unfilled_variables)
-    role_mismatches = sum(
-        candidate_variables[index]
-        for index, candidate in enumerate(candidates)
-        if not candidate.role_match
-    )
-    model.Minimize(total_unfilled * 20_000_000 + role_mismatches * 20_000 + maximum_weekly_load)
+    total_shortage = sum(shortage_variables)
+    assigned_people = sum(candidate_variables)
+    # Open positions come first; fewer people is next so nobody is scheduled beyond the
+    # requirement, then the workload is balanced.
+    model.Minimize(total_shortage * 20_000_000 + assigned_people * 200_000 + maximum_weekly_load)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
@@ -405,29 +409,38 @@ def optimize_day(
     status_code = solver.Solve(model)
     if status_code not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return OptimizationPreview((), tuple(
-            OpenSlot(shift.id, shift.name, position)
-            for shift, position, _starts_at, _ends_at in slots
+            OpenSlot(need.shift.id, need.shift.name, need.position)
+            for need in needs
+            for _ in range(need.vacancies)
         ), "UNKNOWN")
 
-    suggestions = tuple(
-        SuggestedAssignment(
+    suggestion_list: list[SuggestedAssignment] = []
+    for index, candidate in enumerate(candidates):
+        if not solver.Value(candidate_variables[index]):
+            continue
+        covered = [needs[need_index].position for need_index in candidate.need_indices]
+        if target_vacancies is not None:
+            covered = [
+                needs[need_index].position for need_index in candidate.need_indices
+                if solver.Value(fill_variables[(index, need_index)])
+            ]
+        suggestion_list.append(SuggestedAssignment(
             employee_id=candidate.employee.id,
             employee_name=candidate.employee.name,
             employee_role=candidate.employee.role,
             shift_type_id=candidate.shift.id,
             shift_name=candidate.shift.name,
-            position=candidate.position,
-            role_match=candidate.role_match,
+            position=covered[0],
+            role_match=True,
             starts_at=candidate.starts_at,
             ends_at=candidate.ends_at,
-        )
-        for index, candidate in enumerate(candidates)
-        if solver.Value(candidate_variables[index])
-    )
+            positions=tuple(covered),
+        ))
+    suggestions = tuple(suggestion_list)
     unfilled = tuple(
-        OpenSlot(slots[index][0].id, slots[index][0].name, slots[index][1])
-        for index, variable in enumerate(unfilled_variables)
-        if solver.Value(variable)
+        OpenSlot(need.shift.id, need.shift.name, need.position)
+        for need_index, need in enumerate(needs)
+        for _ in range(solver.Value(shortage_variables[need_index]))
     )
     result_status = "OPTIMAL" if status_code == cp_model.OPTIMAL else "FEASIBLE"
     return OptimizationPreview(suggestions, unfilled, result_status)

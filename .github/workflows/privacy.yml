@@ -1,0 +1,64 @@
+name: Datenschutz
+
+on:
+  push:
+    branches: [main, alpha]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Der Jobname "Datenschutz" ist der Name des Pflicht-Checks in den Branch-Schutzregeln.
+  privacy:
+    name: Datenschutz
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Datenschutz-Tests
+        id: privacy
+        run: ./tests/run-tests.sh -m privacy --junitxml="$RUNNER_TEMP/privacy-tests.xml"
+      - name: Upload test report
+        id: report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: privacy-test-report
+          path: ${{ runner.temp }}/privacy-tests.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Summarize privacy tests
+        if: always()
+        env:
+          PRIVACY_STATUS: ${{ steps.privacy.outcome }}
+          REPORT_URL: ${{ steps.report.outputs.artifact-url }}
+        run: |
+          summary_status=0
+          {
+            echo '## Privacy checks (Datenschutz)'
+            echo
+            printf '| Check | Status |\n| --- | --- |\n'
+            printf '| Privacy tests | %s |\n\n' "${PRIVACY_STATUS:-not run}"
+            if [ -f tests/junit_summary.py ]; then
+              python3 tests/junit_summary.py "Privacy" "$RUNNER_TEMP/privacy-tests.xml" || summary_status=1
+            else
+              echo 'JUnit summary unavailable: repository checkout did not complete.'
+            fi
+            echo
+            if [ "$PRIVACY_STATUS" != "success" ]; then
+              echo 'See `tests/backend/test_privacy.py` and `docs/development/privacy-checks.md` for how to resolve a failing check.'
+              echo
+            fi
+            if [ -n "$REPORT_URL" ]; then
+              printf '[Download JUnit report](%s)\n' "$REPORT_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$summary_status"

@@ -103,8 +103,17 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$summary_status"
 
+  # Chromium (desktop and narrow viewport) and Firefox run as separate, independent jobs.
   frontend-browser:
-    name: Frontend browser (Chromium and Firefox)
+    name: Frontend browser (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            label: Chromium
+          - browser: firefox
+            label: Firefox
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -115,34 +124,38 @@ jobs:
         id: install
         working-directory: frontend
         run: npm ci
-      - name: Install Chromium and Firefox
+      - name: Install ${{ matrix.label }}
         id: browsers
         working-directory: frontend
-        run: npx playwright install --with-deps chromium firefox
-      - name: Browser tests
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Browser tests (${{ matrix.label }})
         id: browser
         working-directory: frontend
-        run: npm run test:e2e
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: test-reports/browser-${{ matrix.browser }}.xml
+        run: npm run test:e2e:${{ matrix.browser }}
       - name: Upload browser report
         id: report
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: release-frontend-browser-junit
-          path: frontend/test-reports/browser.xml
+          name: release-frontend-browser-junit-${{ matrix.browser }}
+          path: frontend/test-reports/browser-${{ matrix.browser }}.xml
           if-no-files-found: ignore
           retention-days: 7
       - uses: actions/upload-artifact@v6
         id: traces
         if: failure()
         with:
-          name: release-browser-test-results
+          name: release-browser-test-results-${{ matrix.browser }}
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
-      - name: Summarize release browser tests
+      - name: Summarize release ${{ matrix.label }} browser tests
         if: always()
         env:
+          LABEL: ${{ matrix.label }}
+          BROWSER: ${{ matrix.browser }}
           INSTALL_STATUS: ${{ steps.install.outcome }}
           BROWSERS_STATUS: ${{ steps.browsers.outcome }}
           BROWSER_STATUS: ${{ steps.browser.outcome }}
@@ -151,14 +164,13 @@ jobs:
         run: |
           summary_status=0
           {
-            echo '## Release browser tests'
-            echo
+            printf '## Release browser tests (%s)\n\n' "$LABEL"
             printf '| Check | Status |\n| --- | --- |\n'
             printf '| Install dependencies | %s |\n' "${INSTALL_STATUS:-not run}"
-            printf '| Install Chromium and Firefox | %s |\n' "${BROWSERS_STATUS:-not run}"
+            printf '| Install %s | %s |\n' "$LABEL" "${BROWSERS_STATUS:-not run}"
             printf '| Browser tests | %s |\n\n' "${BROWSER_STATUS:-not run}"
             if [ -f tests/junit_summary.py ]; then
-              python tests/junit_summary.py "Chromium and Firefox" frontend/test-reports/browser.xml || summary_status=1
+              python3 tests/junit_summary.py "$LABEL" "frontend/test-reports/browser-$BROWSER.xml" || summary_status=1
             else
               echo 'JUnit summary unavailable: repository checkout did not complete.'
             fi

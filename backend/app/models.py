@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Table, Text, Time
+from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Table, Text, Time, or_, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -20,6 +20,13 @@ employee_qualification_access = Table(
     Base.metadata,
     Column("employee_id", ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True),
     Column("qualification_id", ForeignKey("department_qualifications.id", ondelete="CASCADE"), primary_key=True),
+)
+
+employee_department_access = Table(
+    "employee_department_access",
+    Base.metadata,
+    Column("employee_id", ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True),
+    Column("department_id", ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
@@ -50,6 +57,9 @@ class Department(Base):
     )
 
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")
+    additional_employees: Mapped[list["Employee"]] = relationship(
+        secondary=employee_department_access, back_populates="additional_departments"
+    )
     shift_types: Mapped[list["ShiftType"]] = relationship(back_populates="department")
     qualifications: Mapped[list["DepartmentQualification"]] = relationship(
         back_populates="department", cascade="all, delete-orphan", order_by="DepartmentQualification.name"
@@ -83,13 +93,48 @@ class Employee(Base):
 
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="employee")
     department: Mapped[Department | None] = relationship(back_populates="employees")
+    additional_departments: Mapped[list[Department]] = relationship(
+        secondary=employee_department_access, back_populates="additional_employees"
+    )
     qualifications: Mapped[list[DepartmentQualification]] = relationship(
         secondary=employee_qualification_access, back_populates="employees"
     )
 
     @property
-    def qualification_names(self) -> list[str]:
-        return [qualification.name for qualification in self.qualifications] or [self.role]
+    def department_ids(self) -> list[int]:
+        """Home department first, followed by additional departments."""
+        ids = [self.department_id] if self.department_id is not None else []
+        ids.extend(department.id for department in self.additional_departments if department.id not in ids)
+        return ids
+
+    @property
+    def additional_department_ids(self) -> list[int]:
+        return [department.id for department in self.additional_departments if department.id != self.department_id]
+
+    def in_department(self, department_id: int | None) -> bool:
+        return department_id is not None and department_id in self.department_ids
+
+    def qualification_names_for(self, department_id: int | None) -> list[str]:
+        """Qualification names that count for shifts of the given department."""
+        if not self.qualifications:
+            return [self.role]
+        return [
+            qualification.name
+            for qualification in self.qualifications
+            if qualification.department_id == department_id
+        ]
+
+
+def employee_in_departments(department_ids):
+    """SQL clause matching employees whose home or additional department is listed."""
+    return or_(
+        Employee.department_id.in_(department_ids),
+        Employee.id.in_(
+            select(employee_department_access.c.employee_id).where(
+                employee_department_access.c.department_id.in_(department_ids)
+            )
+        ),
+    )
 
 
 class ShiftType(Base):
@@ -105,8 +150,10 @@ class ShiftType(Base):
     break_minutes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     break_start_minutes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id", ondelete="RESTRICT"), index=True)
+    vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("vehicles.id", ondelete="RESTRICT"), nullable=True, index=True)
 
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="shift_type")
+    vehicle: Mapped["Vehicle | None"] = relationship()
     department: Mapped[Department | None] = relationship(back_populates="shift_types")
     staffing_requirements: Mapped[list["ShiftStaffingRequirement"]] = relationship(
         back_populates="shift_type", cascade="all, delete-orphan", order_by="ShiftStaffingRequirement.id"
@@ -235,6 +282,24 @@ class BusinessConfiguration(Base):
     operational_profile: Mapped[str] = mapped_column(String(32))
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Berlin")
     sunday_work_authorized: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Only used for the facility type "other"; the other types have fixed terminology.
+    unit_label: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    unit_label_plural: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    unit_gender: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    lead_label: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    single_unit: Mapped[bool | None] = mapped_column(nullable=True)
+    uses_vehicles: Mapped[bool | None] = mapped_column(nullable=True)
+
+
+class Vehicle(Base):
+    __tablename__ = "vehicles"
+    __table_args__ = (Index("ix_vehicles_department_name", "department_id", "name", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    department_id: Mapped[int] = mapped_column(ForeignKey("departments.id", ondelete="RESTRICT"), index=True)
+    vehicle_type: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(60))
+    is_active: Mapped[bool] = mapped_column(default=True, server_default="true")
 
 
 class LicenseState(Base):
