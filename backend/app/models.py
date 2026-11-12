@@ -150,8 +150,10 @@ class ShiftType(Base):
     break_minutes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     break_start_minutes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id", ondelete="RESTRICT"), index=True)
+    vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("vehicles.id", ondelete="RESTRICT"), nullable=True, index=True)
 
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="shift_type")
+    vehicle: Mapped["Vehicle | None"] = relationship()
     department: Mapped[Department | None] = relationship(back_populates="shift_types")
     staffing_requirements: Mapped[list["ShiftStaffingRequirement"]] = relationship(
         back_populates="shift_type", cascade="all, delete-orphan", order_by="ShiftStaffingRequirement.id"
@@ -280,6 +282,24 @@ class BusinessConfiguration(Base):
     operational_profile: Mapped[str] = mapped_column(String(32))
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Berlin")
     sunday_work_authorized: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Only used for the facility type "other"; the other types have fixed terminology.
+    unit_label: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    unit_label_plural: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    unit_gender: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    lead_label: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    single_unit: Mapped[bool | None] = mapped_column(nullable=True)
+    uses_vehicles: Mapped[bool | None] = mapped_column(nullable=True)
+
+
+class Vehicle(Base):
+    __tablename__ = "vehicles"
+    __table_args__ = (Index("ix_vehicles_department_name", "department_id", "name", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    department_id: Mapped[int] = mapped_column(ForeignKey("departments.id", ondelete="RESTRICT"), index=True)
+    vehicle_type: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(60))
+    is_active: Mapped[bool] = mapped_column(default=True, server_default="true")
 
 
 class LicenseState(Base):

@@ -1724,6 +1724,12 @@ def test_business_configuration_is_selected_during_setup_and_admin_editable(clie
         "federal_state_managed": False,
         "timezone": "Europe/Berlin",
         "sunday_work_authorized": False,
+        "single_unit": False,
+        "uses_vehicles": True,
+        "unit_label": None,
+        "unit_label_plural": None,
+        "unit_gender": None,
+        "lead_label": None,
     }
     assert client.put("/api/admin/business-configuration", headers=admin, json={
         "federal_state": "Sachsen",

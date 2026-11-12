@@ -16,13 +16,25 @@ Die Teamverwaltung ist in die Bereiche **Abteilungen**, **Abteilungsübersicht**
 
 ## Einrichtungsarten
 
-| Einrichtungsart   | Bezeichnung der Leitung | Funktionen                                                                                   |
-| ----------------- | ----------------------- | -------------------------------------------------------------------------------------------- |
-| Krankenhaus       | Krankenhausleitung      | Pflegefachkraft, Arzt, Assistenzarzt, Pflegeassistenz, Hebamme, Medizinische Fachangestellte |
-| Rettungsdienst    | Wachleitung             | Notfallsanitäter, Rettungssanitäter, Rettungsassistent, Rettungshelfer, Notarzt              |
-| Leitstelle        | Leitstellenleitung      | Disponent, Schichtführer, Auszubildender                                                     |
-| Pflegeeinrichtung | Einrichtungsleitung     | Pflegefachkraft, Pflegeassistenz, Pflegehelfer, Betreuungskraft, Hauswirtschaft              |
-| Sonstige          | Leitung                 | Mitarbeiter, Teamleitung                                                                     |
+| Einrichtungsart   | Bezeichnung der Leitung | Organisationseinheit              | Funktionen                                                                                   |
+| ----------------- | ----------------------- | --------------------------------- | -------------------------------------------------------------------------------------------- |
+| Krankenhaus       | Krankenhausleitung      | Abteilungen                       | Pflegefachkraft, Arzt, Assistenzarzt, Pflegeassistenz, Hebamme, Medizinische Fachangestellte |
+| Rettungsdienst    | Wachleitung             | **Standorte** mit Fahrzeugen      | Notfallsanitäter, Rettungssanitäter, Rettungsassistent, Rettungshelfer, Notarzt              |
+| Leitstelle        | Leitstellenleitung      | genau eine Leitstelle             | Disponent, Schichtführer, Auszubildender                                                     |
+| Pflegeeinrichtung | Einrichtungsleitung     | Abteilungen                       | Pflegefachkraft, Pflegeassistenz, Pflegehelfer, Betreuungskraft, Hauswirtschaft              |
+| Sonstige          | frei wählbar            | frei wählbar                      | Mitarbeiter, Teamleitung                                                                     |
+
+Die Einrichtungsart kommt aus der Lizenz und bestimmt auch die Begriffe der Oberfläche: Beim Rettungsdienst heißt „Abteilung“ überall „Standort“ (z. B. „Standort anlegen“, „Standortleitung“), bei der Leitstelle „Leitstelle“. Für „Sonstige“ legt der Administrator Bezeichnung (Einzahl, Mehrzahl, grammatisches Geschlecht), Leitungsbezeichnung, Struktur und Fahrzeugnutzung in der Ersteinrichtung fest und kann sie unter Einstellungen → Betrieb ändern. In zusammengesetzten Wörtern wird die Bezeichnung ohne Fugen-s angehängt („Bereichleitung“); wähle bei Bedarf eine Bezeichnung, die so natürlich klingt.
+
+### Rettungsdienst: Standorte und Fahrzeuge
+
+Jeder Standort (Wache) verwaltet seine Fahrzeuge mit Typ (RTW, NEF, KTW, ITW, ELW, MTW, Sonstige) und Kennung. Eine Schichtart gehört optional zu einem Fahrzeug desselben Standorts; beim Anlegen wird die Besetzung nach Fahrzeugtyp vorbelegt (z. B. RTW: Notfallsanitäter und Rettungssanitäter, NEF: Notarzt und Notfallsanitäter, KTW: Rettungssanitäter und Rettungshelfer) und lässt sich anpassen. Der Dienstplan ist nach Fahrzeug gruppiert.
+
+Ein defektes Fahrzeug wird auf **Deaktiviert** gestellt: Für seine Schichten werden keine offenen Stellen mehr gezählt, vorgeschlagen oder zugewiesen („Vehicle is deactivated“). Bereits geplante Dienste bleiben bestehen und müssen bei Bedarf manuell umgeplant werden. Ein Fahrzeug, das noch Schichten hat, kann nicht gelöscht, aber deaktiviert werden. Fahrzeuge verwalten Dienstplanverantwortliche, Leitungen und Management für ihre Standorte.
+
+### Leitstelle
+
+Bei der Leitstelle gibt es genau eine Organisationseinheit. Sie wird bei der Ersteinrichtung mit dem eingegebenen Namen angelegt; Anlegen weiterer Einheiten und Löschen der Leitstelle sind nicht möglich („This facility type uses a single organizational unit“), Umbenennen sowie Qualifikationen und Leitung bearbeiten schon. Bestehende Installationen ohne Einheit können die erste anlegen.
 
 ## Sichtbarkeit von Dienstplänen und Abwesenheiten
 

@@ -45,14 +45,38 @@ PROFILE_CATALOG: dict[str, dict[str, object]] = {
 }
 
 
-def catalog_for(profile: str | None) -> dict[str, object]:
+def facility_structure(profile: str | None, configuration: object | None = None) -> dict[str, object]:
+    """Effective organisational structure; only the facility type "other" is configurable."""
+    if profile == "other":
+        get = lambda name: getattr(configuration, name, None)  # noqa: E731
+        return {
+            "single_unit": bool(get("single_unit")),
+            "uses_vehicles": bool(get("uses_vehicles")),
+            "unit_label": get("unit_label"),
+            "unit_label_plural": get("unit_label_plural"),
+            "unit_gender": get("unit_gender"),
+            "lead_label": get("lead_label"),
+        }
+    return {
+        "single_unit": profile == "ils",
+        "uses_vehicles": profile == "rescue_service",
+        "unit_label": None,
+        "unit_label_plural": None,
+        "unit_gender": None,
+        "lead_label": None,
+    }
+
+
+def catalog_for(profile: str | None, configuration: object | None = None) -> dict[str, object]:
     entry = PROFILE_CATALOG.get(profile or "", PROFILE_CATALOG["other"])
+    structure = facility_structure(profile if profile in PROFILE_CATALOG else "other", configuration)
     labels = dict(ACCESS_ROLE_LABELS)
-    labels["HOSPITAL_MANAGEMENT"] = str(entry["management_label"])
+    labels["HOSPITAL_MANAGEMENT"] = str(structure["lead_label"] or entry["management_label"])
     return {
         "operational_profile": profile if profile in PROFILE_CATALOG else "other",
         "access_roles": [{"key": key, "label": labels[key]} for key in entry["access_roles"]],  # type: ignore[union-attr]
         "functions": list(entry["functions"]),  # type: ignore[call-overload]
+        "structure": structure,
     }
 
 

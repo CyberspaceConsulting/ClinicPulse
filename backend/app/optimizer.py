@@ -3,7 +3,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from ortools.sat.python import cp_model
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from . import models
@@ -129,7 +129,12 @@ def optimize_day(
 ) -> OptimizationPreview:
     business_tz = business_timezone(db)
     rules = load_work_rules(db)
-    shift_query = select(models.ShiftType).order_by(models.ShiftType.id)
+    shift_query = select(models.ShiftType).where(
+        or_(
+            models.ShiftType.vehicle_id.is_(None),
+            models.ShiftType.vehicle_id.in_(select(models.Vehicle.id).where(models.Vehicle.is_active.is_(True))),
+        )
+    ).order_by(models.ShiftType.id)
     employee_query = select(models.Employee).options(
         selectinload(models.Employee.qualifications),
         selectinload(models.Employee.additional_departments),

@@ -11,6 +11,7 @@ Ein Schichttyp beschreibt eine wiederkehrende Schicht:
 | Farbe                 | Hexwert, z. B. `#2563eb`                                   |
 | Soll-Besetzung        | 1–100 Personen je Funktion, z. B. 3 Ärzte und 10 Pflegekräfte |
 | Abteilung             | optional                                                   |
+| Fahrzeug              | nur Rettungsdienst (bzw. „Sonstige“ mit Fahrzeugen), optional, muss zum Standort gehören |
 | Pause / Pausenbeginn  | 0–240 Minuten bzw. 0–360 Minuten nach Schichtbeginn        |
 
 Eine Schichtart kann mehrere abteilungsspezifische Qualifikationen mit jeweils eigener Soll-Besetzung enthalten, z. B. „2 × Arzt“ und „1 × Praxisanleiter“. Qualifikationen sind **verbindlich**: Es werden nur Mitarbeitende eingeplant oder vorgeschlagen, die mindestens eine geforderte Qualifikation der Schicht-Abteilung besitzen. Eine Person zählt für **jede** geforderte Qualifikation, die sie erfüllt. Ist sie gleichzeitig Arzt und Praxisanleiter, deckt sie beide Anforderungen ab; ohne qualifizierte Person bleibt die Stelle offen. Die Obergrenze je Qualifikation wird bei Schichten mit mehreren Anforderungen und bei „Oberarzt“ geprüft. Bereits gespeicherte Dienste werden nicht verändert. Dienstplanverantwortliche der Abteilung können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).

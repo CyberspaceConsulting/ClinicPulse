@@ -51,6 +51,7 @@ ACCEPTED_PLAINTEXT = {
     ("departments", "name"): "Organisationsdaten, keine Personendaten",
     ("department_qualifications", "name"): "Organisationsdaten, keine Personendaten",
     ("shift_types", "name"): "Organisationsdaten, keine Personendaten",
+    ("vehicles", "name"): "Fahrzeugkennung, keine Personendaten",
     ("plan_archives", "department_name"): "Organisationsdaten, keine Personendaten",
     ("plan_archives", "content_sha256"): "Prüfsumme, kein Inhalt",
     ("login_attempts", "key"): "Hash aus Benutzername und Adresse für die Anmeldesperre",

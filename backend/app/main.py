@@ -26,7 +26,7 @@ from .invitations import (
 from .plan_archive import archive_scheduler, router as archive_router, settings_router as archive_settings_router
 from .database import Base, SessionLocal, engine, get_db
 from .encrypted import username_lookup_digest
-from .role_catalog import access_role_allowed, catalog_for
+from .role_catalog import PROFILE_CATALOG, access_role_allowed, catalog_for, facility_structure
 from .schemas import (
     SecuritySettings,
     AssignmentCreate,
@@ -55,6 +55,8 @@ from .schemas import (
     SetupRequest,
     ShiftTypeCreate,
     ShiftTypeRead,
+    VehicleCreate,
+    VehicleRead,
     ShiftStaffingRequirementCreate,
     UserCreate,
     UserRead,
@@ -380,6 +382,23 @@ def migrate_existing_database() -> None:
             connection.exec_driver_sql(
                 "ALTER TABLE business_configuration ADD COLUMN sunday_work_authorized BOOLEAN NOT NULL DEFAULT FALSE"
             )
+    for column, definition in (
+        ("unit_label", "VARCHAR(40)"),
+        ("unit_label_plural", "VARCHAR(40)"),
+        ("unit_gender", "VARCHAR(1)"),
+        ("lead_label", "VARCHAR(60)"),
+        ("single_unit", "BOOLEAN"),
+        ("uses_vehicles", "BOOLEAN"),
+    ):
+        if column not in business_columns:
+            with engine.begin() as connection:
+                connection.exec_driver_sql(f"ALTER TABLE business_configuration ADD COLUMN {column} {definition}")
+    shift_columns = {column["name"] for column in inspect(engine).get_columns("shift_types")}
+    if "vehicle_id" not in shift_columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "ALTER TABLE shift_types ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE RESTRICT"
+            )
     employee_columns = {column["name"] for column in inspect(engine).get_columns("employees")}
     if "department_id" not in employee_columns:
         with engine.begin() as connection:
@@ -669,13 +688,30 @@ def get_business_configuration(
     if configuration is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Business configuration is missing")
     managed_profile, managed_state = _stored_managed_values(db)
+    return _business_configuration_read(configuration, managed_profile, managed_state)
+
+
+def _require_complete_other_configuration(configuration: models.BusinessConfiguration) -> None:
+    if not (configuration.unit_label and configuration.unit_label_plural and configuration.unit_gender and configuration.lead_label):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unit name, plural, grammatical gender and leadership title are required for this facility type",
+        )
+
+
+def _business_configuration_read(
+    configuration: models.BusinessConfiguration, managed_profile: str | None, managed_state: str | None,
+) -> BusinessConfigurationRead:
+    profile = managed_profile or configuration.operational_profile
+    structure = facility_structure(profile if profile in PROFILE_CATALOG else "other", configuration)
     return BusinessConfigurationRead(
         federal_state=managed_state or configuration.federal_state,
         federal_state_managed=managed_state is not None,
-        operational_profile=managed_profile or configuration.operational_profile,
+        operational_profile=profile,
         operational_profile_managed=managed_profile is not None,
         timezone=configuration.timezone,
         sunday_work_authorized=configuration.sunday_work_authorized,
+        **structure,
     )
 
 
@@ -700,15 +736,19 @@ def set_business_configuration(
     configuration.operational_profile = requested_profile
     configuration.timezone = "Europe/Berlin"
     configuration.sunday_work_authorized = changes.sunday_work_authorized
+    if requested_profile == "other":
+        provided = changes.model_fields_set
+        for name in ("unit_label", "unit_label_plural", "unit_gender", "lead_label", "single_unit", "uses_vehicles"):
+            if name in provided and getattr(changes, name) is not None:
+                setattr(configuration, name, getattr(changes, name))
+        _require_complete_other_configuration(configuration)
+        if configuration.single_unit and db.scalar(select(func.count(models.Department.id))) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A single organizational unit requires that only one exists",
+            )
     db.commit()
-    return BusinessConfigurationRead(
-        federal_state=configuration.federal_state,
-        federal_state_managed=managed_state is not None,
-        operational_profile=configuration.operational_profile,
-        operational_profile_managed=managed_profile is not None,
-        timezone=configuration.timezone,
-        sunday_work_authorized=configuration.sunday_work_authorized,
-    )
+    return _business_configuration_read(configuration, managed_profile, managed_state)
 
 
 @app.put("/api/admin/work-rules", response_model=WorkRulesRead)
@@ -1109,6 +1149,29 @@ def setup_admin(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Die Lizenz enthält keine Einrichtungsart. Bitte im License Manager beim Kunden hinterlegen und Token neu ausstellen.",
         )
+    other_unit_settings: dict[str, object] = {}
+    if operational_profile == "other":
+        other_unit_settings = {
+            "unit_label": setup.unit_label,
+            "unit_label_plural": setup.unit_label_plural,
+            "unit_gender": setup.unit_gender,
+            "lead_label": setup.lead_label,
+            "single_unit": bool(setup.single_unit),
+            "uses_vehicles": bool(setup.uses_vehicles),
+        }
+        if not (setup.unit_label and setup.unit_label_plural and setup.unit_gender and setup.lead_label):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Unit name, plural, grammatical gender and leadership title are required for this facility type",
+            )
+    single_unit_name: str | None = None
+    if operational_profile == "ils" or (operational_profile == "other" and setup.single_unit):
+        single_unit_name = setup.unit_name
+        if not single_unit_name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The name of the main control center or unit is required",
+            )
     salt, password_hash = hash_password(setup.password)
     account = models.AdminAccount(
         id=1,
@@ -1129,7 +1192,10 @@ def setup_admin(
         operational_profile=operational_profile,
         timezone="Europe/Berlin",
         sunday_work_authorized=setup.sunday_work_authorized,
+        **other_unit_settings,
     ))
+    if single_unit_name is not None:
+        db.add(models.Department(name=single_unit_name))
     db.add(models.LicenseState(
         id=1,
         installation_id=installation_id,
@@ -1509,6 +1575,8 @@ def create_department(
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> models.Department:
+    if facility_structure_for(db)["single_unit"] and db.scalar(select(func.count(models.Department.id))):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This facility type uses a single organizational unit")
     record = models.Department(name=department.name.strip())
     db.add(record)
     try:
@@ -1589,6 +1657,8 @@ def delete_department(
     if department is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
     require_department_scope(principal, department.id)
+    if facility_structure_for(db)["single_unit"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This facility type uses a single organizational unit")
     used_by_user = db.scalar(
         select(models.user_department_access.c.user_id)
         .where(models.user_department_access.c.department_id == department_id)
@@ -1598,7 +1668,9 @@ def delete_department(
         used_by_user = db.scalar(
             select(models.UserAccount.id).where(models.UserAccount.department_id == department_id).limit(1)
         )
-    if department.employees or department.additional_employees or department.shift_types or used_by_user is not None:
+    if department.employees or department.additional_employees or department.shift_types or used_by_user is not None or db.scalar(
+        select(models.Vehicle.id).where(models.Vehicle.department_id == department.id).limit(1)
+    ) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Department is still in use")
     db.delete(department)
     db.commit()
@@ -1750,6 +1822,12 @@ def facility_profile(db: Session) -> str | None:
     return configuration.operational_profile if configuration is not None else None
 
 
+def facility_structure_for(db: Session) -> dict[str, object]:
+    configuration = db.get(models.BusinessConfiguration, 1)
+    profile = configuration.operational_profile if configuration is not None else None
+    return facility_structure(profile if profile in PROFILE_CATALOG else "other", configuration)
+
+
 def require_role_for_facility(db: Session, role_key: str, current_role_key: str | None = None) -> None:
     if role_key != "ADMIN" and role_key != current_role_key and not access_role_allowed(facility_profile(db), role_key):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Role is not available for this facility type")
@@ -1760,12 +1838,13 @@ def role_catalog(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    return catalog_for(facility_profile(db))
+    return catalog_for(facility_profile(db), db.get(models.BusinessConfiguration, 1))
 
 
 @app.get("/api/roles")
 def list_roles(principal: Principal = Depends(require_team_manage), db: Session = Depends(get_db)) -> list[dict[str, str]]:
-    roles = [role for role in catalog_for(facility_profile(db))["access_roles"] if role["key"] != "KIOSK"]  # type: ignore[union-attr]
+    catalog = catalog_for(facility_profile(db), db.get(models.BusinessConfiguration, 1))
+    roles = [role for role in catalog["access_roles"] if role["key"] != "KIOSK"]  # type: ignore[union-attr]
     if principal.role_key == "PERSONNEL" or principal.can_manage_department:
         return [role for role in roles if role["key"] == "EMPLOYEE"]
     if principal.role_key == "ADMIN":
@@ -2492,6 +2571,111 @@ def delete_employee(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _verify_shift_vehicle(db: Session, vehicle_id: int | None, department_id: int | None) -> None:
+    if vehicle_id is None:
+        return
+    if not facility_structure_for(db)["uses_vehicles"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicles are not used by this facility type")
+    vehicle = db.get(models.Vehicle, vehicle_id)
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    if vehicle.department_id != department_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle must belong to the shift's department")
+
+
+def require_vehicle_manage(principal: Principal = Depends(require_principal)) -> Principal:
+    if principal.role_key == "KIOSK" or not (
+        principal.can_manage
+        or principal.can_edit
+        or (principal.can_manage_department and principal.managed_department_ids)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Vehicle management permission required")
+    return principal
+
+
+@app.get("/api/vehicles", response_model=list[VehicleRead])
+def list_vehicles(
+    principal: Principal = Depends(require_principal), db: Session = Depends(get_db)
+) -> list[models.Vehicle]:
+    query = select(models.Vehicle).order_by(models.Vehicle.vehicle_type, models.Vehicle.name)
+    if scoped_to_department(principal):
+        query = query.where(models.Vehicle.department_id.in_(accessible_department_ids(principal)))
+    return list(db.scalars(query))
+
+
+def _vehicle_scope(principal: Principal, db: Session, department_id: int) -> None:
+    verify_department(db, department_id)
+    if not facility_structure_for(db)["uses_vehicles"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicles are not used by this facility type")
+    if not can_access_department(principal, department_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage your own department")
+
+
+@app.post("/api/vehicles", response_model=VehicleRead, status_code=status.HTTP_201_CREATED)
+def create_vehicle(
+    vehicle: VehicleCreate,
+    principal: Principal = Depends(require_vehicle_manage),
+    __: None = Depends(require_license_writable),
+    db: Session = Depends(get_db),
+) -> models.Vehicle:
+    _vehicle_scope(principal, db, vehicle.department_id)
+    record = models.Vehicle(**vehicle.model_dump())
+    db.add(record)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle name already exists") from exc
+    db.refresh(record)
+    return record
+
+
+@app.put("/api/vehicles/{vehicle_id}", response_model=VehicleRead)
+def update_vehicle(
+    vehicle_id: int,
+    changes: VehicleCreate,
+    principal: Principal = Depends(require_vehicle_manage),
+    __: None = Depends(require_license_writable),
+    db: Session = Depends(get_db),
+) -> models.Vehicle:
+    record = db.get(models.Vehicle, vehicle_id)
+    if record is None or not can_access_department(principal, record.department_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    _vehicle_scope(principal, db, changes.department_id)
+    if changes.department_id != record.department_id and db.scalar(
+        select(models.ShiftType.id).where(models.ShiftType.vehicle_id == record.id).limit(1)
+    ) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle is in use")
+    record.department_id = changes.department_id
+    record.vehicle_type = changes.vehicle_type
+    record.name = changes.name
+    record.is_active = changes.is_active
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle name already exists") from exc
+    db.refresh(record)
+    return record
+
+
+@app.delete("/api/vehicles/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_vehicle(
+    vehicle_id: int,
+    principal: Principal = Depends(require_vehicle_manage),
+    __: None = Depends(require_license_writable),
+    db: Session = Depends(get_db),
+) -> Response:
+    record = db.get(models.Vehicle, vehicle_id)
+    if record is None or not can_access_department(principal, record.department_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    if db.scalar(select(models.ShiftType.id).where(models.ShiftType.vehicle_id == record.id).limit(1)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle is in use")
+    db.delete(record)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.get("/api/shift-types", response_model=list[ShiftTypeRead])
 def list_shift_types(
     principal: Principal = Depends(require_plan_view), db: Session = Depends(get_db)
@@ -2549,6 +2733,7 @@ def create_shift_type(
         ShiftStaffingRequirementCreate(position=shift_type.position, required_staff=shift_type.required_staff)
     ]
     _ensure_shift_qualifications(db, department_id, requirements)
+    _verify_shift_vehicle(db, shift_type.vehicle_id, department_id)
     record = models.ShiftType(
         **shift_type.model_dump(exclude={
             "break_minutes", "break_start_minutes", "position", "required_staff", "staffing_requirements",
@@ -2641,6 +2826,8 @@ def update_shift_type(
     record.break_minutes = break_minutes
     record.break_start_minutes = break_start_minutes
     record.department_id = department_id
+    _verify_shift_vehicle(db, shift_type.vehicle_id, department_id)
+    record.vehicle_id = shift_type.vehicle_id
     try:
         db.commit()
     except IntegrityError as exc:
@@ -3080,6 +3267,8 @@ def check_assignment_allowed(
     db: Session,
 ) -> None:
     requirements = shift_requirements(shift_type)
+    if shift_type.vehicle is not None and not shift_type.vehicle.is_active:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle is deactivated")
     matching = qualified_requirements(employee, shift_type)
     if not matching:
         raise HTTPException(

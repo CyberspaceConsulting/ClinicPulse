@@ -5,7 +5,9 @@ import PasswordInput from './PasswordInput.vue'
 import LanguageSelector from './LanguageSelector.vue'
 import { locale, t, type TranslationKey } from './i18n'
 import { ApiError, TranslatedError, apiErrorDetail, errorMessage } from './i18n/apiErrors'
+import { facilityStructure, setFacilityTerminology, type FacilityStructure, type Gender } from './i18n/terms'
 
+type Vehicle = { id: number; department_id: number; vehicle_type: string; name: string; is_active: boolean }
 type DepartmentQualification = { id: number; name: string; leadership_eligible: boolean; department_id?: number }
 type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; additional_department_ids?: number[]; qualifications?: DepartmentQualification[]; profile_image_data?: string | null }
 type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
@@ -17,7 +19,7 @@ type BusinessConfiguration = {
   federal_state_managed?: boolean
   timezone: string
   sunday_work_authorized: boolean
-}
+} & Partial<FacilityStructure>
 type MailSettings = {
   public_url: string
   smtp_host: string
@@ -86,6 +88,7 @@ type ShiftType = {
   break_minutes: number
   break_start_minutes: number
   department_id: number | null
+  vehicle_id?: number | null
   staffing_requirements?: { position: string; required_staff: number }[]
 }
 type Assignment = {
@@ -266,6 +269,42 @@ const mailEnabled = ref(true)
 const mailModeDraft = ref(true)
 const mailModeSaved = ref(false)
 const setupLicenseToken = ref('')
+const setupUnitName = ref('')
+const setupUnitLabel = ref('')
+const setupUnitLabelPlural = ref('')
+const setupUnitGender = ref<Gender>('f')
+const setupLeadLabel = ref('')
+const setupSingleUnit = ref(false)
+const setupUsesVehicles = ref(false)
+
+// Nur für die Vorschau der Begriffe; die Lizenz wird vom Server geprüft.
+function licenseProfile(token: string): string | null {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return null
+    const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { operational_profile?: unknown }
+    return typeof claims.operational_profile === 'string' ? claims.operational_profile : null
+  } catch {
+    return null
+  }
+}
+const setupProfile = computed(() => licenseProfile(setupLicenseToken.value))
+const setupNeedsUnitName = computed(() =>
+  setupProfile.value === 'ils' || (setupProfile.value === 'other' && setupSingleUnit.value))
+watch(
+  [setupProfile, setupUnitLabel, setupUnitLabelPlural, setupUnitGender, setupLeadLabel, setupSingleUnit, setupUsesVehicles],
+  () => {
+    if (!setupRequired.value || authenticated.value) return
+    setFacilityTerminology(setupProfile.value ?? 'hospital', {
+      single_unit: setupProfile.value === 'ils' || setupSingleUnit.value,
+      uses_vehicles: setupProfile.value === 'rescue_service' || (setupProfile.value === 'other' && setupUsesVehicles.value),
+      unit_label: setupUnitLabel.value.trim() || null,
+      unit_label_plural: setupUnitLabelPlural.value.trim() || null,
+      unit_gender: setupUnitGender.value,
+      lead_label: setupLeadLabel.value.trim() || null,
+    })
+  },
+)
 const setupSundayWorkAuthorized = ref(false)
 const setupChecked = ref(false)
 const setupRequired = ref(false)
@@ -294,6 +333,9 @@ const busy = ref(false)
 const employees = ref<Employee[]>([])
 const shiftTypes = ref<ShiftType[]>([])
 const departments = ref<Department[]>([])
+const vehicles = ref<Vehicle[]>([])
+const usesVehicles = computed(() => facilityStructure.value.uses_vehicles)
+const singleUnit = computed(() => facilityStructure.value.single_unit)
 const selectedPlanId = ref<number | null>(null)
 const users = ref<AccountUser[]>([])
 const assignments = ref<Assignment[]>([])
@@ -348,7 +390,12 @@ const idleTimeoutMs = () => idleTimeoutMinutes.value * 60 * 1000
 const IDLE_ACTIVITY_STORAGE_KEY = 'clinicpulse-last-activity'
 const employeeId = ref<number | null>(null)
 const employeeRole = ref('Pflegefachkraft')
-const roleCatalog = ref<{ access_roles: { key: string; label: string }[]; functions: string[] }>({
+const roleCatalog = ref<{
+  access_roles: { key: string; label: string }[]
+  functions: string[]
+  operational_profile?: string
+  structure?: FacilityStructure
+}>({
   access_roles: [
     { key: 'HOSPITAL_MANAGEMENT', label: 'Krankenhausleitung' },
     { key: 'PERSONNEL', label: 'Personaler' },
@@ -408,6 +455,19 @@ const shiftRequirements = ref<{ position: string; required_staff: number }[]>([
   { position: 'Pflegefachkraft', required_staff: 1 },
 ])
 const shiftDepartmentId = ref('')
+const shiftVehicleId = ref('')
+const shiftVehicles = computed(() =>
+  vehicles.value.filter((vehicle) => String(vehicle.department_id) === shiftDepartmentId.value))
+// Standardbesetzung je Fahrzeugtyp; nur Qualifikationen, die in der Abteilung existieren, werden vorbelegt.
+const VEHICLE_TYPES = ['RTW', 'NEF', 'KTW', 'ITW', 'ELW', 'MTW', 'Sonstige'] as const
+const VEHICLE_DEFAULT_STAFFING: Record<string, [string, number][]> = {
+  RTW: [['Notfallsanitäter', 1], ['Rettungssanitäter', 1]],
+  NEF: [['Notarzt', 1], ['Notfallsanitäter', 1]],
+  KTW: [['Rettungssanitäter', 1], ['Rettungshelfer', 1]],
+  ITW: [['Notarzt', 1], ['Notfallsanitäter', 1], ['Rettungssanitäter', 1]],
+}
+const vehicleName = ref('')
+const vehicleType = ref<string>('RTW')
 const shiftDepartmentQualifications = computed(() =>
   departments.value.find((department) => String(department.id) === shiftDepartmentId.value)?.qualifications ?? [],
 )
@@ -823,9 +883,23 @@ async function checkSetup(restoreSession = true) {
 
 async function loadRoleCatalog() {
   try {
-    roleCatalog.value = await api('/role-catalog')
+    const catalog = await api<typeof roleCatalog.value>('/role-catalog')
+    roleCatalog.value = catalog
+    if (catalog.operational_profile && catalog.structure) {
+      setFacilityTerminology(catalog.operational_profile, catalog.structure)
+    }
+    if (facilityStructure.value.uses_vehicles) await loadVehicles()
+    else vehicles.value = []
   } catch {
     // Der Standardkatalog bleibt aktiv, falls der Abruf scheitert.
+  }
+}
+
+async function loadVehicles() {
+  try {
+    vehicles.value = await api<Vehicle[]>('/vehicles')
+  } catch {
+    vehicles.value = []
   }
 }
 
@@ -1671,6 +1745,15 @@ async function completeSetup() {
         password: setupPassword.value,
         license_token: setupLicenseToken.value,
         sunday_work_authorized: setupSundayWorkAuthorized.value,
+        ...(setupProfile.value === 'other' ? {
+          unit_label: setupUnitLabel.value.trim(),
+          unit_label_plural: setupUnitLabelPlural.value.trim(),
+          unit_gender: setupUnitGender.value,
+          lead_label: setupLeadLabel.value.trim(),
+          single_unit: setupSingleUnit.value,
+          uses_vehicles: setupUsesVehicles.value,
+        } : {}),
+        ...(setupNeedsUnitName.value ? { unit_name: setupUnitName.value.trim() } : {}),
       }),
     })
     storeSession(result)
@@ -1846,10 +1929,12 @@ async function submitShift() {
         break_minutes: shiftBreak.value,
         break_start_minutes: shiftBreakStart.value,
         department_id: Number(shiftDepartmentId.value),
+        vehicle_id: shiftVehicleId.value ? Number(shiftVehicleId.value) : null,
       }),
     })
     editingShiftId.value = null
     shiftName.value = ''
+    shiftVehicleId.value = ''
     shiftRequirements.value = [{ position: 'Pflegefachkraft', required_staff: 1 }]
     shiftBreak.value = null
     shiftBreakStart.value = null
@@ -1863,6 +1948,7 @@ async function submitShift() {
 function startNewShift() {
   editingShiftId.value = null
   shiftName.value = ''
+  shiftVehicleId.value = ''
   shiftStart.value = '07:00'
   shiftEnd.value = '15:00'
   shiftDepartmentId.value = String(selectedPlanId.value ?? departmentId.value ?? departments.value[0]?.id ?? '')
@@ -1878,6 +1964,7 @@ function startNewShift() {
 function editShift(shift: ShiftType) {
   editingShiftId.value = shift.id
   shiftName.value = shift.name
+  shiftVehicleId.value = shift.vehicle_id ? String(shift.vehicle_id) : ''
   shiftDepartmentId.value = String(shift.department_id ?? selectedPlanId.value ?? departmentId.value ?? '')
   shiftStart.value = shift.start_time.slice(0, 5)
   shiftEnd.value = shift.end_time.slice(0, 5)
@@ -1910,6 +1997,72 @@ async function removeShift(shift: ShiftType) {
   }
 }
 
+function vehicleOf(shift: ShiftType) {
+  return shift.vehicle_id ? vehicles.value.find((item) => item.id === shift.vehicle_id) : undefined
+}
+
+function shiftTitle(shift: ShiftType) {
+  const vehicle = vehicleOf(shift)
+  if (!vehicle) return shift.name
+  const title = shift.name.startsWith(vehicle.name) ? shift.name : `${vehicle.name} · ${shift.name}`
+  return vehicle.is_active ? title : `${title} (${t('vehicle.inactive')})`
+}
+
+// Mit Fahrzeugen wird der Dienstplan nach Fahrzeug gruppiert.
+const displayShifts = computed(() => usesVehicles.value
+  ? [...shiftTypes.value].sort((first, second) =>
+      (vehicleOf(first)?.name ?? '\uffff').localeCompare(vehicleOf(second)?.name ?? '\uffff', locale.value)
+      || first.start_time.localeCompare(second.start_time))
+  : shiftTypes.value)
+
+function onShiftVehicleChange() {
+  const vehicle = vehicles.value.find((item) => String(item.id) === shiftVehicleId.value)
+  if (!vehicle) return
+  if (!shiftName.value.trim()) shiftName.value = `${vehicle.name} `
+  if (editingShiftId.value !== null) return
+  const available = new Set(shiftDepartmentQualifications.value.map((qualification) => qualification.name))
+  const defaults = (VEHICLE_DEFAULT_STAFFING[vehicle.vehicle_type] ?? []).filter(([position]) => available.has(position))
+  if (defaults.length) shiftRequirements.value = defaults.map(([position, required_staff]) => ({ position, required_staff }))
+}
+
+async function addVehicle(department: Department) {
+  const name = vehicleName.value.trim()
+  if (!name) return
+  try {
+    await api<Vehicle>('/vehicles', {
+      method: 'POST',
+      body: JSON.stringify({ department_id: department.id, vehicle_type: vehicleType.value, name, is_active: true }),
+    })
+    vehicleName.value = ''
+    await loadVehicles()
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveVehicle')
+  }
+}
+
+async function setVehicleActive(vehicle: Vehicle, active: boolean) {
+  try {
+    await api<Vehicle>(`/vehicles/${vehicle.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...vehicle, is_active: active }),
+    })
+    await loadVehicles()
+    await loadData()
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveVehicle')
+  }
+}
+
+async function removeVehicle(vehicle: Vehicle) {
+  if (!await askConfirmation(t('vehicle.deleteConfirm', { name: vehicle.name }))) return
+  try {
+    await api(`/vehicles/${vehicle.id}`, { method: 'DELETE' })
+    await loadVehicles()
+  } catch (err) {
+    error.value = err instanceof Error ? err : new TranslatedError('errors.saveVehicle')
+  }
+}
+
 function requirementsFor(shift: ShiftType) {
   return shift.staffing_requirements?.length
     ? shift.staffing_requirements
@@ -1918,6 +2071,7 @@ function requirementsFor(shift: ShiftType) {
 
 function openPositionsFor(date: string, shift: ShiftType) {
   if (roleKey.value === 'EMPLOYEE') return []
+  if (vehicleOf(shift)?.is_active === false) return []
   const assigned = assignmentsFor(date, shift.id)
   const requirements = requirementsFor(shift)
   const qualificationRequired = requirements.length > 1
@@ -2664,6 +2818,17 @@ onBeforeUnmount(() => {
         <PasswordInput v-model="setupPassword" :label="t('auth.passwordMinimum')" required />
         <label>{{ t('auth.repeatPassword') }}<input v-model="setupPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="256" required /></label>
         <label>{{ t('auth.licenseToken') }}<input v-model="setupLicenseToken" type="password" autocomplete="off" maxlength="4096" required /></label>
+        <fieldset v-if="setupProfile === 'other'" class="department-picker">
+          <legend>{{ t('auth.facilityConfig') }}</legend>
+          <p class="muted">{{ t('auth.facilityConfigHint') }}</p>
+          <label>{{ t('facility.unitLabel') }}<input v-model="setupUnitLabel" maxlength="40" required /></label>
+          <label>{{ t('facility.unitLabelPlural') }}<input v-model="setupUnitLabelPlural" maxlength="40" required /></label>
+          <label>{{ t('facility.unitGender') }}<select v-model="setupUnitGender"><option value="f">{{ t('facility.genderF') }}</option><option value="m">{{ t('facility.genderM') }}</option><option value="n">{{ t('facility.genderN') }}</option></select></label>
+          <label>{{ t('facility.leadLabel') }}<input v-model="setupLeadLabel" maxlength="60" required /></label>
+          <label class="permission-toggle"><input v-model="setupSingleUnit" type="checkbox" /> {{ t('facility.singleUnit') }}</label>
+          <label class="permission-toggle"><input v-model="setupUsesVehicles" type="checkbox" /> {{ t('facility.usesVehicles') }}</label>
+        </fieldset>
+        <label v-if="setupNeedsUnitName">{{ t('auth.unitName') }}<input v-model="setupUnitName" maxlength="100" required /></label>
         <label class="permission-toggle"><input v-model="setupSundayWorkAuthorized" type="checkbox" /> {{ t('auth.sundayAuthorization') }}</label>
         <p class="muted">{{ t('auth.sundayWarning') }}</p>
         <p class="muted">{{ t('auth.licenseDescription') }}</p>
@@ -3065,9 +3230,9 @@ onBeforeUnmount(() => {
             <button class="secondary" @click="selectedDay = localDate(today)">{{ t('schedule.openDay') }}</button>
           </header>
           <div v-if="shiftTypes.length" class="today-shifts">
-            <article v-for="shift in (roleKey === 'EMPLOYEE' ? shiftTypes.filter((item) => assignmentsFor(localDate(today), item.id).length) : shiftTypes)" :key="shift.id" class="today-shift">
+            <article v-for="shift in (roleKey === 'EMPLOYEE' ? displayShifts.filter((item) => assignmentsFor(localDate(today), item.id).length) : displayShifts)" :key="shift.id" class="today-shift">
               <span class="shift-color" :style="{ background: shift.color }"></span>
-              <div><strong>{{ shift.name }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}<template v-if="roleKey !== 'EMPLOYEE'"> · {{ staffingSummary(shift) }}</template></small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || t('schedule.noAssignments') }}</p></div>
+              <div><strong>{{ shiftTitle(shift) }}</strong><small>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}<template v-if="roleKey !== 'EMPLOYEE'"> · {{ staffingSummary(shift) }}</template></small><p>{{ assignmentsFor(localDate(today), shift.id).map((item) => item.employee_name).join(', ') || t('schedule.noAssignments') }}</p></div>
               <span v-if="roleKey !== 'EMPLOYEE' && openStaffingCount(localDate(today), shift)" class="overview-gap">{{ t('schedule.openCount', { count: openStaffingCount(localDate(today), shift) }) }}</span>
               <span v-else-if="roleKey !== 'EMPLOYEE'" class="overview-filled">{{ t('schedule.filled') }}</span>
               <div v-if="canEditPlan" class="shift-actions">
@@ -3147,10 +3312,10 @@ onBeforeUnmount(() => {
                 </p>
               </template>
             </section>
-            <div v-for="shift in (roleKey === 'EMPLOYEE' ? shiftTypes.filter((item) => assignmentsFor(selectedDay!, item.id).length) : shiftTypes)" :key="shift.id" class="shift-section">
+            <div v-for="shift in (roleKey === 'EMPLOYEE' ? displayShifts.filter((item) => assignmentsFor(selectedDay!, item.id).length) : displayShifts)" :key="shift.id" class="shift-section">
               <header class="shift-section-heading">
                 <div class="shift-color" :style="{ background: shift.color }"></div>
-                <div><h3>{{ shift.name }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}<template v-if="roleKey !== 'EMPLOYEE'"> · {{ staffingSummary(shift) }}</template></p></div>
+                <div><h3>{{ shiftTitle(shift) }}</h3><p>{{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }}<template v-if="roleKey !== 'EMPLOYEE'"> · {{ staffingSummary(shift) }}</template></p></div>
                 <span v-if="roleKey !== 'EMPLOYEE'" class="coverage-count">{{ assignmentsFor(selectedDay, shift.id).length }}/{{ shift.required_staff }}</span>
                 <button v-if="canEditPlan" class="text-button" @click="editShift(shift)">{{ t('management.edit') }}</button>
                 <button v-if="canEditPlan" class="text-button danger-text" @click="void removeShift(shift)">{{ t('management.delete') }}</button>
@@ -3325,7 +3490,8 @@ onBeforeUnmount(() => {
           <p class="eyebrow">{{ t('form.shiftManagement') }}</p><h2>{{ t(editingShiftId === null ? 'form.createShiftType' : 'form.editShiftType') }}</h2>
           <form class="stack" @submit.prevent="submitShift">
             <label>{{ t('form.name') }}<input v-model="shiftName" maxlength="80" :placeholder="t('form.shiftExample')" required autofocus /></label>
-            <label>{{ t('management.department') }}<select v-model="shiftDepartmentId" required @change="shiftRequirements = [{ position: shiftDepartmentQualifications[0]?.name ?? '', required_staff: 1 }]"><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <label>{{ t('management.department') }}<select v-model="shiftDepartmentId" required @change="shiftVehicleId = ''; shiftRequirements = [{ position: shiftDepartmentQualifications[0]?.name ?? '', required_staff: 1 }]"><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <label v-if="usesVehicles">{{ t('vehicle.select') }}<select v-model="shiftVehicleId" @change="onShiftVehicleChange"><option value="">{{ t('vehicle.noneOption') }}</option><option v-for="vehicle in shiftVehicles" :key="vehicle.id" :value="String(vehicle.id)">{{ vehicle.name }} ({{ vehicle.vehicle_type }}){{ vehicle.is_active ? '' : ` – ${t('vehicle.inactive')}` }}</option></select></label>
             <fieldset class="staffing-requirements">
               <legend>{{ t('form.staffingRequirements') }}</legend>
               <div v-for="(requirement, index) in shiftRequirements" :key="index" class="staffing-requirement">
@@ -3346,7 +3512,7 @@ onBeforeUnmount(() => {
           <p class="eyebrow">{{ t('planning.eyebrow') }}</p><h2>{{ t('form.addAssignment') }}</h2>
           <form class="stack" @submit.prevent="submitAssignment">
             <label>{{ t('form.employee') }}<select v-model="selectedEmployee" required><option v-for="employee in assignableEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
-            <label>{{ t('form.shiftType') }}<select v-model="selectedShift" required><option v-for="shift in shiftTypes" :key="shift.id" :value="String(shift.id)">{{ shift.name }} · {{ staffingSummary(shift) }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
+            <label>{{ t('form.shiftType') }}<select v-model="selectedShift" required><option v-for="shift in displayShifts.filter((item) => vehicleOf(item)?.is_active !== false)" :key="shift.id" :value="String(shift.id)">{{ shiftTitle(shift) }} · {{ staffingSummary(shift) }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
             <label>{{ t('form.date') }}<input v-model="selectedDate" type="date" required /></label>
             <p v-if="!assignableEmployees.length" class="muted">{{ t('form.noQualifiedEmployees') }}</p>
             <button class="primary full" :disabled="!assignableEmployees.length">{{ t('form.saveAssignment') }}</button>
@@ -3373,7 +3539,7 @@ onBeforeUnmount(() => {
               <button v-for="tab in managementTabs" :key="tab.key" role="tab" type="button" :aria-selected="managementTab === tab.key" :class="{ active: managementTab === tab.key }" @click="managementTab = tab.key">{{ tab.label }}</button>
             </nav>
             <section v-if="canManage || canManageDepartment" v-show="managementTab === 'departments'">
-              <form v-if="(canManage || (canManageDepartment && editingDepartmentId !== null)) && !licenseReadOnly" class="inline-form" @submit.prevent="saveDepartment">
+              <form v-if="(canManage || (canManageDepartment && editingDepartmentId !== null)) && !licenseReadOnly && (!singleUnit || !departments.length || editingDepartmentId !== null)" class="inline-form" @submit.prevent="saveDepartment">
                 <input v-model="departmentName" maxlength="100" :placeholder="t('management.departmentName')" required />
                 <button class="secondary">{{ editingDepartmentId ? t('management.saveChange') : t('management.createDepartment') }}</button>
                 <button v-if="editingDepartmentId" type="button" class="text-button" @click="editingDepartmentId = null; departmentName = ''">{{ t('management.cancel') }}</button>
@@ -3381,7 +3547,7 @@ onBeforeUnmount(() => {
               <article v-for="department in departments" :key="department.id" class="settings-section">
                 <div class="management-row"><strong>{{ department.name }}</strong><div>
                   <button v-if="canManage || canManageDepartment" class="text-button" @click="editDepartment(department)">{{ t('management.edit') }}</button>
-                  <button v-if="canManage" class="text-button danger-text" @click="removeDepartment(department)">{{ t('management.delete') }}</button>
+                  <button v-if="canManage && !singleUnit" class="text-button danger-text" @click="removeDepartment(department)">{{ t('management.delete') }}</button>
                 </div></div>
                 <div v-if="!licenseReadOnly" class="form-row">
                   <label>{{ t('management.departmentLead') }}<select :value="department.manager_user_id ?? ''" @change="void setDepartmentLeader(department, 'manager_user_id', ($event.target as HTMLSelectElement).value)"><option value="">{{ t('management.noLeader') }}</option><option v-for="user in eligibleDepartmentLeaders(department)" :key="user.id" :value="user.id">{{ user.first_name }} {{ user.last_name }} · {{ user.username }}</option></select></label>
@@ -3398,6 +3564,22 @@ onBeforeUnmount(() => {
                   <label class="permission-toggle"><input v-model="qualificationLeadershipEligible" type="checkbox" /> {{ t('management.eligibleForLeadership') }}</label>
                   <button class="secondary">{{ t('management.addQualification') }}</button>
                 </form>
+                <template v-if="usesVehicles">
+                  <h4>{{ t('vehicle.title') }}</h4>
+                  <div v-for="vehicle in vehicles.filter((item) => item.department_id === department.id)" :key="vehicle.id" class="management-row">
+                    <div><strong>{{ vehicle.name }}</strong><small>{{ vehicle.vehicle_type }} · {{ vehicle.is_active ? t('vehicle.active') : t('vehicle.inactive') }}</small></div>
+                    <div v-if="!licenseReadOnly">
+                      <button class="text-button" @click="void setVehicleActive(vehicle, !vehicle.is_active)">{{ vehicle.is_active ? t('vehicle.deactivate') : t('vehicle.activate') }}</button>
+                      <button class="text-button danger-text" @click="void removeVehicle(vehicle)">{{ t('management.delete') }}</button>
+                    </div>
+                  </div>
+                  <p v-if="!vehicles.some((item) => item.department_id === department.id)" class="muted">{{ t('vehicle.none') }}</p>
+                  <form v-if="!licenseReadOnly" class="inline-form" @submit.prevent="void addVehicle(department)">
+                    <select v-model="vehicleType" :aria-label="t('vehicle.type')"><option v-for="type in VEHICLE_TYPES" :key="type" :value="type">{{ type }}</option></select>
+                    <input v-model="vehicleName" maxlength="60" :placeholder="t('vehicle.namePlaceholder')" required />
+                    <button class="secondary">{{ t('vehicle.add') }}</button>
+                  </form>
+                </template>
               </article>
             </section>
             <section v-show="managementTab === 'overview'">
@@ -3460,6 +3642,15 @@ onBeforeUnmount(() => {
             <form class="stack" @submit.prevent="saveBusinessConfiguration">
               <label>{{ t('operations.state') }}<select v-model="businessConfiguration.federal_state" :disabled="businessConfiguration.federal_state_managed" required><option v-for="state in federalStates" :key="state" :value="state">{{ state }}</option></select></label>
               <label>{{ t('operations.facilityType') }}<select v-model="businessConfiguration.operational_profile" :disabled="businessConfiguration.operational_profile_managed" required><option v-for="profileOption in operationalProfiles" :key="profileOption.value" :value="profileOption.value">{{ t(profileOption.label) }}</option></select></label>
+              <fieldset v-if="businessConfiguration.operational_profile === 'other'" class="department-picker">
+                <legend>{{ t('auth.facilityConfig') }}</legend>
+                <label>{{ t('facility.unitLabel') }}<input v-model="businessConfiguration.unit_label" maxlength="40" required /></label>
+                <label>{{ t('facility.unitLabelPlural') }}<input v-model="businessConfiguration.unit_label_plural" maxlength="40" required /></label>
+                <label>{{ t('facility.unitGender') }}<select v-model="businessConfiguration.unit_gender"><option value="f">{{ t('facility.genderF') }}</option><option value="m">{{ t('facility.genderM') }}</option><option value="n">{{ t('facility.genderN') }}</option></select></label>
+                <label>{{ t('facility.leadLabel') }}<input v-model="businessConfiguration.lead_label" maxlength="60" required /></label>
+                <label class="permission-toggle"><input v-model="businessConfiguration.single_unit" type="checkbox" /> {{ t('facility.singleUnit') }}</label>
+                <label class="permission-toggle"><input v-model="businessConfiguration.uses_vehicles" type="checkbox" /> {{ t('facility.usesVehicles') }}</label>
+              </fieldset>
               <label class="permission-toggle"><input v-model="businessConfiguration.sunday_work_authorized" type="checkbox" /> {{ t('operations.sunday') }}</label>
               <p class="muted">{{ t('operations.timezone', { timezone: businessConfiguration.timezone }) }}</p>
               <div class="form-row"><button class="secondary">{{ t('operations.save') }}</button><span v-if="businessConfigurationMessage" class="muted">{{ t('settings.saved') }}</span></div>
