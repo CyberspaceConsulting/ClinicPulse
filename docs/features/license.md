@@ -21,3 +21,7 @@ Für die Ersteinrichtung und den Betrieb ist ein gültiger Lizenzzugang erforder
 | `CLINICPULSE_LICENSE_PUBLIC_KEY`      | öffentlicher Schlüssel als Text (optional)     |
 
 Ohne eigene Angabe wird der mitgelieferte Schlüssel verwendet. Administratoren können den Status prüfen und ein Token einspielen.
+
+## Einrichtungsart aus der Lizenz
+
+Die Einrichtungsart (Krankenhaus, Rettungsdienst, Leitstelle, Pflegeeinrichtung, Sonstige) und das Bundesland stammen normalerweise aus dem signierten Lizenztoken und lassen sich dann nicht überschreiben. Die Ersteinrichtung liest die Einrichtungsart aus dem Token und verlangt je nach Art weitere Angaben (Name der Hauptleitstelle bei der Leitstelle, Begriffe und Struktur bei „Sonstige“), siehe [Ersteinrichtung](../getting-started/first-setup.md). Das Eingabeformular wertet die Einrichtungsart nur zur Anzeige im Browser aus; der Server prüft das Token.

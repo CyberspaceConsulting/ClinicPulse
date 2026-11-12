@@ -70,6 +70,17 @@ Bei bereits eingerichtetem Betrieb mit `compose.external-key.yaml` darf der Inst
    Umgebungsvariablen wie beim bisherigen Betrieb. Prüfe, ob die Dienste laufen
    und die Anwendung erreichbar ist.
 
+## Datenbankänderungen
+
+Neue Tabellen und Spalten legt das Backend beim Start automatisch an; bestehende
+Daten bleiben erhalten. Dazu gehören zuletzt die Zuordnung von Personen zu
+weiteren Abteilungen (`employee_department_access`), Fahrzeuge (`vehicles`,
+`shift_types.vehicle_id`) und die Begriffs- und Strukturfelder der
+Betriebskonfiguration. Eine Rückkehr zur älteren Version nach dem Start der
+neuen ist nur mit der zuvor erstellten Sicherung möglich. Bestehende Dienste
+werden nicht verändert; neue Zuweisungen verlangen jedoch die passende
+Qualifikation, siehe [Dienstplanung](../features/shift-planning.md).
+
 ## Installation aus dem Quellcode aktualisieren
 
 Beim ersten Umstieg auf das verwaltete Schlüssel-Volume nicht direkt `docker compose up` verwenden: Führe im Repository `sh deploy/install.sh "$PWD"` aus, wenn die bisherigen Dateien in `./secrets` liegen. Bei einem anderen Installationsziel denselben Zielpfad wie bisher angeben. Der Installer importiert vorhandene Schlüssel vor dem Start.

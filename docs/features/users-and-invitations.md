@@ -15,7 +15,7 @@
 | Personaler-Rolle vergeben                   | Leitung |
 | Mitarbeiterkonten anlegen und verwalten     | Personaler sowie Leitung oder Stellvertretung der betreffenden Abteilung |
 
-Eine Abteilungsleitung oder Stellvertretung darf nur Mitarbeiterkonten für die eigene Abteilung verwalten. Die Person muss in der Abteilung eingetragen sein und eine dort als leitungsberechtigt markierte Qualifikation haben. Die Systemrolle „Oberarzt“ allein verleiht keine Kontoverwaltungsrechte. Die getrennte Mitarbeiterverwaltung weist einer Person eine Abteilung und eine oder mehrere abteilungsspezifische Qualifikationen zu.
+Eine Abteilungsleitung oder Stellvertretung darf nur Mitarbeiterkonten für die eigene Abteilung verwalten. Die Person muss in der Abteilung eingetragen sein und eine dort als leitungsberechtigt markierte Qualifikation haben. Die Systemrolle „Oberarzt“ allein verleiht keine Kontoverwaltungsrechte. Die getrennte Mitarbeiterverwaltung weist einer Person eine Hauptabteilung, weitere Abteilungen und abteilungsspezifische Qualifikationen zu. Ein Mitarbeiterkonto kann mit einer Person verknüpft werden, die mindestens einer der Abteilungen des Kontos angehört; das Konto einer Person mit der Rolle „Mitarbeiter“ erhält beim Anlegen oder Bearbeiten der Person Zugriff auf alle ihre Abteilungen.
 
 ## Einladungen
 

@@ -4,6 +4,8 @@ ClinicPulse erhält eine erweiterbare Sprachunterstützung für seine Oberfläch
 Die Einstellung gilt für den jeweiligen Browser und ändert weder gespeicherte
 Personen- und Abteilungsnamen noch andere selbst eingegebene Inhalte.
 
+Die Bezeichnung der Organisationseinheit richtet sich nach der Einrichtungsart und ändert sich in der gesamten Oberfläche (z. B. „Standort“ beim Rettungsdienst, „Leitstelle“ bei der ILS, frei gewählt bei „Sonstige“); sie gilt in beiden Sprachen. Details für Entwickelnde: [Lokalisierung](../development/localization.md).
+
 ::: warning Übersetzung noch nicht vollständig
 Deutsch ist die Standardsprache. Englisch ist verfügbar, aber noch nicht für
 alle Bereiche übersetzt. Insbesondere Formulare, Verwaltung, Einstellungen und

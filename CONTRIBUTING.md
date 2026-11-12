@@ -106,6 +106,7 @@ npm run dev
 - **Berechtigungen prüfen.** Jede neue oder geänderte Funktion, die Daten liefert oder ändert, muss serverseitig auf Rolle und Zugehörigkeit geprüft werden.
 - **Keine Geheimnisse im Repository.** Keine Zugangsdaten, Lizenz-Tokens, Schlüssel oder `secrets/`-Dateien committen.
 - **Keine echten Personen- oder Gesundheitsdaten** in Code, Testdaten, Logs, Screenshots oder Beschreibungen.
+- **Datenschutz-Check muss grün sein.** Neue Textspalten mit möglichem Personenbezug werden verschlüsselt gespeichert (`EncryptedText`) oder im Test begründet eingeordnet; neue Browser-Speicherschlüssel müssen bewusst freigegeben werden. Siehe [docs/development/privacy-checks.md](docs/development/privacy-checks.md).
 - **Abhängigkeiten sparsam hinzufügen** und begründen. Python-Abhängigkeiten ausschließlich in `pyproject.toml` ändern, danach im Repository-Hauptverzeichnis `uv lock && make export` ausführen und `pyproject.toml`, `uv.lock` und `backend/requirements.txt` gemeinsam committen. `backend/requirements.txt` nicht von Hand bearbeiten. Frontend-Änderungen an Abhängigkeiten immer mit `package-lock.json` committen.
 - Dependabot aktualisiert Python-Abhängigkeiten im uv-Projekt. Falls der erzeugte Requirements-Export in einem Dependabot-PR fehlt, `make export` ausführen und das Ergebnis zum PR hinzufügen.
 - **Das Frontend muss bauen:** `npm run build` führt auch die TypeScript-Prüfung (`vue-tsc`) aus.
@@ -117,7 +118,7 @@ npm run dev
 Änderungen müssen durch passende Tests abgesichert sein. Details stehen in [TEST.md](TEST.md).
 
 ```bash
-# Backend
+# Backend (alle Tests; Datenschutz einzeln: ./tests/run-tests.sh -m privacy)
 ./tests/run-tests.sh
 
 # Frontend
@@ -125,7 +126,8 @@ cd frontend
 npm ci
 npm run build
 npx playwright install --with-deps chromium firefox
-npm run test:e2e
+npm run test:e2e              # beide Browser
+# oder getrennt: npm run test:e2e:chromium / npm run test:e2e:firefox
 ```
 
 - **Tests laufen offline** und verwenden weder Produktivdaten noch externe Dienste.

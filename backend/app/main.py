@@ -397,6 +397,12 @@ def migrate_existing_database() -> None:
         if column not in business_columns:
             with engine.begin() as connection:
                 connection.exec_driver_sql(f"ALTER TABLE business_configuration ADD COLUMN {column} {definition}")
+    shift_columns = {column["name"] for column in inspect(engine).get_columns("shift_types")}
+    if "vehicle_id" not in shift_columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "ALTER TABLE shift_types ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE RESTRICT"
+            )
     employee_columns = {column["name"] for column in inspect(engine).get_columns("employees")}
     if "department_id" not in employee_columns:
         with engine.begin() as connection:

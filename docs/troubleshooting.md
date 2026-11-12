@@ -132,6 +132,11 @@ Die API liefert Fehler als JSON mit dem Feld `detail`.
 | `Employee has a linked login account`                    | Konto zuerst löschen                    |
 | `Username is already in use`                             | Anderen Benutzernamen wählen            |
 | `Role is not available for this facility type`           | Rolle passt nicht zur [Einrichtungsart](features/roles-and-permissions.md) |
+| `The name of the main control center or unit is required` | Bei Leitstelle (oder „Sonstige“ mit einer Einheit) den Namen der Hauptleitstelle im Setup angeben |
+| `Unit name, plural, grammatical gender and leadership title are required …` | Bei „Sonstige“ im Setup bzw. unter Einstellungen → Betrieb alle Begriffe ausfüllen |
+| `A single organizational unit requires that only one exists` | Weitere Einheiten zuerst entfernen oder „nur eine Einheit“ deaktivieren |
+| `Vehicle must belong to the shift's department`          | Fahrzeug desselben Standorts wählen |
+| `Vehicle name already exists` / `Vehicles are not used by this facility type` | Kennung ändern bzw. Fahrzeuge sind für diese Einrichtungsart nicht aktiv |
 | `Einrichtungsart fehlt` / `Bundesland fehlt`             | Betriebskonfiguration ergänzen          |
 | `An absence already exists in this period`               | Überschneidende Abwesenheit prüfen      |
 | `Absence was already decided`                            | Entscheidung kann nicht geändert werden |
