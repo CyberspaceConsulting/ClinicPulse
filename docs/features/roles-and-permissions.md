@@ -30,7 +30,7 @@ Die Einrichtungsart kommt aus der Lizenz und bestimmt auch die Begriffe der Ober
 
 Jeder Standort (Wache) verwaltet seine Fahrzeuge mit Typ (RTW, NEF, KTW, ITW, ELW, MTW, Sonstige) und Kennung. Eine Schichtart gehört optional zu einem Fahrzeug desselben Standorts; beim Anlegen wird die Besetzung nach Fahrzeugtyp vorbelegt (z. B. RTW: Notfallsanitäter und Rettungssanitäter, NEF: Notarzt und Notfallsanitäter, KTW: Rettungssanitäter und Rettungshelfer) und lässt sich anpassen. Der Dienstplan ist nach Fahrzeug gruppiert.
 
-Ein defektes Fahrzeug wird auf **Deaktiviert** gestellt: Für seine Schichten werden keine offenen Stellen mehr gezählt, vorgeschlagen oder zugewiesen („Vehicle is deactivated“). Bereits geplante Dienste bleiben bestehen und müssen bei Bedarf manuell umgeplant werden. Ein Fahrzeug, das noch Schichten hat, kann nicht gelöscht, aber deaktiviert werden. Fahrzeuge verwalten Dienstplanverantwortliche, Leitungen und Management für ihre Standorte.
+Ein defektes Fahrzeug wird auf **Deaktiviert** gestellt: Für seine Schichten werden keine offenen Stellen mehr gezählt, vorgeschlagen oder zugewiesen („Vehicle is deactivated“). Bereits geplante Dienste bleiben bestehen und müssen bei Bedarf manuell umgeplant werden. Ein Fahrzeug, das noch Schichten hat, kann nicht gelöscht, aber deaktiviert werden. Fahrzeuge verwalten Konten mit Bearbeitungsrecht, Leitungen und Stellvertretungen, das Management und Administratoren – bei begrenzten Rechten nur für die zugewiesenen Standorte. Kiosk-Konten verwalten keine Fahrzeuge; sehen können Fahrzeuge alle Konten im Rahmen ihrer Standorte.
 
 ### Leitstelle
 

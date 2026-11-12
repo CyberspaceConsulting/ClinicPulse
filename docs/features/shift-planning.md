@@ -37,7 +37,7 @@ Ansehen, Bearbeiten und Freigeben sind getrennte Rechte. Die Smart-Auswahl und P
 
 ## Krankheitsvertretung
 
-Nach einer Krankmeldung ermittelt die Startseite für betroffene, bereits geplante Dienste geeignete Ersatzvorschläge. Leitende Personen können die Vorschläge neu berechnen und bei Bedarf eine andere vorgeschlagene Person auswählen. Erst nach ausdrücklicher Bestätigung werden die bisherigen Zuweisungen durch die Ersatzzuweisungen ersetzt; Arbeitszeit-, Abwesenheits-, Qualifikations- und Überschneidungsregeln werden dabei erneut geprüft. Nicht besetzbare Dienste bleiben unverändert und werden als ohne passenden Vorschlag angezeigt.
+Nach einer Krankmeldung ermittelt die Startseite für betroffene, bereits geplante Dienste geeignete Ersatzvorschläge. Dabei braucht jede ausgefallene Person eine eigene Vertretung mit der Qualifikation für die Anforderung, die sie in der Schicht erfüllt hat; erfüllte sie mehrere (z. B. Arzt und Praxisanleiter), gilt die mit der kleinsten Soll-Besetzung. Arbeitet die erkrankte Person in mehreren Abteilungen, sehen Planende jeder dieser Abteilungen die Krankmeldung und erhalten Vorschläge für die Dienste ihrer eigenen Abteilung; Dienste anderer Abteilungen bleiben unsichtbar. Leitende Personen können die Vorschläge neu berechnen und bei Bedarf eine andere vorgeschlagene Person auswählen. Erst nach ausdrücklicher Bestätigung werden die bisherigen Zuweisungen durch die Ersatzzuweisungen ersetzt; Arbeitszeit-, Abwesenheits-, Qualifikations- und Überschneidungsregeln werden dabei erneut geprüft. Nicht besetzbare Dienste bleiben unverändert und werden als ohne passenden Vorschlag angezeigt.
 
 ## Startseite
 

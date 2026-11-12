@@ -30,6 +30,25 @@ Das Netzwerk `database` ist als `internal` konfiguriert: Die Datenbank ist nicht
 
 Vue 3 mit TypeScript und Vite. Build und Typprüfung: `npm run build`.
 
+## API-Hinweise für Integrationen
+
+Neu oder erweitert (alle Pfade unter `/api`, Authentifizierung wie bei den übrigen Endpunkten; die interaktive Beschreibung liefert `/api/docs`):
+
+| Endpunkt | Änderung |
+| -------- | -------- |
+| `GET/POST /employees`, `PUT /employees/{id}`, `POST /employees/onboard` | zusätzlich `additional_department_ids` (weitere Abteilungen). `department_id` ist die Hauptabteilung. Antworten blenden Qualifikationen und Zuordnungen anderer Abteilungen aus, auf die das Konto keinen Zugriff hat. |
+| `POST /optimization/preview`, `POST /planning/preview` | Vorschläge enthalten zusätzlich `positions` (alle durch die Person abgedeckten Anforderungen); `position` ist die erste davon, `role_match` ist immer `true`. |
+| `GET /smart-selection` | nur Personen mit geforderter Qualifikation; Kandidaten enthalten `positions`. |
+| `GET /role-catalog` | zusätzlich `structure` (`single_unit`, `uses_vehicles`, `unit_label`, `unit_label_plural`, `unit_gender`, `lead_label`) und `operational_profile`. |
+| `GET/PUT /admin/business-configuration` | dieselben Struktur-Felder; bei „Sonstige“ änderbar. |
+| `POST /setup` | zusätzlich `unit_name` (Leitstelle bzw. „Sonstige“ mit einer Einheit) sowie bei „Sonstige“ `unit_label`, `unit_label_plural`, `unit_gender`, `lead_label`, `single_unit`, `uses_vehicles`. |
+| `GET/POST /vehicles`, `PUT/DELETE /vehicles/{id}` | Fahrzeuge je Standort (`vehicle_type`: RTW, NEF, KTW, ITW, ELW, MTW, Sonstige; `is_active`). Nur wenn die Einrichtungsart Fahrzeuge nutzt (sonst HTTP 409). |
+| `POST/PUT /shift-types` | optional `vehicle_id` (Fahrzeug desselben Standorts). |
+| `GET /absences` | genehmigte Abwesenheiten von Personen aus der eigenen, aber nicht der Hauptabteilung ohne `note`, `requested_by`, `decided_by` und `decided_at`. |
+| alle `/api/*`-Antworten | `Cache-Control: no-store`. |
+
+Geänderte Fehler (HTTP 409): `Employee role is not required for this shift` (Qualifikation fehlt, jetzt für alle Schichten), `Vehicle is deactivated`, `Vehicle is in use`, `This facility type uses a single organizational unit`. Beim Löschen von Abteilungen zählen Fahrzeuge und weitere Zuordnungen als Verwendung.
+
 ## Tests
 
 Backend-Tests mit pytest in `tests/backend/`, Browser-Tests mit Playwright in `tests/frontend/`. Siehe [TEST.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/TEST.md).

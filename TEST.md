@@ -81,6 +81,14 @@ Integrationstests mit einem laufenden Backend.
 
 ## GitHub Actions
 
+| Workflow          | Inhalt                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `Test`            | Backend (amd64 und arm64, inkl. PostgreSQL-Tests), Frontend-Build und Übersetzungen, Browser-Tests **je Browser als eigener Job** (Chromium, Firefox) und der Docker-Compose-Smoke-Test |
+| `Datenschutz`     | Datenschutz-Tests; als Pflicht-Check vorgesehen, siehe [Datenschutz-Prüfungen](docs/development/privacy-checks.md) |
+| Release           | dieselben Prüfungen vor dem Veröffentlichen der Images; das Veröffentlichen wartet auf alle |
+
+Jeder Job schreibt am Ende eine Zusammenfassung (Status je Schritt, Testzahlen aus dem JUnit-Bericht, Link zum Bericht).
+
 Die Job-Zusammenfassungen zeigen den Status der einzelnen Schritte auch bei
 Fehlern. Backend- und Browser-Jobs zählen erfolgreiche, fehlgeschlagene und
 übersprungene Testfälle anhand ihrer JUnit-Berichte. Diese Berichte stehen als
