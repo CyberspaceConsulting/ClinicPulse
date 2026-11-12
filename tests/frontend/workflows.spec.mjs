@@ -27,11 +27,14 @@ async function mockApi(
   let signedIn = false
   let assignments = []
   let absences = initialAbsences
+  let ownAbsences = failures.ownAbsences ?? []
   const session = {
     username: role === 'EMPLOYEE' ? 'alex' : 'planer', role_key: role, department_id: 1,
     can_view: true, can_edit: role === 'OBERARZT', can_approve: role === 'OBERARZT',
     can_manage: ['ADMIN', 'HOSPITAL_MANAGEMENT'].includes(role),
     can_manage_department: false, remember_me: false, idle_timeout_minutes: 30,
+    employee_id: role === 'EMPLOYEE' ? 1 : null,
+    ...failures.session,
   }
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -64,6 +67,10 @@ async function mockApi(
       signedIn = false
       return route.fulfill({ status: 204 })
     }
+    if (path === '/api/profile/me') return reply({
+      username: session.username, role_key: role, department_id: 1,
+      first_name: null, last_name: null, profile_image_data: null, profile_photo_visibility: 'private',
+    })
     if (path === '/api/account-creation/mail-mode') return reply({ enabled: true })
     if (path === '/api/role-catalog') return reply({ functions: ['Pflege'], access_roles: [] })
     if (path === '/api/license/status') return reply({ status: 'PAID', read_only: false, suppress_warnings: false })
@@ -83,6 +90,19 @@ async function mockApi(
       unfilled_slots: [{ shift_type_id: 1, shift_name: shift.name, position: shift.position }],
     }] })
     if (path === '/api/planning/approve') return reply({ created: 1 })
+    if (path === '/api/absences/mine' && method === 'POST') {
+      const requestAbsence = {
+        ...request.postDataJSON(), id: 20, employee_id: session.employee_id, employee_name: 'Planer Beispiel',
+        status: 'pending', requested_by: 'planer', created_at: null, decided_by: null, decided_at: null,
+      }
+      ownAbsences.push(requestAbsence)
+      return reply(requestAbsence, 201)
+    }
+    if (path === '/api/absences/mine' && method === 'GET') return reply(ownAbsences)
+    if (path === '/api/absences/mine/20' && method === 'DELETE') {
+      ownAbsences = ownAbsences.filter((item) => item.id !== 20)
+      return route.fulfill({ status: 204 })
+    }
     if (path === '/api/absences' && method === 'POST') {
       absences.push({
         ...request.postDataJSON(), id: 1, employee_id: 1, employee_name: employee.name,
@@ -186,6 +206,180 @@ test('mobile administrator toolbar remains usable when an error is displayed', a
   await page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5000 })
   await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible()
   await expect(page.locator('.toast-error')).toBeVisible()
+})
+
+test('overview shows the full profile name, personal absences and return navigation', async ({ page }) => {
+  await mockApi(page, 'EMPLOYEE', [{
+    id: 2, employee_id: 1, employee_name: employee.name, kind: 'vacation',
+    start_date: '2026-12-01', end_date: '2026-12-03', status: 'pending',
+    note: null, requested_by: 'alex', created_at: null, decided_by: null, decided_at: null,
+  }])
+  await page.route('**/api/profile/me', (route) => route.fulfill({ json: {
+    username: 'alex', role_key: 'EMPLOYEE', department_id: 1,
+    first_name: 'Alex', last_name: 'Beispiel', profile_image_data: null, profile_photo_visibility: 'private',
+  } }))
+  await login(page, { openSchedule: false })
+  await expect(page.getByRole('heading', { name: 'Willkommen, Alex Beispiel' })).toBeVisible()
+  const personal = page.locator('.dashboard-absence-list').filter({ has: page.getByRole('heading', { name: 'Meine Abwesenheiten' }) })
+  await expect(personal).toContainText('Urlaub')
+  await expect(personal).toContainText('2026')
+  await expect(personal).toContainText('Offen')
+  await page.getByRole('button', { name: 'Abwesenheit beantragen' }).click()
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Übersicht' }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Übersicht"]').click()
+  }
+  await expect(page.getByRole('heading', { name: 'Willkommen, Alex Beispiel' })).toBeVisible()
+  await expect(personal).toContainText('Urlaub')
+})
+
+test('authorized planners see request details and can decide from the overview', async ({ page }) => {
+  await mockApi(page, 'OBERARZT', [{
+    id: 1, employee_id: 1, employee_name: employee.name, kind: 'other',
+    start_date: '2026-12-01', end_date: '2026-12-03', status: 'pending',
+    note: 'Fortbildung', requested_by: 'alex', created_at: '2026-11-01T10:00:00Z', decided_by: null, decided_at: null,
+  }])
+  await login(page, { openSchedule: false })
+  const requests = page.locator('.dashboard-absence-list').filter({ has: page.getByRole('heading', { name: 'Offene Abwesenheitsanträge' }) })
+  await expect(requests).toContainText('Alex Beispiel')
+  await expect(requests).toContainText('Chirurgie')
+  await expect(requests).toContainText('Fortbildung')
+  await expect(requests).toContainText('alex')
+  await expect(requests).toContainText('2026')
+  await requests.getByRole('button', { name: 'Genehmigen' }).click()
+  await expect(requests).toContainText('Keine offenen Abwesenheitsanträge.')
+  await expect(page.getByRole('heading', { name: 'Meine Abwesenheiten' })).toHaveCount(0)
+})
+
+test('view-only management does not see the request decision panel', async ({ page }) => {
+  await mockApi(page, 'HOSPITAL_MANAGEMENT', [{
+    id: 1, employee_id: 1, employee_name: employee.name, kind: 'other',
+    start_date: '2026-12-01', end_date: '2026-12-03', status: 'pending',
+    note: null, requested_by: 'alex', created_at: null, decided_by: null, decided_at: null,
+  }])
+  await login(page, { openSchedule: false })
+  await expect(page.getByRole('heading', { name: 'Offene Abwesenheitsanträge' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Genehmigen' })).toHaveCount(0)
+})
+
+test('a failed profile or absence load is reported without showing a false empty state', async ({ page }) => {
+  await mockApi(page, 'EMPLOYEE')
+  await page.route('**/api/profile/me', (route) => route.fulfill({ status: 500, json: { detail: 'Profil nicht verfügbar' } }))
+  await page.route('**/api/absences', (route) => route.fulfill({ status: 500, json: { detail: 'Abwesenheiten nicht verfügbar' } }))
+  await login(page, { openSchedule: false })
+  await expect(page.getByRole('heading', { name: 'Willkommen, alex' })).toBeVisible()
+  await expect(page.locator('.dashboard-page [role="alert"]').filter({ hasText: 'Profil nicht verfügbar' })).toBeVisible()
+  await expect(page.locator('.dashboard-page [role="alert"]').filter({ hasText: 'Abwesenheiten nicht verfügbar' })).toBeVisible()
+  await expect(page.getByText('Keine eigenen Abwesenheiten vorhanden.')).toHaveCount(0)
+})
+
+test('a management account without schedule access can return to its overview', async ({ page }) => {
+  await mockApi(page, 'PERSONNEL')
+  const session = {
+    username: 'planer', role_key: 'PERSONNEL', department_id: null, can_view: false, can_edit: false,
+    can_approve: false, can_manage: false, can_manage_department: false, remember_me: false, idle_timeout_minutes: 30,
+  }
+  await page.route('**/api/auth/login', (route) => route.fulfill({ json: session }))
+  await login(page, { openSchedule: false })
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: 'Schließen', exact: true }).click()
+  if (await page.locator('nav.mobile-navigation').isVisible()) {
+    await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Übersicht' }).click()
+  } else {
+    await page.locator('.sidebar .nav-item[title="Übersicht"]').click()
+  }
+  await expect(page.getByRole('heading', { name: 'Willkommen, planer' })).toBeVisible()
+})
+
+test('linked planner keeps personal absences separate and cannot approve their own request', async ({ page }) => {
+  const own = {
+    id: 20, employee_id: 2, employee_name: 'Planer Beispiel', kind: 'other',
+    start_date: '2026-12-01', end_date: '2026-12-03', status: 'pending',
+    note: null, requested_by: 'planer', created_at: null, decided_by: null, decided_at: null,
+  }
+  const team = { ...own, id: 1, employee_id: 1, employee_name: employee.name, requested_by: 'alex' }
+  await mockApi(page, 'OBERARZT', [own, team], { session: { employee_id: 2 }, ownAbsences: [own] }, [
+    employee, { id: 2, name: 'Planer Beispiel', role: 'Arzt', department_id: 1 },
+  ])
+  await login(page, { openSchedule: false })
+  const requests = page.locator('.dashboard-absence-list').filter({ has: page.getByRole('heading', { name: 'Offene Abwesenheitsanträge' }) })
+  await expect(requests.locator('article').filter({ hasText: 'Planer Beispiel' }).getByRole('button', { name: 'Genehmigen' })).toHaveCount(0)
+  await expect(requests.locator('article').filter({ hasText: 'Alex Beispiel' }).getByRole('button', { name: 'Genehmigen' })).toBeVisible()
+  const personal = page.locator('.dashboard-absence-list').filter({ has: page.getByRole('heading', { name: 'Meine Abwesenheiten' }) })
+  await expect(personal).toContainText('Sonstige')
+  await expect(personal).not.toContainText('Alex Beispiel')
+  await personal.getByRole('button', { name: 'Abwesenheit beantragen' }).click()
+  await expect(page.getByLabel('Ansicht')).toHaveValue('own')
+  await expect(page.getByRole('button', { name: 'Genehmigen' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Zurückziehen' }).click()
+  await expect(page.getByText('Keine Abwesenheiten')).toBeVisible()
+  await page.getByLabel('Von', { exact: true }).fill('2027-01-10')
+  await page.getByLabel('Bis', { exact: true }).fill('2027-01-11')
+  await page.getByRole('button', { name: 'Antrag stellen' }).click()
+  await expect(page.locator('.absence-list')).toContainText('Offen')
+  await page.getByLabel('Ansicht').selectOption('team')
+  await expect(page.getByLabel('Mitarbeitende')).not.toContainText('Planer Beispiel')
+  await expect(page.locator('.absence-list')).toContainText('Alex Beispiel')
+})
+
+test('linked personnel without schedule access can request personal absences', async ({ page }) => {
+  await mockApi(page, 'PERSONNEL', [], {
+    session: { employee_id: 2, can_view: false, can_edit: false, can_approve: false },
+  })
+  await login(page, { openSchedule: false })
+  await expect(page.getByRole('heading', { name: 'Meine Abwesenheiten' })).toBeVisible()
+  await page.locator('.dashboard-absence-list').getByRole('button', { name: 'Abwesenheit beantragen' }).click()
+  await page.getByLabel('Von', { exact: true }).fill('2027-01-10')
+  await page.getByLabel('Bis', { exact: true }).fill('2027-01-11')
+  await page.getByRole('button', { name: 'Antrag stellen' }).click()
+  await expect(page.locator('.absence-list')).toContainText('Offen')
+})
+
+test('employees with approval rights see team requests and their own absences separately', async ({ page }) => {
+  const own = {
+    id: 20, employee_id: 1, employee_name: employee.name, kind: 'other',
+    start_date: '2026-12-01', end_date: '2026-12-03', status: 'pending',
+    note: null, requested_by: 'alex', created_at: null, decided_by: null, decided_at: null,
+  }
+  const team = { ...own, id: 1, employee_id: 2, employee_name: 'Kim Beispiel', requested_by: 'kim' }
+  await mockApi(page, 'EMPLOYEE', [own, team], { session: { can_approve: true }, ownAbsences: [own] }, [
+    employee, { id: 2, name: 'Kim Beispiel', role: 'Pflege', department_id: 1, qualifications: [qualifications[0]] },
+  ])
+  await login(page, { openSchedule: false })
+  const requests = page.locator('.dashboard-absence-list').filter({ has: page.getByRole('heading', { name: 'Offene Abwesenheitsanträge' }) })
+  await expect(requests.locator('article').filter({ hasText: 'Kim Beispiel' }).getByRole('button', { name: 'Genehmigen' })).toBeVisible()
+  await expect(requests.locator('article').filter({ hasText: 'Alex Beispiel' }).getByRole('button', { name: 'Genehmigen' })).toHaveCount(0)
+  await expect(page.locator('.dashboard-absence-list').filter({ has: page.getByRole('heading', { name: 'Meine Abwesenheiten' }) })).not.toContainText('Kim Beispiel')
+})
+
+test('team management can link an existing management account to an employee', async ({ page }) => {
+  await mockApi(page, 'ADMIN')
+  const account = {
+    id: 2, username: 'management', first_name: 'Alex', last_name: 'Beispiel',
+    role_key: 'HOSPITAL_MANAGEMENT', department_id: null, department_ids: [], employee_id: null,
+    can_view: false, can_edit: false, can_approve: false, invitation_status: 'active',
+  }
+  await page.route('**/api/users', (route) => route.fulfill({ json: [account] }))
+  await page.route('**/api/role-catalog', (route) => route.fulfill({ json: {
+    functions: ['Pflege'], access_roles: [{ key: 'HOSPITAL_MANAGEMENT', label: 'Leitung' }],
+  } }))
+  let savedPayload
+  await page.route('**/api/users/2', (route) => {
+    savedPayload = route.request().postDataJSON()
+    return route.fulfill({ json: { ...account, ...savedPayload } })
+  })
+  await login(page, { openSchedule: false })
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: 'Konten & Administration' }).click()
+  await dialog.locator('.account-row').getByRole('button', { name: 'Bearbeiten' }).click()
+  await dialog.getByLabel('Verknüpfte Person').selectOption('1')
+  await dialog.getByRole('button', { name: 'Konto speichern' }).click()
+  await expect.poll(() => savedPayload?.employee_id).toBe(1)
+  expect(savedPayload.department_ids).toEqual([])
+  expect(savedPayload.role_key).toBe('HOSPITAL_MANAGEMENT')
 })
 
 test('notification history switches language without losing shift data or selected period', async ({ page }) => {
@@ -347,6 +541,8 @@ test('team management displays translated labels and preserves account and depar
   await expect(dialog.getByText('test-user', { exact: true })).toBeVisible()
   await expect(dialog.locator('.account-row')).toContainText('Invitation pending')
   await expect(dialog.locator('.account-row')).toContainText('Chirurgie')
+  await expect(dialog.locator('.account-row strong').first()).toHaveCSS('font-size', '13px')
+  await expect(dialog.locator('.account-row small').first()).toHaveCSS('font-size', '11px')
   await dialog.getByLabel('First name').fill('Unverändert')
   await dialog.getByLabel('Account type / access').selectOption('EMPLOYEE')
   await expect(dialog.getByLabel('Linked person')).toContainText('Alex Beispiel')

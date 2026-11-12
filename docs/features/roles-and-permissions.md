@@ -30,4 +30,6 @@ Administratorkonten verwalten die Installation, erhalten aber keinen Zugriff auf
 
 Mitarbeitende können ihre eigenen Dienste und Abwesenheitsanfragen sehen. Die Dienstansicht „Nächste Dienste“ zeigt ihre kommenden Einsätze. Offene Besetzungslücken und Planungswarnungen werden ihnen nicht angezeigt; ihre Meldungen beziehen sich auf den Status ihrer Abwesenheitsanfragen.
 
+Leitungs-, Personal- und Arztkonten können in der Teamverwaltung optional mit einem Mitarbeitendeneintrag verknüpft werden. Dadurch erhalten sie Zugriff auf ihre eigenen Abwesenheiten, auch ohne Dienstplanzugriff; ihre sonstigen Berechtigungen bleiben unverändert. Administrator- und Kiosk-Konten können nicht verknüpft werden.
+
 Ein Administrator kann weitere Administratorkonten anlegen und je Abteilung Leitung sowie Stellvertretung zuweisen. Mitarbeitendenkonten können außerdem von Personalverantwortlichen und den für die Abteilung eingetragenen Leitungen oder Stellvertretungen verwaltet werden. Diese Abteilungsrechte gelten nur für die jeweils zugewiesene Abteilung; sie gewähren keine Rechte für andere Abteilungen oder die gesamte Einrichtung. Neue Urlaubsanträge werden berechtigten Dienstplanverantwortlichen zusätzlich als Hinweisfenster angezeigt.

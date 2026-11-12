@@ -117,10 +117,18 @@ def create_absence(
     else:
         _require_planner(principal)
         employee_id = payload.employee_id
+        if employee_id is not None and employee_id == principal.employee_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Use personal absence requests for your own absences")
         decision = "approved"
     employee = db.get(models.Employee, employee_id) if employee_id is not None else None
     if employee is None or not _in_scope(principal, employee):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    return _create_absence(db, principal, payload, employee, decision)
+
+
+def _create_absence(
+    db: Session, principal: Principal, payload: AbsenceCreate, employee: models.Employee, decision: str,
+) -> AbsenceRead:
     overlap = db.scalar(
         select(models.Absence.id).where(
             models.Absence.employee_id == employee.id,
@@ -152,6 +160,55 @@ def create_absence(
     return _read(record)
 
 
+def _own_employee(principal: Principal, db: Session) -> models.Employee:
+    employee = db.get(models.Employee, principal.employee_id) if principal.employee_id is not None else None
+    if principal.role_key in {"ADMIN", "KIOSK"} or employee is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No linked employee for personal absences")
+    return employee
+
+
+@router.get("/mine", response_model=list[AbsenceRead])
+def list_own_absences(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+) -> list[AbsenceRead]:
+    employee = _own_employee(principal, db)
+    return [_read(absence) for absence in db.scalars(
+        select(models.Absence).where(models.Absence.employee_id == employee.id).order_by(models.Absence.start_date.desc())
+    )]
+
+
+@router.post("/mine", response_model=AbsenceRead, status_code=status.HTTP_201_CREATED)
+def create_own_absence(
+    payload: AbsenceCreate,
+    principal: Principal = Depends(require_principal),
+    _: None = Depends(require_license_writable),
+    db: Session = Depends(get_db),
+) -> AbsenceRead:
+    employee = _own_employee(principal, db)
+    if payload.employee_id not in (None, employee.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only request your own absences")
+    return _create_absence(db, principal, payload, employee, "approved" if payload.kind == "sick" else "pending")
+
+
+@router.delete("/mine/{absence_id}", status_code=status.HTTP_204_NO_CONTENT)
+def withdraw_own_absence(
+    absence_id: int,
+    principal: Principal = Depends(require_principal),
+    _: None = Depends(require_license_writable),
+    db: Session = Depends(get_db),
+) -> Response:
+    employee = _own_employee(principal, db)
+    absence = db.get(models.Absence, absence_id)
+    if absence is None or absence.employee_id != employee.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Absence not found")
+    if absence.status != "pending":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only pending requests can be withdrawn")
+    db.delete(absence)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/{absence_id}/decision", response_model=AbsenceRead)
 def decide_absence(
     absence_id: int,
@@ -162,6 +219,8 @@ def decide_absence(
     absence = db.get(models.Absence, absence_id)
     if absence is None or not _in_scope(principal, absence.employee):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Absence not found")
+    if (principal.employee_id is not None and absence.employee_id == principal.employee_id) or absence.requested_by == principal.username:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot decide your own absence request")
     if absence.kind == "sick":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sick leave does not require approval")
     if absence.status != "pending":
@@ -186,7 +245,7 @@ def delete_absence(
     absence = db.get(models.Absence, absence_id)
     if absence is None or not _in_scope(principal, absence.employee):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Absence not found")
-    if principal.role_key == "EMPLOYEE":
+    if principal.role_key == "EMPLOYEE" or (principal.employee_id is not None and absence.employee_id == principal.employee_id):
         if absence.status != "pending":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only pending requests can be withdrawn")
     else:

@@ -1203,7 +1203,7 @@ def login(
     db.commit()
     remember_me = credentials.stay_signed_in or principal.role_key == "KIOSK"
     set_session_cookie(response, root.signing_key, request, subject, version, remember_me)
-    return SessionResponse(must_change_password=principal.must_change_password, **create_token_response(
+    return SessionResponse(employee_id=principal.employee_id, must_change_password=principal.must_change_password, **create_token_response(
         principal.username,
         principal.role_key,
         principal.department_id,
@@ -1217,7 +1217,7 @@ def login(
 
 @app.get("/api/auth/session", response_model=SessionResponse)
 def current_session(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)) -> SessionResponse:
-    return SessionResponse(idle_timeout_minutes=idle_timeout_minutes(db), must_change_password=principal.must_change_password, **create_token_response(
+    return SessionResponse(employee_id=principal.employee_id, idle_timeout_minutes=idle_timeout_minutes(db), must_change_password=principal.must_change_password, **create_token_response(
         principal.username,
         principal.role_key,
         principal.department_id,
@@ -1425,7 +1425,7 @@ def update_account_settings(
     db.commit()
     db.refresh(account or user)
     set_session_cookie(response, signing_key, request, subject, token_version, principal.remember_me)
-    return SessionResponse(**response_principal)
+    return SessionResponse(employee_id=principal.employee_id, **response_principal)
 
 
 def verify_department(db: Session, department_id: int | None) -> None:
@@ -1647,15 +1647,20 @@ def set_department_leader(
     return department
 
 
-def linked_employee_id(db: Session, role_key: str, employee_id: int | None, department_ids: list[int]) -> int | None:
-    if role_key != "EMPLOYEE":
+def linked_employee_id(
+    db: Session, role_key: str, employee_id: int | None, department_ids: list[int], user_id: int | None = None,
+) -> int | None:
+    if employee_id is None and role_key != "EMPLOYEE":
         return None
     employee = db.get(models.Employee, employee_id) if employee_id is not None else None
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
-    if employee.department_id not in department_ids:
+    if role_key in {"EMPLOYEE", "OBERARZT", "CHEFARZT"} and employee.department_id not in department_ids:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Employee must belong to the account's department")
-    taken = db.scalar(select(models.UserAccount.id).where(models.UserAccount.employee_id == employee.id).limit(1))
+    query = select(models.UserAccount.id).where(models.UserAccount.employee_id == employee.id)
+    if user_id is not None:
+        query = query.where(models.UserAccount.id != user_id)
+    taken = db.scalar(query.limit(1))
     if taken is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee already has an account")
     return employee.id
@@ -1867,10 +1872,7 @@ def update_user(
     for department_id in changes.department_ids:
         verify_department(db, department_id)
         require_user_department_scope(principal, department_id)
-    if changes.role_key == "EMPLOYEE" and changes.employee_id == user.employee_id and user.employee_id is not None:
-        employee_id = user.employee_id
-    else:
-        employee_id = linked_employee_id(db, changes.role_key, changes.employee_id, changes.department_ids)
+    employee_id = linked_employee_id(db, changes.role_key, changes.employee_id, changes.department_ids, user.id)
     root = get_account(db)
     if root is not None and changes.username == root.username:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username is already in use")
@@ -2241,8 +2243,11 @@ def update_employee(
     if linked_user is not None:
         linked_user.first_name = changes.first_name
         linked_user.last_name = changes.last_name
-        linked_user.department_id = changes.department_id
-        linked_user.departments = [db.get(models.Department, changes.department_id)]
+        if linked_user.role_key == "EMPLOYEE":
+            linked_user.department_id = changes.department_id
+            linked_user.departments = [db.get(models.Department, changes.department_id)]
+        elif linked_user.role_key in {"OBERARZT", "CHEFARZT"} and changes.department_id not in linked_user.department_ids:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee must belong to the account's department")
     db.commit()
     db.refresh(employee)
     return employee
