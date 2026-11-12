@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BackupPanel from './BackupPanel.vue'
+import DateInput from './DateInput.vue'
 import PasswordInput from './PasswordInput.vue'
 import LanguageSelector from './LanguageSelector.vue'
 import { locale, t, type TranslationKey } from './i18n'
@@ -2914,7 +2915,7 @@ onBeforeUnmount(() => {
     <aside class="sidebar">
       <a class="brand" href="#"><span class="brand-mark small">C</span><span class="brand-text">Clinic<span class="brand-light">Pulse</span></span></a>
       <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')" :title="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')" @click="toggleSidebar">{{ sidebarCollapsed ? '»' : '«' }}</button>
-      <div v-if="hasScheduleAccess && canManage && roleKey !== 'PERSONNEL'" class="plan-nav-list">
+      <div v-if="hasScheduleAccess && (canManage || canManageDepartment) && roleKey !== 'PERSONNEL'" class="plan-nav-list">
         <p class="nav-caption">{{ t('nav.schedules') }}</p>
         <button v-if="canManage" class="nav-item plan-nav-item" :title="t('nav.allSchedules')" :class="{ active: selectedPlanId === null }" @click="selectPlan(null)"><span>▦</span> {{ t('nav.allSchedules') }}</button>
         <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
@@ -2955,7 +2956,7 @@ onBeforeUnmount(() => {
         <div class="breadcrumb">{{ t('nav.workspaceLabel') }} <span>/</span> <strong>{{ showDashboard ? t('dashboard.title') : selectedPlanName }}</strong><template v-if="!showDashboard"><span>/</span>{{ selectedDay ? t('nav.dayView') : t('nav.weekView') }}</template></div>
         <div class="topbar-right">
           <LanguageSelector compact />
-          <select v-if="hasScheduleAccess" class="mobile-plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
+          <select v-if="hasScheduleAccess && (departments.length > 1 || canManage)" class="plan-selector" :value="selectedPlanId ?? (canManage ? 'all' : (departments[0]?.id ?? 'all'))" :aria-label="t('nav.selectSchedule')" @change="selectPlan(($event.target as HTMLSelectElement).value === 'all' ? null : Number(($event.target as HTMLSelectElement).value))">
             <option v-if="canManage" value="all">{{ t('nav.allSchedules') }}</option>
             <option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option>
           </select>
@@ -3093,7 +3094,7 @@ onBeforeUnmount(() => {
             </select>
           </label>
           <label>{{ t('planning.date') }}
-            <input v-model="planningAnchor" type="date" />
+            <DateInput v-model="planningAnchor" :label="t('planning.period')" />
           </label>
           <p class="muted">{{ new Date(`${planningPeriod.start}T12:00:00`).toLocaleDateString(locale) }} – {{ new Date(`${planningPeriod.end}T12:00:00`).toLocaleDateString(locale) }} · {{ selectedPlanName }}</p>
           <button class="primary" :disabled="planningBusy || !shiftTypes.length" @click="void proposePlanning()">
@@ -3136,7 +3137,7 @@ onBeforeUnmount(() => {
           <form class="stack absence-form" @submit.prevent="submitAbsence">
               <label v-if="absenceMode === 'team'">{{ t('absence.employee') }}<select v-model="absenceEmployeeId" required><option v-for="employee in employees.filter((item) => item.id !== sessionEmployeeId)" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
               <label>{{ t('absence.kind') }}<select v-model="absenceKind"><option value="vacation">{{ t('absence.vacation') }}</option><option value="sick">{{ t('absence.sick') }}</option><option value="other">{{ t('absence.other') }}</option></select></label>
-              <div class="form-row"><label>{{ t('absence.from') }}<input v-model="absenceStart" type="date" required /></label><label>{{ t('absence.to') }}<input v-model="absenceEnd" type="date" :min="absenceStart" required /></label></div>
+              <div class="form-row"><label>{{ t('absence.from') }}<DateInput v-model="absenceStart" :label="t('absence.from')" required /></label><label>{{ t('absence.to') }}<DateInput v-model="absenceEnd" :label="t('absence.to')" :min="absenceStart" required /></label></div>
               <label>{{ t('absence.optionalNote') }}<input v-model="absenceNote" maxlength="500" /></label>
               <p v-if="absenceKind === 'sick'" class="muted">{{ t('absence.sickNotice') }}</p>
             <button class="primary full">{{ absenceMode === 'own' && absenceKind !== 'sick' ? t('absence.submit') : absenceKind === 'sick' && absenceMode === 'own' ? t('absence.reportSick') : t('absence.record') }}</button>
@@ -3424,7 +3425,7 @@ onBeforeUnmount(() => {
           <p class="muted">{{ t('archive.description') }}</p>
           <form v-if="canEditPlan" class="stack" @submit.prevent="createArchive">
             <label>{{ t('form.department') }}<select v-model="archiveDepartmentId" required><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
-            <div class="form-row"><label>{{ t('absence.from') }}<input v-model="archiveStart" type="date" required /></label><label>{{ t('absence.to') }}<input v-model="archiveEnd" type="date" :min="archiveStart" required /></label></div>
+            <div class="form-row"><label>{{ t('absence.from') }}<DateInput v-model="archiveStart" :label="t('absence.from')" required /></label><label>{{ t('absence.to') }}<DateInput v-model="archiveEnd" :label="t('absence.to')" :min="archiveStart" required /></label></div>
             <label>{{ t('absence.optionalNote') }}<input v-model="archiveNote" maxlength="200" /></label>
             <button class="primary full">{{ t('archive.create') }}</button>
           </form>
@@ -3445,7 +3446,7 @@ onBeforeUnmount(() => {
             <label>{{ t('form.firstName') }}<input v-model="profileFirstName" maxlength="80" required /></label>
             <label>{{ t('form.lastName') }}<input v-model="profileLastName" maxlength="80" required /></label>
             <template v-if="roleKey !== 'ADMIN'">
-              <label>{{ t('management.birthDate') }}<input v-model="profileBirthDate" type="date" /></label>
+              <label>{{ t('management.birthDate') }}<DateInput v-model="profileBirthDate" :label="t('management.birthDate')" /></label>
               <label>{{ t('management.address') }}<input v-model="profileAddress" maxlength="300" autocomplete="street-address" /></label>
               <label>{{ t('management.phone') }}<input v-model="profilePhone" type="tel" maxlength="50" /></label>
             </template>
@@ -3529,7 +3530,7 @@ onBeforeUnmount(() => {
           <form class="stack" @submit.prevent="submitAssignment">
             <label>{{ t('form.employee') }}<select v-model="selectedEmployee" required><option v-for="employee in assignableEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }} · {{ employee.role }}</option></select></label>
             <label>{{ t('form.shiftType') }}<select v-model="selectedShift" required><option v-for="shift in displayShifts.filter((item) => vehicleOf(item)?.is_active !== false)" :key="shift.id" :value="String(shift.id)">{{ shiftTitle(shift) }} · {{ staffingSummary(shift) }} ({{ shift.start_time.slice(0, 5) }}–{{ shift.end_time.slice(0, 5) }})</option></select></label>
-            <label>{{ t('form.date') }}<input v-model="selectedDate" type="date" required /></label>
+            <label>{{ t('form.date') }}<DateInput v-model="selectedDate" :label="t('form.date')" required /></label>
             <p v-if="!assignableEmployees.length" class="muted">{{ t('form.noQualifiedEmployees') }}</p>
             <button class="primary full" :disabled="!assignableEmployees.length">{{ t('form.saveAssignment') }}</button>
           </form>
@@ -3621,7 +3622,7 @@ onBeforeUnmount(() => {
               <label>{{ t('form.lastName') }}<input v-model="userLastName" maxlength="80" required /></label>
               <label>{{ t('auth.username') }}<input v-model="userName" minlength="3" maxlength="64" required /></label>
               <details class="optional-details"><summary>{{ t('management.optionalDetails') }}</summary>
-                <label>{{ t('management.birthDate') }}<input v-model="userBirthDate" type="date" /></label>
+                <label>{{ t('management.birthDate') }}<DateInput v-model="userBirthDate" :label="t('management.birthDate')" /></label>
                 <label>{{ t('management.address') }}<input v-model="userAddress" maxlength="300" autocomplete="street-address" /></label>
                 <label>{{ t('management.phone') }}<input v-model="userPhone" type="tel" maxlength="50" /></label>
               </details>
@@ -3686,12 +3687,22 @@ onBeforeUnmount(() => {
             <h3>{{ t('mail.title') }}</h3>
             <p class="muted">{{ t('mail.description') }}</p>
             <form class="stack" @submit.prevent="void saveMailMode()">
-              <label class="permission-toggle"><input v-model="mailModeDraft" type="checkbox" @change="mailModeSaved = false" /> {{ t('mail.enableDelivery') }}</label>
-              <p class="muted">{{ t('mail.disabledDescription') }}</p>
+              <div class="mail-mode-control">
+                <span>{{ t('mail.enableDelivery') }}</span>
+                <button
+                  class="switch-control"
+                  type="button"
+                  role="switch"
+                  :aria-checked="mailModeDraft"
+                  :aria-label="t('mail.enableDelivery')"
+                  @click="mailModeDraft = !mailModeDraft; mailModeSaved = false"
+                ><span class="switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <p v-if="!mailModeDraft" class="muted">{{ t('mail.disabledDescription') }}</p>
               <div class="form-row"><button class="secondary">{{ t('mail.saveMode') }}</button><span v-if="mailModeSaved" class="muted">{{ t('settings.saved') }}</span></div>
             </form>
-            <p v-if="mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? t('mail.configured') : t('mail.notConfigured') }}</strong> · {{ t('mail.password') }}: <strong>{{ mailSettings.smtp_password_configured ? t('mail.saved') : t('mail.notSaved') }}</strong></p>
-            <form v-if="mailEnabled" class="stack" @submit.prevent="void saveMailSettings()">
+            <p v-if="mailModeDraft && mailSettingsLoaded" class="muted">SMTP: <strong>{{ mailSettings.smtp_host ? t('mail.configured') : t('mail.notConfigured') }}</strong> · {{ t('mail.password') }}: <strong>{{ mailSettings.smtp_password_configured ? t('mail.saved') : t('mail.notSaved') }}</strong></p>
+            <form v-if="mailModeDraft" class="stack" @submit.prevent="void saveMailSettings()">
               <label>{{ t('mail.publicUrl') }}<input v-model="mailSettings.public_url" type="url" placeholder="https://dienstplan.klinik.example" required /></label>
               <div class="form-row">
                 <label>{{ t('mail.server') }}<input v-model="mailSettings.smtp_host" maxlength="255" autocomplete="off" required /></label>
@@ -3705,7 +3716,7 @@ onBeforeUnmount(() => {
               <label v-if="!mailSettings.use_ssl" class="permission-toggle"><input v-model="mailSettings.use_starttls" type="checkbox" /> {{ t('mail.starttls') }}</label>
               <div class="form-row"><button class="primary">{{ t('mail.save') }}</button><span v-if="mailSettingsMessage" class="muted">{{ t('mail.settingsSaved') }}</span></div>
             </form>
-            <form v-if="mailEnabled" class="stack" @submit.prevent="void testMailDelivery()">
+            <form v-if="mailModeDraft" class="stack" @submit.prevent="void testMailDelivery()">
               <h4>{{ t('mail.test') }}</h4>
               <label>{{ t('mail.testAddress') }}<input v-model="mailTestRecipient" type="email" maxlength="254" required /></label>
               <div class="form-row"><button class="secondary" :disabled="mailTestBusy">{{ mailTestBusy ? t('mail.sending') : t('mail.saveAndTest') }}</button><span v-if="mailTestRecipientSent" class="muted" role="status">{{ t('mail.testSent', { recipient: mailTestRecipientSent }) }}</span></div>
