@@ -19,6 +19,27 @@ gehören in beide Kataloge und werden mit `t('bereich.schluessel')` aus
 `{count}` und `t('schluessel', { count })` eingefügt. Die Texte werden als
 normaler Text gerendert, nicht als HTML.
 
+### Begriffe je Einrichtungsart
+
+Die Bezeichnung der Organisationseinheit hängt von der Einrichtungsart ab
+(Abteilung, Standort, Leitstelle oder frei gewählt). Texte, die diese Bezeichnung
+enthalten, verwenden deshalb Platzhalter statt des festen Worts. Sie werden in
+`frontend/src/i18n/terms.ts` aufgelöst, ohne dass beim Aufruf von `t` Werte
+übergeben werden müssen. Ein großer erster Buchstabe im Platzhalter schreibt das
+Ergebnis groß (`{Unit}` statt `{unit}`).
+
+| Deutsch                                                                 | Englisch                              |
+| ----------------------------------------------------------------------- | ------------------------------------- |
+| `{unit}`, `{units}`: Einzahl, Mehrzahl                                  | `{unit}`, `{units}`; klein `{unitl}`, `{unitsl}` |
+| `{unitc}`, `{unitcl}`: Wortbestandteil („Abteilungs“ für `…leitung`)    | –                                     |
+| `{unith}`: „Hauptabteilung“                                             | –                                     |
+| Mit Artikel je Fall: `{the_unit}`, `{the_unith}`, `{a_unit}`, `{a_unit_nom}`, `{your_unit}`, `{your_own_unit}`, `{your_unit_dat}`, `{my_unit}`, `{this_unit}`, `{this_unit_gen}`, `{no_unit}`, `{no_unit_dat}`, `{the_same_unit_dat}`, `{to_unit}`, `{a_smaller_unit}` | `{a_unit}` („a/an …“)                 |
+
+Die deutschen Artikel richten sich nach dem grammatischen Geschlecht der Bezeichnung
+(bei „Sonstige“ vom Administrator gewählt). Neue Texte mit der Organisationseinheit
+sollen diese Platzhalter nutzen; der Katalogtest prüft, dass jeder Platzhalter für
+seine Sprache definiert ist, und ignoriert sie beim Abgleich der Sprachen.
+
 `locale` ist eine reaktive Vue-Referenz. Die Einstellung wird unter
 `clinicpulse-locale` lokal im Browser gespeichert und setzt das `lang`-Attribut
 des Dokuments. Deutsch bleibt die Standardeinstellung; unbekannte Werte werden

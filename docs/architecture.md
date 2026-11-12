@@ -14,12 +14,13 @@ Das Netzwerk `database` ist als `internal` konfiguriert: Die Datenbank ist nicht
 
 | Modul                                | Inhalt                                         |
 | ------------------------------------ | ---------------------------------------------- |
-| `main.py`, `schemas.py`, `models.py` | API, Validierung, Datenmodell                  |
+| `main.py`, `schemas.py`, `models.py` | API, Validierung, Datenmodell (u. a. Mehrfach-Abteilungen, Fahrzeuge) |
 | `database.py`, `encrypted.py`        | Datenbankzugriff und Verschlüsselung           |
 | `security.py`, `login_throttle.py`   | Authentifizierung, Schutz vor Brute-Force      |
-| `role_catalog.py`                    | Rollen und Funktionen je Einrichtungsart       |
+| `role_catalog.py`                    | Rollen, Funktionen und Struktur je Einrichtungsart |
 | `absences.py`, `invitations.py`      | Abwesenheiten und Einladungen                  |
 | `optimizer.py`, `plan_archive.py`    | Planungsvorschläge und Archiv                  |
+| `staffing.py`                        | Qualifikationsabgleich zwischen Personen und Schichtanforderungen |
 | `work_rules.py`, `regional_calendar.py` | Arbeits- und Ruhezeitprüfungen, Feiertage   |
 | `backup_*.py`                        | Verschlüsselte Sicherung und Wiederherstellung |
 | `license_manager.py`, `licensing.py` | Lizenzprüfung                                  |

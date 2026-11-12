@@ -37,6 +37,18 @@ Er benötigt Docker Compose v2, `curl`, `openssl`, Python 3 und einen freien
 lokalen TCP-Port. Der Test verwendet ein eigenes Compose-Projekt und räumt seine
 Container, sein Volume und temporäre Schlüsseldateien anschließend wieder auf.
 
+### Datenschutz-Tests
+
+Die Datenschutz-Prüfungen (`tests/backend/test_privacy.py`, Markierung `privacy`) laufen im
+normalen Backend-Lauf mit und zusätzlich als eigener Workflow „Datenschutz“, der als
+Pflicht-Check vorgesehen ist. Einzeln:
+
+```sh
+./tests/run-tests.sh -m privacy
+```
+
+Beschreibung und Einrichtung des Pflicht-Checks: [Datenschutz-Prüfungen](docs/development/privacy-checks.md).
+
 ## Frontend
 
 Build und Browser-Tests:

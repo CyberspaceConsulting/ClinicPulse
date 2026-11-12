@@ -14,6 +14,16 @@ Neue Passwörter können gegen „Have I Been Pwned“ geprüft werden. Dabei wi
 
 Sensible Daten werden mit dem Schlüssel aus `secrets/data_encryption_key` verschlüsselt. Backups sind zusätzlich nur mit einem Wiederherstellungsschlüssel lesbar, siehe [Backup](backup.md). Die Datenbank liegt in einem internen Docker-Netzwerk.
 
+## Datenschutz im Betrieb
+
+- API-Antworten werden mit `Cache-Control: no-store` ausgeliefert und landen nicht in Browser- oder Proxy-Caches.
+- Personenbezogene Felder (Namen, E-Mail, Telefon, Adresse, Geburtsdatum, Abwesenheitsnotizen) liegen nur verschlüsselt in der Datenbank; Logs und Audit-Protokoll enthalten keine Passwörter oder Personendaten.
+- Beschäftigte sehen nur eigene Daten. Bei Personen in mehreren Abteilungen sehen andere Abteilungen weder fremde Qualifikationen noch Notizen oder Entscheidungsdaten von Abwesenheiten.
+- Der Browser speichert nur nicht personenbezogene Einstellungen (Sprache, Darstellung, Hinweisstatus).
+- Bekannte Ausnahme: Benutzername und Notiz eines Archiv-Eintrags (`plan_archives.created_by`, `plan_archives.note`) liegen noch im Klartext.
+
+Diese Zusagen prüft der Pflicht-Check „Datenschutz“ bei jeder Änderung automatisch, siehe [Datenschutz-Prüfungen](../development/privacy-checks.md). Er ersetzt keine unabhängige Datenschutzprüfung.
+
 ## Berechtigungen
 
 Alle Endpunkte prüfen serverseitig Rolle, Abteilung und Recht (Ansehen, Bearbeiten, Freigeben, Verwalten). Siehe [Rollen und Berechtigungen](roles-and-permissions.md).
