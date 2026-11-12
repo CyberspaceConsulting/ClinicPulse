@@ -24,6 +24,8 @@ def installer_environment(tmp_path, *, checksum=None, docker_failure=""):
     (bin_dir / "docker").write_text(
         """#!/bin/sh
 printf "%s\\n" "$*" >> "$DOCKER_LOG"
+printf "%s|%s\\n" "$PWD" "$*" >> "$DOCKER_CWD_LOG"
+printf "%s|%s\\n" "$PWD" "${COMPOSE_ENV_FILES:-}" >> "$DOCKER_ENV_FILES_LOG"
 [ "$*" != "$DOCKER_FAIL_ON" ] || exit 23
 """,
         encoding="utf-8",
@@ -55,6 +57,8 @@ esac
     environment.update({
         "PATH": f"{bin_dir}:{environment['PATH']}",
         "DOCKER_LOG": str(tmp_path / "docker.log"),
+        "DOCKER_CWD_LOG": str(tmp_path / "docker-cwd.log"),
+        "DOCKER_ENV_FILES_LOG": str(tmp_path / "docker-env-files.log"),
         "DOCKER_FAIL_ON": docker_failure,
         "RELEASE_FIXTURES": str(fixtures),
     })
@@ -88,7 +92,8 @@ def test_piped_installer_downloads_verifies_and_starts_release(tmp_path):
     assert "http://localhost:8080" in result.stdout
 
 
-def test_source_installer_builds_local_compose_without_downloading_release(tmp_path):
+@pytest.mark.parametrize("with_dotenv, fail_build, with_env_files", [(False, False, False), (True, False, False), (False, True, False), (True, False, True)])
+def test_source_installer_builds_local_compose_without_downloading_release(tmp_path, with_dotenv, fail_build, with_env_files):
     environment, _ = installer_environment(tmp_path)
     repository = tmp_path / "repository"
     deploy_dir = repository / "deploy"
@@ -101,6 +106,19 @@ def test_source_installer_builds_local_compose_without_downloading_release(tmp_p
     source_compose = docker_dir / "docker-compose.yml"
     source_compose.write_text("services:\n  web:\n    build: ../frontend\n", encoding="utf-8")
     install_dir = tmp_path / "installation"
+    environment.pop("COMPOSE_ENV_FILES", None)
+    if with_dotenv:
+        install_dir.mkdir()
+        (install_dir / ".env").write_text("CLINICPULSE_PORT=9090\n", encoding="utf-8")
+    if with_env_files:
+        (install_dir / "custom.env").write_text("CLINICPULSE_PORT=9091\n", encoding="utf-8")
+        environment["COMPOSE_ENV_FILES"] = "custom.env"
+    env_file = install_dir / ".env" if with_dotenv else Path("/dev/null")
+    build_command = (f"compose --file {source_compose} build" if with_env_files else
+                     f"compose --env-file {env_file} --file {source_compose} build")
+    start_command = f"compose --file {source_compose} up --no-build -d"
+    if fail_build:
+        environment["DOCKER_FAIL_ON"] = build_command
 
     result = subprocess.run(
         ["sh", str(installer), str(install_dir)],
@@ -111,11 +129,23 @@ def test_source_installer_builds_local_compose_without_downloading_release(tmp_p
         check=False,
     )
 
+    docker_commands = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
+    assert build_command in docker_commands
+    docker_cwds = (tmp_path / "docker-cwd.log").read_text(encoding="utf-8").splitlines()
+    assert f"{repository}|{build_command}" in docker_cwds
+    if with_env_files:
+        env_logs = (tmp_path / "docker-env-files.log").read_text(encoding="utf-8").splitlines()
+        assert f"{repository}|{install_dir / 'custom.env'}" in env_logs
+    if fail_build:
+        assert result.returncode == 23
+        assert start_command not in docker_commands
+        assert "ClinicPulse is starting" not in result.stdout
+        return
     assert result.returncode == 0, result.stderr
     assert "Using the local source checkout" in result.stdout
     assert not (install_dir / "secrets").exists()
-    docker_commands = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
-    assert f"compose --file {source_compose} up --build -d" in docker_commands
+    assert start_command in docker_commands
+    assert f"{install_dir}|{start_command}" in docker_cwds
     assert "compose pull" not in docker_commands
     assert not (install_dir / "compose.yaml").exists()
 

@@ -129,9 +129,32 @@ import_secret() {
 
 if [ -n "$source_compose" ]; then
   export CLINICPULSE_BACKUP_HOST_DIR="$target/backups"
-  if [ -n "$legacy_key" ] || [ -s "$legacy_smtp" ]; then
-    compose build backend
-  fi
+  (
+    if [ -n "${COMPOSE_ENV_FILES:-}" ]; then
+      resolved_env_files=""
+      saved_ifs="$IFS"
+      IFS=,
+      set -f
+      for env_file in $COMPOSE_ENV_FILES; do
+        case "$env_file" in
+          /*) ;;
+          *) env_file="$target/$env_file" ;;
+        esac
+        resolved_env_files="${resolved_env_files:+$resolved_env_files,}$env_file"
+      done
+      IFS="$saved_ifs"
+      export COMPOSE_ENV_FILES="$resolved_env_files"
+    fi
+    cd "$here/.."
+    if [ -n "${COMPOSE_ENV_FILES:-}" ]; then
+      docker compose --file "$source_compose" build
+    elif [ -f "$target/.env" ] && [ "${COMPOSE_DISABLE_ENV_FILE:-0}" != 1 ] && \
+      [ "${COMPOSE_DISABLE_ENV_FILE:-false}" != true ]; then
+      docker compose --env-file "$target/.env" --file "$source_compose" build
+    else
+      docker compose --env-file /dev/null --file "$source_compose" build
+    fi
+  )
 else
   compose pull
 fi
@@ -144,7 +167,7 @@ if [ -s "$legacy_smtp" ]; then
   echo "Imported the existing SMTP password without deleting the original."
 fi
 if [ -n "$source_compose" ]; then
-  compose up --build -d
+  compose up --no-build -d
 else
   compose up -d
 fi
