@@ -1174,6 +1174,6 @@ test('nicht erreichbare API zeigt eine Fehlermeldung statt leerer Plan-Daten', a
 
   await page.reload()
 
-  await expect(page.locator('.toast.toast-error')).toContainText('Failed to fetch')
+  await expect(page.locator('.toast.toast-error')).toContainText(/Failed to fetch|NetworkError when attempting to fetch resource/)
   await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
 })
