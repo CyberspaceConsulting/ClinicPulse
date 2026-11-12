@@ -6,8 +6,8 @@ import LanguageSelector from './LanguageSelector.vue'
 import { locale, t, type TranslationKey } from './i18n'
 import { ApiError, TranslatedError, apiErrorDetail, errorMessage } from './i18n/apiErrors'
 
-type DepartmentQualification = { id: number; name: string; leadership_eligible: boolean }
-type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; qualifications?: DepartmentQualification[]; profile_image_data?: string | null }
+type DepartmentQualification = { id: number; name: string; leadership_eligible: boolean; department_id?: number }
+type Employee = { id: number; name: string; first_name?: string | null; last_name?: string | null; role: string; department_id: number | null; additional_department_ids?: number[]; qualifications?: DepartmentQualification[]; profile_image_data?: string | null }
 type EmployeeOnboardResult = { employee: Employee; invitation_status: string | null }
 type Department = { id: number; name: string; manager_user_id?: number | null; deputy_user_id?: number | null; qualifications?: DepartmentQualification[] }
 type BusinessConfiguration = {
@@ -133,6 +133,7 @@ type OptimizationSuggestion = {
   shift_type_id: number
   shift_name: string
   role_match: boolean
+  positions?: string[]
   starts_at: string
   ends_at: string
 }
@@ -373,8 +374,19 @@ function catalogFunctionLabel(value: string) {
   return key ? t(key) : value
 }
 const employeeDepartmentId = ref('')
+const employeeAdditionalDepartmentIds = ref<number[]>([])
+const employeeFormDepartments = computed(() => {
+  const ids = [Number(employeeDepartmentId.value), ...employeeAdditionalDepartmentIds.value]
+  return ids.flatMap((id) => departments.value.filter((department) => department.id === id))
+})
+// Only the home department may change name and home department of a shared employee.
+const employeeHomeEditable = computed(() =>
+  employeeId.value === null || departments.value.some((department) => String(department.id) === employeeDepartmentId.value))
 const selectedDepartmentQualifications = computed(() =>
-  departments.value.find((department) => String(department.id) === employeeDepartmentId.value)?.qualifications ?? [],
+  employeeFormDepartments.value.flatMap((department) =>
+    (department.qualifications ?? []).map((qualification) => ({
+      ...qualification, department_id: department.id, departmentName: department.name,
+    }))),
 )
 const selectedEmployeeQualifications = computed(() =>
   selectedDepartmentQualifications.value.filter((qualification) =>
@@ -712,6 +724,21 @@ function absenceDepartment(absence: Absence) {
   return departments.value.find((department) => department.id === employee?.department_id)?.name ?? t('management.noDepartment')
 }
 
+function employeeDepartmentIds(employee: Employee | undefined) {
+  if (!employee) return []
+  return [
+    ...(employee.department_id === null ? [] : [employee.department_id]),
+    ...(employee.additional_department_ids ?? []),
+  ]
+}
+
+function employeeDepartmentNames(employee: Employee) {
+  return employeeDepartmentIds(employee)
+    .map((id) => departments.value.find((item) => item.id === id)?.name)
+    .filter(Boolean)
+    .join(', ') || t('management.noDepartment')
+}
+
 let apiAbortController = new AbortController()
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -826,7 +853,8 @@ async function loadData() {
     }
     const inSelectedPlan = (departmentId: number | null) =>
       selectedPlanId.value === null || departmentId === selectedPlanId.value
-    employees.value = allStaff.filter((employee) => inSelectedPlan(employee.department_id))
+    employees.value = allStaff.filter((employee) =>
+      selectedPlanId.value === null || employeeDepartmentIds(employee).includes(selectedPlanId.value))
     shiftTypes.value = allShifts.filter((shift) => inSelectedPlan(shift.department_id))
     const shiftIds = new Set(shiftTypes.value.map((shift) => shift.id))
     assignments.value = allAssignments.filter((assignment) => shiftIds.has(assignment.shift_type_id))
@@ -1710,15 +1738,18 @@ function applyTheme(value: string) {
 async function submitEmployee() {
   try {
     const qualifications = selectedEmployeeQualifications.value
-    if (!qualifications.length) {
+    if (!qualifications.length && employeeHomeEditable.value) {
       error.value = new TranslatedError('form.noQualifiedEmployees')
       return
     }
+    const homeQualification = qualifications.find((qualification) =>
+      String(qualification.department_id) === employeeDepartmentId.value) ?? qualifications[0]
     const body = {
         first_name: employeeFirstName.value.trim(),
         last_name: employeeLastName.value.trim(),
-        role: qualifications[0]?.name ?? '',
+        role: homeQualification?.name ?? '',
         department_id: Number(employeeDepartmentId.value),
+        additional_department_ids: employeeAdditionalDepartmentIds.value.filter((id) => String(id) !== employeeDepartmentId.value),
         qualification_ids: employeeQualificationIds.value,
         create_account: employeeCreateAccount.value,
         username: employeeCreateAccount.value ? employeeLoginUsername.value.trim() : null,
@@ -1740,6 +1771,7 @@ async function submitEmployee() {
     employeeRole.value = defaultEmployeeRole.value
     employeeCustomRole.value = ''
     employeeQualificationIds.value = []
+    employeeAdditionalDepartmentIds.value = []
     employeeCreateAccount.value = false
     employeeLoginUsername.value = ''
     employeeEmail.value = ''
@@ -1766,6 +1798,7 @@ function editEmployee(employee: Employee) {
   employeeRole.value = employeeQualifications(employee)[0]?.name ?? employee.role
   employeeCustomRole.value = ''
   employeeDepartmentId.value = employee.department_id === null ? '' : String(employee.department_id)
+  employeeAdditionalDepartmentIds.value = [...(employee.additional_department_ids ?? [])]
   employeeQualificationIds.value = employeeQualifications(employee).map((qualification) => qualification.id)
   employeeCreateAccount.value = false
   showEmployeeForm.value = true
@@ -1778,6 +1811,7 @@ function newEmployee() {
   employeeRole.value = defaultEmployeeRole.value
   employeeCustomRole.value = ''
   employeeDepartmentId.value = String(selectedPlanId.value ?? departments.value[0]?.id ?? '')
+  employeeAdditionalDepartmentIds.value = []
   employeeQualificationIds.value = selectedDepartmentQualifications.value.slice(0, 1).map((qualification) => qualification.id)
   employeeCreateAccount.value = false
   employeeLoginUsername.value = ''
@@ -1899,6 +1933,7 @@ function openPositionsFor(date: string, shift: ShiftType) {
       employeeHasQualification(
         employees.value.find((employee) => employee.id === assignment.employee_id),
         requirement.position,
+        shift.department_id,
       ))
     return Array.from(
       { length: Math.max(0, requirement.required_staff - matching.length) },
@@ -1907,16 +1942,19 @@ function openPositionsFor(date: string, shift: ShiftType) {
   })
 }
 
-function employeeHasQualification(employee: Employee | undefined, position: string) {
+function employeeHasQualification(employee: Employee | undefined, position: string, departmentId?: number | null) {
   const expected = position.trim().toLocaleLowerCase()
-  const qualifications = employeeQualifications(employee)
-  return employee !== undefined && (qualifications.length
+  const qualifications = employeeQualifications(employee, departmentId)
+  return employee !== undefined && (employeeQualifications(employee).length
     ? qualifications.some((qualification) => qualification.name.trim().toLocaleLowerCase() === expected)
     : employee.role.trim().toLocaleLowerCase() === expected)
 }
 
-function employeeQualifications(employee: Employee | undefined) {
-  return employee?.qualifications ?? []
+function employeeQualifications(employee: Employee | undefined, departmentId?: number | null) {
+  const qualifications = employee?.qualifications ?? []
+  return departmentId === undefined || departmentId === null
+    ? qualifications
+    : qualifications.filter((qualification) => qualification.department_id === undefined || qualification.department_id === departmentId)
 }
 
 const selectedAssignmentShift = computed(() =>
@@ -1925,23 +1963,32 @@ const selectedAssignmentShift = computed(() =>
 const assignableEmployees = computed(() => {
   const shift = selectedAssignmentShift.value
   if (!shift) return employees.value
+  const members = shift.department_id === null || shift.department_id === undefined
+    ? employees.value
+    : employees.value.filter((employee) => employeeDepartmentIds(employee).includes(shift.department_id as number))
   const requirements = requirementsFor(shift)
   if (
     requirements.length === 1
     && requirements[0].position.trim().toLocaleLowerCase() !== 'oberarzt'
-  ) return employees.value
+  ) return members.filter((employee) => employeeHasQualification(employee, requirements[0].position, shift.department_id))
   const openPositions = openPositionsFor(selectedDate.value, shift)
   const position = selectedAssignmentPosition.value && openPositions.includes(selectedAssignmentPosition.value)
     ? selectedAssignmentPosition.value
     : openPositions[0]
   return position
-    ? employees.value.filter((employee) => employeeHasQualification(employee, position))
+    ? members.filter((employee) => employeeHasQualification(employee, position, shift.department_id))
     : []
 })
 watch(assignableEmployees, (available) => {
   if (!available.some((employee) => String(employee.id) === selectedEmployee.value)) {
     selectedEmployee.value = available[0] ? String(available[0].id) : ''
   }
+})
+
+watch(employeeFormDepartments, (selected) => {
+  const selectedIds = new Set(selected.flatMap((department) => (department.qualifications ?? []).map((item) => item.id)))
+  const knownIds = new Set(departments.value.flatMap((department) => (department.qualifications ?? []).map((item) => item.id)))
+  employeeQualificationIds.value = employeeQualificationIds.value.filter((id) => selectedIds.has(id) || !knownIds.has(id))
 })
 
 function openStaffingCount(date: string, shift: ShiftType) {
@@ -1957,7 +2004,7 @@ function staffingSummary(shift: ShiftType) {
 function assignmentPosition(assignment: Assignment, shift: ShiftType) {
   const employee = employees.value.find((item) => item.id === assignment.employee_id)
   return requirementsFor(shift).find((item) =>
-    employeeHasQualification(employees.value.find((employee) => employee.id === assignment.employee_id), item.position))?.position
+    employeeHasQualification(employees.value.find((employee) => employee.id === assignment.employee_id), item.position, shift.department_id))?.position
     ?? employee?.qualifications?.[0]?.name
     ?? employee?.role
     ?? shift.position
@@ -2397,7 +2444,7 @@ function removeDepartmentQualification(department: Department, qualification: De
 function eligibleDepartmentLeaders(department: Department) {
   const qualifications = department.qualifications ?? []
   const eligibleEmployeeIds = new Set(allEmployees.value
-    .filter((employee) => employee.department_id === department.id && employeeQualifications(employee).some((qualification) =>
+    .filter((employee) => employeeDepartmentIds(employee).includes(department.id) && employeeQualifications(employee, department.id).some((qualification) =>
       qualification.leadership_eligible))
     .map((employee) => employee.id))
   const seniorRole = qualifications.find((qualification) =>
@@ -2885,7 +2932,7 @@ onBeforeUnmount(() => {
             <h3>{{ dateLabel(day.target_date) }}</h3>
             <p v-for="suggestion in day.suggestions" :key="`${suggestion.shift_type_id}-${suggestion.employee_id}`" class="planning-line">
               <strong>{{ suggestion.employee_name }}</strong> · {{ suggestion.shift_name }}
-              <small>{{ timeLabel(suggestion.starts_at) }}–{{ timeLabel(suggestion.ends_at) }}{{ suggestion.role_match ? '' : t('planning.roleMismatch') }}</small>
+              <small>{{ timeLabel(suggestion.starts_at) }}–{{ timeLabel(suggestion.ends_at) }}{{ (suggestion.positions?.length ?? 0) > 1 ? ` · ${suggestion.positions?.join(' + ')}` : '' }}{{ suggestion.role_match ? '' : t('planning.roleMismatch') }}</small>
             </p>
             <p v-for="(slot, index) in day.unfilled_slots" :key="`gap-${slot.shift_type_id}-${index}`" class="planning-line planning-gap">
               {{ t('planning.unfilled', { shift: slot.shift_name, position: slot.position }) }}
@@ -3247,11 +3294,16 @@ onBeforeUnmount(() => {
         <template v-else-if="showEmployeeForm">
           <p class="eyebrow">{{ t('form.teamManagement') }}</p><h2>{{ employeeId ? t('form.editEmployee') : t('form.createEmployee') }}</h2>
           <form class="stack" @submit.prevent="submitEmployee">
-            <label>{{ t('form.firstName') }}<input v-model="employeeFirstName" maxlength="80" required autofocus /></label>
-            <label>{{ t('form.lastName') }}<input v-model="employeeLastName" maxlength="80" required /></label>
-            <label>{{ t('form.department') }}<select v-model="employeeDepartmentId" required @change="employeeQualificationIds = []"><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
-            <fieldset class="department-picker"><legend>{{ t('management.qualificationsForDepartment', { department: departments.find((department) => String(department.id) === employeeDepartmentId)?.name ?? '' }) }}</legend>
-              <label v-for="qualification in selectedDepartmentQualifications" :key="qualification.id" class="permission-toggle"><input v-model="employeeQualificationIds" type="checkbox" :value="qualification.id" /> {{ qualification.name }}</label>
+            <label>{{ t('form.firstName') }}<input v-model="employeeFirstName" maxlength="80" required autofocus :disabled="!employeeHomeEditable" /></label>
+            <label>{{ t('form.lastName') }}<input v-model="employeeLastName" maxlength="80" required :disabled="!employeeHomeEditable" /></label>
+            <label>{{ t('form.department') }}<select v-model="employeeDepartmentId" required :disabled="!employeeHomeEditable" @change="employeeQualificationIds = []; employeeAdditionalDepartmentIds = employeeAdditionalDepartmentIds.filter((id) => String(id) !== employeeDepartmentId)"><option v-for="department in departments" :key="department.id" :value="String(department.id)">{{ department.name }}</option></select></label>
+            <p v-if="!employeeHomeEditable" class="muted">{{ t('management.homeDepartmentLocked') }}</p>
+            <fieldset v-if="departments.length > 1" class="department-picker"><legend>{{ t('management.additionalDepartments') }}</legend>
+              <label v-for="department in departments.filter((item) => String(item.id) !== employeeDepartmentId)" :key="department.id" class="permission-toggle"><input v-model="employeeAdditionalDepartmentIds" type="checkbox" :value="department.id" /> {{ department.name }}</label>
+              <p class="muted">{{ t('management.additionalDepartmentsHint') }}</p>
+            </fieldset>
+            <fieldset class="department-picker"><legend>{{ t('management.qualificationsForDepartment', { department: employeeFormDepartments.map((department) => department.name).join(', ') }) }}</legend>
+              <label v-for="qualification in selectedDepartmentQualifications" :key="qualification.id" class="permission-toggle"><input v-model="employeeQualificationIds" type="checkbox" :value="qualification.id" /> {{ employeeFormDepartments.length > 1 ? `${qualification.departmentName} · ${qualification.name}` : qualification.name }}</label>
               <p v-if="!selectedDepartmentQualifications.length" class="muted">{{ t('management.createQualificationFirst') }}</p>
             </fieldset>
             <label v-if="!employeeId" class="permission-toggle"><input v-model="employeeCreateAccount" type="checkbox" /> {{ t('form.createAccess') }}</label>
@@ -3351,15 +3403,15 @@ onBeforeUnmount(() => {
             <section v-show="managementTab === 'overview'">
               <h3>{{ t('management.overview') }}</h3>
               <label>{{ t('management.department') }}<select v-model.number="selectedOverviewDepartmentId"><option v-for="department in departments" :key="department.id" :value="department.id">{{ department.name }}</option></select></label>
-              <div v-for="employee in allEmployees.filter((item) => item.department_id === selectedOverviewDepartmentId)" :key="employee.id" class="management-row">
-                <div><strong>{{ employee.name }}</strong><small>{{ employeeQualifications(employee).map((qualification) => qualification.name).join(', ') || employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name }}</small></div>
+              <div v-for="employee in allEmployees.filter((item) => selectedOverviewDepartmentId !== null && employeeDepartmentIds(item).includes(selectedOverviewDepartmentId))" :key="employee.id" class="management-row">
+                <div><strong>{{ employee.name }}</strong><small>{{ employeeQualifications(employee, selectedOverviewDepartmentId).map((qualification) => qualification.name).join(', ') || employee.role }} · {{ employeeDepartmentNames(employee) }}</small></div>
               </div>
             </section>
             <section v-if="canManageStaff" v-show="managementTab === 'employees'">
               <h3>{{ t('management.employees') }}</h3>
               <button v-if="!licenseReadOnly" class="secondary" @click="newEmployee()">{{ t('schedule.addEmployee') }}</button>
               <div v-for="employee in allEmployees" :key="employee.id" class="management-row">
-                <div><strong>{{ employee.name }}</strong><small>{{ employeeQualifications(employee).map((qualification) => qualification.name).join(', ') || employee.role }} · {{ departments.find((item) => item.id === employee.department_id)?.name ?? t('management.noDepartment') }}</small></div>
+                <div><strong>{{ employee.name }}</strong><small>{{ employeeQualifications(employee).map((qualification) => qualification.name).join(', ') || employee.role }} · {{ employeeDepartmentNames(employee) }}</small></div>
                 <button v-if="!licenseReadOnly" class="text-button" @click="editEmployee(employee)">{{ t('management.edit') }}</button>
               </div>
             </section>

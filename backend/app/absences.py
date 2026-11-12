@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from . import models
@@ -47,7 +47,8 @@ def _in_scope(principal: Principal, employee: models.Employee) -> bool:
     return employee.department_id in _departments(principal)
 
 
-def _read(absence: models.Absence) -> AbsenceRead:
+def _read(absence: models.Absence, *, redact: bool = False) -> AbsenceRead:
+    """Absences of other home departments are shown for planning only, without notes or decision details."""
     return AbsenceRead(
         id=absence.id,
         employee_id=absence.employee_id,
@@ -56,11 +57,11 @@ def _read(absence: models.Absence) -> AbsenceRead:
         start_date=absence.start_date,
         end_date=absence.end_date,
         status=absence.status,
-        note=absence.note,
-        requested_by=absence.requested_by,
+        note=None if redact else absence.note,
+        requested_by=None if redact else absence.requested_by,
         created_at=absence.created_at,
-        decided_by=absence.decided_by,
-        decided_at=absence.decided_at,
+        decided_by=None if redact else absence.decided_by,
+        decided_at=None if redact else absence.decided_at,
     )
 
 
@@ -98,8 +99,22 @@ def list_absences(
     if principal.role_key == "EMPLOYEE" and not principal.can_approve:
         query = query.where(models.Absence.employee_id == principal.employee_id)
     elif principal.role_key not in READ_ALL_ROLES:
-        query = query.where(models.Employee.department_id.in_(_departments(principal)))
-    return [_read(absence) for absence in db.scalars(query)]
+        # Home departments decide on absences; planners of additional departments only see
+        # approved ones so they can plan around them.
+        scope_clause = models.Employee.department_id.in_(_departments(principal))
+        if principal.can_edit:
+            scope_clause = or_(
+                scope_clause,
+                and_(
+                    models.Absence.status == "approved",
+                    models.employee_in_departments(_departments(principal)),
+                ),
+            )
+        query = query.where(scope_clause)
+    return [
+        _read(absence, redact=principal.role_key not in READ_ALL_ROLES and not _in_scope(principal, absence.employee))
+        for absence in db.scalars(query)
+    ]
 
 
 @router.post("", response_model=AbsenceRead, status_code=status.HTTP_201_CREATED)

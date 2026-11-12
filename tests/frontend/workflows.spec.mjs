@@ -671,6 +671,35 @@ test('employees can receive multiple qualifications from their department', asyn
   expect((await request).postDataJSON()).toMatchObject({ role: 'Pflege', qualification_ids: [1, 2] })
 })
 
+test('employees can work in several departments with qualifications from each', async ({ page }) => {
+  await mockApi(page, 'HOSPITAL_MANAGEMENT')
+  const second = {
+    id: 2, name: 'Innere', manager_user_id: null, deputy_user_id: null,
+    qualifications: [{ id: 3, name: 'Praxisanleiter', leadership_eligible: false, department_id: 2 }],
+  }
+  await page.route('**/api/departments', (route) =>
+    route.request().method() === 'GET' ? route.fulfill({ json: [department, second] }) : route.continue())
+  await page.route('**/api/users', (route) => route.fulfill({ json: [] }))
+  await page.goto('/')
+  await page.getByLabel('Benutzername').fill('planer')
+  await page.getByLabel('Passwort', { exact: true }).fill('test-password')
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
+  await page.getByRole('button', { name: 'Teamverwaltung', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: 'Mitarbeitende' }).click()
+  await dialog.getByRole('button', { name: '＋ Mitarbeiter' }).click()
+  await dialog.getByLabel('Vorname').fill('Eva')
+  await dialog.getByLabel('Nachname').fill('Muster')
+  await dialog.getByLabel('Innere', { exact: true }).check()
+  await dialog.getByLabel('Chirurgie · Pflege').check()
+  await dialog.getByLabel('Innere · Praxisanleiter').check()
+  const request = page.waitForRequest((req) => req.url().endsWith('/api/employees/onboard') && req.method() === 'POST')
+  await dialog.getByRole('button', { name: 'Mitarbeiter erstellen' }).click()
+  expect((await request).postDataJSON()).toMatchObject({
+    role: 'Pflege', department_id: 1, additional_department_ids: [2], qualification_ids: [1, 3],
+  })
+})
+
 test('English profile editing keeps user data and submits unchanged API values', async ({ page }) => {
   await mockApi(page)
   const profile = { username: 'planer', role_key: 'OBERARZT', department_id: 1, profile_image_data: null,

@@ -45,7 +45,15 @@ class PersonalDetails(BaseModel):
 class EmployeeCreate(PersonName):
     role: str = Field(default="Employee", min_length=1, max_length=80)
     department_id: int = Field(gt=0)
+    additional_department_ids: list[int] = Field(default_factory=list, max_length=50)
     qualification_ids: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_additional_departments(self) -> "EmployeeCreate":
+        ids = self.additional_department_ids
+        if len(set(ids)) != len(ids) or self.department_id in ids or any(item <= 0 for item in ids):
+            raise ValueError("Additional departments must be unique and differ from the home department")
+        return self
 
 
 class EmployeeUpdate(EmployeeCreate):
@@ -83,6 +91,7 @@ class DepartmentQualificationRead(DepartmentQualificationCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    department_id: int | None = None
 
 
 class EmployeeRead(BaseModel):
@@ -94,6 +103,7 @@ class EmployeeRead(BaseModel):
     last_name: str | None = None
     role: str
     department_id: int | None
+    additional_department_ids: list[int] = Field(default_factory=list)
     qualifications: list[DepartmentQualificationRead] = Field(default_factory=list)
     profile_image_data: str | None = None
 

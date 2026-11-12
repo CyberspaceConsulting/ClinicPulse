@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Table, Text, Time
+from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Table, Text, Time, or_, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -20,6 +20,13 @@ employee_qualification_access = Table(
     Base.metadata,
     Column("employee_id", ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True),
     Column("qualification_id", ForeignKey("department_qualifications.id", ondelete="CASCADE"), primary_key=True),
+)
+
+employee_department_access = Table(
+    "employee_department_access",
+    Base.metadata,
+    Column("employee_id", ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True),
+    Column("department_id", ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
@@ -50,6 +57,9 @@ class Department(Base):
     )
 
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")
+    additional_employees: Mapped[list["Employee"]] = relationship(
+        secondary=employee_department_access, back_populates="additional_departments"
+    )
     shift_types: Mapped[list["ShiftType"]] = relationship(back_populates="department")
     qualifications: Mapped[list["DepartmentQualification"]] = relationship(
         back_populates="department", cascade="all, delete-orphan", order_by="DepartmentQualification.name"
@@ -83,13 +93,48 @@ class Employee(Base):
 
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="employee")
     department: Mapped[Department | None] = relationship(back_populates="employees")
+    additional_departments: Mapped[list[Department]] = relationship(
+        secondary=employee_department_access, back_populates="additional_employees"
+    )
     qualifications: Mapped[list[DepartmentQualification]] = relationship(
         secondary=employee_qualification_access, back_populates="employees"
     )
 
     @property
-    def qualification_names(self) -> list[str]:
-        return [qualification.name for qualification in self.qualifications] or [self.role]
+    def department_ids(self) -> list[int]:
+        """Home department first, followed by additional departments."""
+        ids = [self.department_id] if self.department_id is not None else []
+        ids.extend(department.id for department in self.additional_departments if department.id not in ids)
+        return ids
+
+    @property
+    def additional_department_ids(self) -> list[int]:
+        return [department.id for department in self.additional_departments if department.id != self.department_id]
+
+    def in_department(self, department_id: int | None) -> bool:
+        return department_id is not None and department_id in self.department_ids
+
+    def qualification_names_for(self, department_id: int | None) -> list[str]:
+        """Qualification names that count for shifts of the given department."""
+        if not self.qualifications:
+            return [self.role]
+        return [
+            qualification.name
+            for qualification in self.qualifications
+            if qualification.department_id == department_id
+        ]
+
+
+def employee_in_departments(department_ids):
+    """SQL clause matching employees whose home or additional department is listed."""
+    return or_(
+        Employee.department_id.in_(department_ids),
+        Employee.id.in_(
+            select(employee_department_access.c.employee_id).where(
+                employee_department_access.c.department_id.in_(department_ids)
+            )
+        ),
+    )
 
 
 class ShiftType(Base):

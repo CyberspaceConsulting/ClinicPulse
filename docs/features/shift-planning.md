@@ -13,7 +13,7 @@ Ein Schichttyp beschreibt eine wiederkehrende Schicht:
 | Abteilung             | optional                                                   |
 | Pause / Pausenbeginn  | 0–240 Minuten bzw. 0–360 Minuten nach Schichtbeginn        |
 
-Eine Schichtart kann mehrere abteilungsspezifische Qualifikationen mit jeweils eigener Soll-Besetzung enthalten. Die Soll-Besetzung wird für jede Qualifikation einzeln berücksichtigt. Bei manueller Besetzung werden nur Mitarbeitende mit einer passenden Qualifikation aus derselben Abteilung angeboten; eine Person mit mehreren Qualifikationen kann für jede davon eingeplant werden. Bestehende Schichtarten mit einer Funktion werden entsprechend weitergeführt. Dienstplanverantwortliche der Abteilung können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).
+Eine Schichtart kann mehrere abteilungsspezifische Qualifikationen mit jeweils eigener Soll-Besetzung enthalten, z. B. „2 × Arzt“ und „1 × Praxisanleiter“. Qualifikationen sind **verbindlich**: Es werden nur Mitarbeitende eingeplant oder vorgeschlagen, die mindestens eine geforderte Qualifikation der Schicht-Abteilung besitzen. Eine Person zählt für **jede** geforderte Qualifikation, die sie erfüllt. Ist sie gleichzeitig Arzt und Praxisanleiter, deckt sie beide Anforderungen ab; ohne qualifizierte Person bleibt die Stelle offen. Die Obergrenze je Qualifikation wird bei Schichten mit mehreren Anforderungen und bei „Oberarzt“ geprüft. Bereits gespeicherte Dienste werden nicht verändert. Dienstplanverantwortliche der Abteilung können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).
 
 Wird keine Pause angegeben, setzt ClinicPulse die gesetzliche Mindestpause (siehe [Arbeitszeitregeln](work-rules.md)).
 
@@ -21,13 +21,14 @@ Wird keine Pause angegeben, setzt ClinicPulse die gesetzliche Mindestpause (sieh
 
 Eine Zuweisung verbindet Mitarbeitenden und Schichttyp mit einem Zeitraum (mit Zeitzone). Das Ende muss nach dem Beginn liegen. Beim Anlegen prüft das System:
 
-- Mitarbeitender und Schicht gehören zur selben Abteilung.
-- Keine Überschneidung mit einer anderen Schicht des Mitarbeitenden.
+- Mitarbeitender gehört zur Abteilung der Schicht (Haupt- oder weitere Abteilung) und besitzt eine dort geforderte Qualifikation.
+- Keine Überschneidung mit einer anderen Schicht des Mitarbeitenden – auch nicht in einer anderen Abteilung.
 - Keine Abwesenheit im Zeitraum.
 - Die Schicht ist nicht bereits voll besetzt.
-- Die [Arbeitszeitregeln](work-rules.md) werden eingehalten.
+- Die [Arbeitszeitregeln](work-rules.md) werden eingehalten, wobei alle Dienste der Person in allen Abteilungen zählen.
 
 Verstöße werden als HTTP 409 mit einer Erklärung abgelehnt, siehe [Fehlerbehebung](../troubleshooting.md).
+Auch Planungsvorschläge schließen Personen mit bereits gespeicherten überschneidenden Diensten aus. Bei der Freigabe werden die Regeln erneut geprüft.
 
 ## Berechtigungen
 

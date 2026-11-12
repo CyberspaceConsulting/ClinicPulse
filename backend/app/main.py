@@ -113,11 +113,13 @@ from .work_rules import (
     business_timezone,
     default_break_start_minutes,
     gross_duration,
+    has_overlapping_assignment,
     load_work_rules,
     required_break_minutes,
     work_rule_violation,
 )
 from .optimizer import OptimizationTooLarge, _shift_interval, optimize_day, optimize_period
+from .staffing import qualified_requirements, shift_requirements
 from .backup_api import backup_scheduler, router as backup_router
 from .update_checker import APP_VERSION, default_update_channel, update_checker
 
@@ -1457,6 +1459,17 @@ def require_user_department_scope(principal: Principal, department_id: int | Non
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage accounts in your department")
 
 
+def manages_department(principal: Principal, department_id: int | None) -> bool:
+    """Roles without a department restriction (personnel, management) manage every department."""
+    return not principal.can_manage_department or department_id in principal.managed_department_ids
+
+
+def can_plan_employee(principal: Principal, employee: models.Employee) -> bool:
+    return not scoped_to_department(principal) or any(
+        department_id in accessible_department_ids(principal) for department_id in employee.department_ids
+    )
+
+
 def require_user_scope(principal: Principal, user: models.UserAccount) -> None:
     if principal.role_key == "PERSONNEL" and user.role_key != "EMPLOYEE":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Personnel users can manage employee accounts only")
@@ -1577,7 +1590,7 @@ def delete_department(
         used_by_user = db.scalar(
             select(models.UserAccount.id).where(models.UserAccount.department_id == department_id).limit(1)
         )
-    if department.employees or department.shift_types or used_by_user is not None:
+    if department.employees or department.additional_employees or department.shift_types or used_by_user is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Department is still in use")
     db.delete(department)
     db.commit()
@@ -1605,8 +1618,9 @@ def set_department_leader(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Department leader must have access to this department")
         if user.employee_id is not None:
             employee = db.get(models.Employee, user.employee_id)
-            eligible = employee is not None and employee.department_id == department_id and any(
-                qualification.leadership_eligible for qualification in employee.qualifications
+            eligible = employee is not None and employee.in_department(department_id) and any(
+                qualification.leadership_eligible and qualification.department_id == department_id
+                for qualification in employee.qualifications
             )
         else:
             senior_qualification = next(
@@ -1655,7 +1669,7 @@ def linked_employee_id(
     employee = db.get(models.Employee, employee_id) if employee_id is not None else None
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
-    if role_key in {"EMPLOYEE", "OBERARZT", "CHEFARZT"} and employee.department_id not in department_ids:
+    if role_key in {"EMPLOYEE", "OBERARZT", "CHEFARZT"} and not set(employee.department_ids) & set(department_ids):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Employee must belong to the account's department")
     query = select(models.UserAccount.id).where(models.UserAccount.employee_id == employee.id)
     if user_id is not None:
@@ -1895,8 +1909,9 @@ def update_user(
         (models.Department.manager_user_id == user.id) | (models.Department.deputy_user_id == user.id)
     )):
         employee = db.get(models.Employee, employee_id) if employee_id is not None else None
-        eligible = employee is not None and employee.department_id == department.id and any(
-            qualification.leadership_eligible for qualification in employee.qualifications
+        eligible = employee is not None and employee.in_department(department.id) and any(
+            qualification.leadership_eligible and qualification.department_id == department.id
+            for qualification in employee.qualifications
         )
         legacy_eligible = employee is None and changes.role_key == "OBERARZT" and any(
             qualification.leadership_eligible and qualification.name.strip().casefold() == "oberarzt"
@@ -2105,22 +2120,39 @@ def _visible_employee_photos(db: Session, principal: Principal, employee_ids: li
     }
 
 
+def employee_view(employee: models.Employee, principal: Principal) -> EmployeeRead:
+    """Employee data as visible to the principal; other departments' qualifications and memberships stay hidden."""
+    item = EmployeeRead.model_validate(employee)
+    if scoped_to_department(principal):
+        scope = accessible_department_ids(principal)
+        item.qualifications = [
+            qualification for qualification in item.qualifications
+            if qualification.department_id in scope
+        ]
+        item.additional_department_ids = [
+            department_id for department_id in item.additional_department_ids if department_id in scope
+        ]
+        if employee.department_id not in scope and item.qualifications:
+            item.role = item.qualifications[0].name
+    return item
+
+
 @app.get("/api/employees", response_model=list[EmployeeRead])
 def list_employees(
     principal: Principal = Depends(require_principal), db: Session = Depends(get_db)
-) -> list[models.Employee]:
+) -> list[EmployeeRead]:
     if principal.role_key == "PERSONNEL" or principal.can_manage_department:
         require_team_manage(principal)
     else:
         require_view(principal)
     query = select(models.Employee).order_by(models.Employee.name)
     if scoped_to_department(principal):
-        query = query.where(models.Employee.department_id.in_(accessible_department_ids(principal)))
+        query = query.where(models.employee_in_departments(accessible_department_ids(principal)))
     employees = list(db.scalars(query))
     photos = _visible_employee_photos(db, principal, [employee.id for employee in employees])
     result = []
     for employee in employees:
-        item = EmployeeRead.model_validate(employee)
+        item = employee_view(employee, principal)
         item.profile_image_data = photos.get(employee.id)
         result.append(item)
     return result
@@ -2128,9 +2160,12 @@ def list_employees(
 
 def _resolve_employee_qualifications(
     db: Session,
-    department_id: int,
+    department_ids: list[int],
+    primary_department_id: int,
     qualification_ids: list[int],
     legacy_role: str,
+    *,
+    allow_legacy_creation: bool = True,
 ) -> list[models.DepartmentQualification]:
     if qualification_ids:
         if len(set(qualification_ids)) != len(qualification_ids):
@@ -2138,28 +2173,47 @@ def _resolve_employee_qualifications(
         qualifications = list(db.scalars(
             select(models.DepartmentQualification).where(
                 models.DepartmentQualification.id.in_(qualification_ids),
-                models.DepartmentQualification.department_id == department_id,
+                models.DepartmentQualification.department_id.in_(department_ids),
             )
         ))
         if len(qualifications) != len(qualification_ids):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Qualifications must belong to the selected department")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Qualifications must belong to the employee's departments")
         return qualifications
+    if not allow_legacy_creation:
+        return []
 
     qualification = db.scalar(
         select(models.DepartmentQualification).where(
-            models.DepartmentQualification.department_id == department_id,
+            models.DepartmentQualification.department_id == primary_department_id,
             func.lower(models.DepartmentQualification.name) == legacy_role.strip().casefold(),
         )
     )
     if qualification is None:
         qualification = models.DepartmentQualification(
-            department_id=department_id,
+            department_id=primary_department_id,
             name=legacy_role.strip(),
             leadership_eligible=legacy_role.strip().casefold() == "oberarzt",
         )
         db.add(qualification)
         db.flush()
     return [qualification]
+
+
+def _load_departments(db: Session, department_ids: list[int]) -> list[models.Department]:
+    departments = {
+        department.id: department
+        for department in db.scalars(select(models.Department).where(models.Department.id.in_(department_ids)))
+    }
+    if len(departments) != len(set(department_ids)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+    return [departments[department_id] for department_id in department_ids]
+
+
+def _primary_role(employee_qualifications: list[models.DepartmentQualification], primary_department_id: int) -> str:
+    ordered = sorted(
+        employee_qualifications, key=lambda item: (item.department_id != primary_department_id, item.name.casefold())
+    )
+    return ordered[0].name
 
 
 def _ensure_shift_qualifications(
@@ -2190,24 +2244,27 @@ def create_employee(
     principal: Principal = Depends(require_employee_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
-) -> models.Employee:
-    verify_department(db, employee.department_id)
-    require_department_scope(principal, employee.department_id)
+) -> EmployeeRead:
+    department_ids = [employee.department_id, *employee.additional_department_ids]
+    departments = _load_departments(db, department_ids)
+    for department_id in department_ids:
+        require_department_scope(principal, department_id)
     qualifications = _resolve_employee_qualifications(
-        db, employee.department_id, employee.qualification_ids, employee.role
+        db, department_ids, employee.department_id, employee.qualification_ids, employee.role
     )
     record = models.Employee(
         name=f"{employee.first_name} {employee.last_name}",
         first_name=employee.first_name,
         last_name=employee.last_name,
-        role=qualifications[0].name,
+        role=_primary_role(qualifications, employee.department_id),
         department_id=employee.department_id,
+        additional_departments=departments[1:],
         qualifications=qualifications,
     )
     db.add(record)
     db.commit()
     db.refresh(record)
-    return record
+    return employee_view(record, principal)
 
 
 @app.put("/api/employees/{employee_id}", response_model=EmployeeRead)
@@ -2217,40 +2274,98 @@ def update_employee(
     principal: Principal = Depends(require_employee_manage),
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
-) -> models.Employee:
+) -> EmployeeRead:
     employee = db.get(models.Employee, employee_id)
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
-    require_department_scope(principal, employee.department_id)
-    verify_department(db, changes.department_id)
-    require_department_scope(principal, changes.department_id)
-    if employee.department_id != changes.department_id and employee.assignments:
+    current_ids = employee.department_ids
+    managed_current = [item for item in current_ids if manages_department(principal, item)]
+    if not managed_current:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage your own department")
+    is_home_manager = manages_department(principal, employee.department_id)
+    requested_ids = [changes.department_id, *changes.additional_department_ids]
+    _load_departments(db, requested_ids)
+    if not is_home_manager and (
+        changes.department_id != employee.department_id
+        or changes.first_name != employee.first_name
+        or changes.last_name != employee.last_name
+    ):
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Department cannot be changed while the employee has scheduled shifts",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the home department can change the employee's name or home department",
         )
-    employee.name = f"{changes.first_name} {changes.last_name}"
-    employee.first_name = changes.first_name
-    employee.last_name = changes.last_name
-    employee.department_id = changes.department_id
-    employee.qualifications = _resolve_employee_qualifications(
-        db, changes.department_id, changes.qualification_ids, changes.role
+    if is_home_manager and changes.department_id != employee.department_id:
+        require_department_scope(principal, changes.department_id)
+    for department_id in requested_ids:
+        if department_id not in current_ids:
+            require_department_scope(principal, department_id)
+    # Departments the principal cannot manage are kept as they are.
+    kept_ids = [item for item in current_ids if not manages_department(principal, item)]
+    new_ids = list(dict.fromkeys([*requested_ids, *kept_ids]))
+    removed_ids = [item for item in current_ids if item not in new_ids]
+    if removed_ids:
+        scheduled = db.scalar(
+            select(models.Assignment.id)
+            .join(models.ShiftType)
+            .where(
+                models.Assignment.employee_id == employee.id,
+                models.ShiftType.department_id.in_(removed_ids),
+            )
+            .limit(1)
+        )
+        if scheduled is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Department cannot be changed while the employee has scheduled shifts",
+            )
+    new_primary = changes.department_id if is_home_manager else employee.department_id
+
+    requested_qualifications = _resolve_employee_qualifications(
+        db, new_ids, new_primary, changes.qualification_ids, changes.role,
+        allow_legacy_creation=is_home_manager,
     )
-    employee.role = employee.qualifications[0].name
+    foreign_requested = [
+        item for item in requested_qualifications
+        if not manages_department(principal, item.department_id)
+        and item not in employee.qualifications
+    ]
+    if foreign_requested:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage qualifications of your own department")
+    # Qualifications of departments outside the principal's scope stay untouched.
+    kept_qualifications = [
+        item for item in employee.qualifications
+        if not manages_department(principal, item.department_id) and item.department_id in new_ids
+    ]
+    qualifications = list(dict.fromkeys([
+        *[item for item in requested_qualifications if manages_department(principal, item.department_id)],
+        *kept_qualifications,
+    ]))
+    if not qualifications:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="At least one qualification is required")
+
+    employee.name = f"{changes.first_name} {changes.last_name}" if is_home_manager else employee.name
+    employee.first_name = changes.first_name if is_home_manager else employee.first_name
+    employee.last_name = changes.last_name if is_home_manager else employee.last_name
+    employee.department_id = new_primary
+    departments_by_id = {item.id: item for item in _load_departments(db, new_ids)}
+    employee.additional_departments = [departments_by_id[item] for item in new_ids if item != new_primary]
+    employee.qualifications = qualifications
+    employee.role = _primary_role(qualifications, new_primary)
     linked_user = db.scalar(
         select(models.UserAccount).where(models.UserAccount.employee_id == employee.id)
     )
     if linked_user is not None:
-        linked_user.first_name = changes.first_name
-        linked_user.last_name = changes.last_name
+        if is_home_manager:
+            linked_user.first_name = changes.first_name
+            linked_user.last_name = changes.last_name
         if linked_user.role_key == "EMPLOYEE":
-            linked_user.department_id = changes.department_id
-            linked_user.departments = [db.get(models.Department, changes.department_id)]
-        elif linked_user.role_key in {"OBERARZT", "CHEFARZT"} and changes.department_id not in linked_user.department_ids:
+            linked_user.department_id = new_primary
+            linked_user.departments = [departments_by_id[item] for item in new_ids]
+        elif linked_user.role_key in {"OBERARZT", "CHEFARZT"} and new_primary not in linked_user.department_ids:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee must belong to the account's department")
     db.commit()
     db.refresh(employee)
-    return employee
+    return employee_view(employee, principal)
 
 
 @app.post("/api/employees/onboard", status_code=status.HTTP_201_CREATED)
@@ -2260,17 +2375,20 @@ def onboard_employee(
     __: None = Depends(require_license_writable),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    verify_department(db, employee.department_id)
-    require_department_scope(principal, employee.department_id)
+    department_ids = [employee.department_id, *employee.additional_department_ids]
+    departments = _load_departments(db, department_ids)
+    for department_id in department_ids:
+        require_department_scope(principal, department_id)
     qualifications = _resolve_employee_qualifications(
-        db, employee.department_id, employee.qualification_ids, employee.role
+        db, department_ids, employee.department_id, employee.qualification_ids, employee.role
     )
     record = models.Employee(
         name=f"{employee.first_name} {employee.last_name}",
         first_name=employee.first_name,
         last_name=employee.last_name,
-        role=qualifications[0].name,
+        role=_primary_role(qualifications, employee.department_id),
         department_id=employee.department_id,
+        additional_departments=departments[1:],
         qualifications=qualifications,
     )
     db.add(record)
@@ -2310,7 +2428,7 @@ def onboard_employee(
                 role_key="EMPLOYEE",
                 department_id=record.department_id,
                 employee_id=record.id,
-                departments=[db.get(models.Department, record.department_id)],
+                departments=departments,
                 can_view=True,
                 can_edit=False,
                 can_approve=False,
@@ -2338,7 +2456,7 @@ def onboard_employee(
             _deliver_invitation(db, account, invitation, token)
             invitation_status = account.invitation_status
     return {
-        "employee": EmployeeRead.model_validate(record),
+        "employee": employee_view(record, principal),
         "invitation_status": invitation_status,
     }
 
@@ -2594,10 +2712,10 @@ def create_assignment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee or shift type not found")
     if scoped_to_department(principal) and (
         not can_access_department(principal, shift_type.department_id)
-        or not can_access_department(principal, employee.department_id)
+        or not can_plan_employee(principal, employee)
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only plan your own department")
-    if shift_type.department_id != employee.department_id:
+    if not employee.in_department(shift_type.department_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee and shift must belong to the same department")
 
     return save_assignment(assignment, employee, shift_type, db)
@@ -2634,6 +2752,7 @@ def preview_optimized_day(
                 "shift_type_id": item.shift_type_id,
                 "shift_name": item.shift_name,
                 "position": item.position,
+                "positions": list(item.positions),
                 "role_match": item.role_match,
                 "starts_at": item.starts_at,
                 "ends_at": item.ends_at,
@@ -2692,6 +2811,7 @@ def preview_planning_period(
                         "shift_type_id": item.shift_type_id,
                         "shift_name": item.shift_name,
                         "position": item.position,
+                        "positions": list(item.positions),
                         "role_match": item.role_match,
                         "starts_at": item.starts_at,
                         "ends_at": item.ends_at,
@@ -2712,6 +2832,12 @@ def preview_planning_period(
     }
 
 
+def _sick_cover_position(employee: models.Employee, shift_type: models.ShiftType) -> str:
+    """Requirement a replacement has to fill: the scarcest one the absent person covered."""
+    covered = qualified_requirements(employee, shift_type) or shift_requirements(shift_type)
+    return min(covered, key=lambda item: item.required_staff).position.strip()
+
+
 @app.post("/api/planning/sick-cover/preview")
 def preview_sick_coverage(
     request: SickCoveragePreviewRequest,
@@ -2722,7 +2848,7 @@ def preview_sick_coverage(
     if absence is None or absence.kind != "sick" or absence.status != "approved":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
     employee = db.get(models.Employee, absence.employee_id)
-    if employee is None or not can_access_department(principal, employee.department_id):
+    if employee is None or not can_plan_employee(principal, employee):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
 
     business_tz = business_timezone(db)
@@ -2752,21 +2878,7 @@ def preview_sick_coverage(
             starts_at = starts_at.replace(tzinfo=timezone.utc)
         target_date = starts_at.astimezone(business_tz).date()
         grouped.setdefault(target_date, []).append(assignment)
-        requirements = assignment.shift_type.staffing_requirements or [
-            models.ShiftStaffingRequirement(
-                position=assignment.shift_type.position,
-                required_staff=assignment.shift_type.required_staff,
-            )
-        ]
-        qualifications = {assignment.employee.role.strip().casefold()}
-        position_by_assignment[assignment.id] = next(
-            (
-                requirement.position.strip()
-                for requirement in requirements
-                if requirement.position.strip().casefold() in qualifications
-            ),
-            requirements[0].position.strip(),
-        )
+        position_by_assignment[assignment.id] = _sick_cover_position(assignment.employee, assignment.shift_type)
 
     suggestions_by_assignment: dict[int, list[dict[str, object]]] = {
         assignment.id: [] for assignment in affected
@@ -2784,7 +2896,7 @@ def preview_sick_coverage(
             preview = optimize_day(
                 db,
                 target_date,
-                (employee.department_id,) if employee.department_id is not None else None,
+                tuple({assignment.shift_type.department_id for assignment in assignments_for_day}),
                 target_vacancies=target_vacancies,
             )
         except OptimizationTooLarge as exc:
@@ -2836,7 +2948,7 @@ def approve_sick_coverage(
     if absence is None or absence.kind != "sick" or absence.status != "approved":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
     absent_employee = db.get(models.Employee, absence.employee_id)
-    if absent_employee is None or not can_access_department(principal, absent_employee.department_id):
+    if absent_employee is None or not can_plan_employee(principal, absent_employee):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sick absence not found")
     assignment_ids = [item.assignment_id for item in request.replacements]
     if len(set(assignment_ids)) != len(assignment_ids):
@@ -2866,25 +2978,17 @@ def approve_sick_coverage(
         replacements: list[tuple[models.Assignment, models.Employee]] = []
         for item in request.replacements:
             original = original_by_id[item.assignment_id]
-            replacement = db.get(models.Employee, item.employee_id)
-            if replacement is None or replacement.department_id != original.shift_type.department_id:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Replacement employee is no longer available")
-            requirements = original.shift_type.staffing_requirements or [
-                models.ShiftStaffingRequirement(
-                    position=original.shift_type.position,
-                    required_staff=original.shift_type.required_staff,
-                )
-            ]
-            original_qualifications = {absent_employee.role.strip().casefold()}
-            position = next(
-                (
-                    requirement.position.strip()
-                    for requirement in requirements
-                    if requirement.position.strip().casefold() in original_qualifications
-                ),
-                requirements[0].position.strip(),
+            replacement = db.scalar(
+                select(models.Employee).where(models.Employee.id == item.employee_id).with_for_update()
             )
-            if position.casefold() != replacement.role.strip().casefold():
+            if replacement is None or not replacement.in_department(original.shift_type.department_id):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Replacement employee is no longer available")
+            position = _sick_cover_position(absent_employee, original.shift_type)
+            replacement_positions = {
+                requirement.position.strip().casefold()
+                for requirement in qualified_requirements(replacement, original.shift_type)
+            }
+            if position.casefold() not in replacement_positions:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Replacement employee lacks the required qualification")
             replacements.append((original, replacement))
 
@@ -2924,13 +3028,15 @@ def approve_planning(
     created = 0
     try:
         for item in sorted(request.items, key=lambda entry: entry.target_date):
-            employee = db.get(models.Employee, item.employee_id)
+            employee = db.scalar(
+                select(models.Employee).where(models.Employee.id == item.employee_id).with_for_update()
+            )
             shift_type = db.get(models.ShiftType, item.shift_type_id)
             if employee is None or shift_type is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee or shift type not found")
-            if not can_access_department(principal, shift_type.department_id) or not can_access_department(principal, employee.department_id):
+            if not can_access_department(principal, shift_type.department_id) or not can_plan_employee(principal, employee):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only plan your own department")
-            if shift_type.department_id != employee.department_id:
+            if not employee.in_department(shift_type.department_id):
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee and shift must belong to the same department")
             starts_at, ends_at = _shift_interval(item.target_date, shift_type, business_tz)
             staffed = db.scalar(
@@ -2965,61 +3071,38 @@ def check_assignment_allowed(
     shift_type: models.ShiftType,
     db: Session,
 ) -> None:
-    requirements = shift_type.staffing_requirements or [
-        models.ShiftStaffingRequirement(
-            position=shift_type.position,
-            required_staff=shift_type.required_staff,
-        )
-    ]
-    qualification_required = len(requirements) > 1 or any(
-        item.position.strip().casefold() == "oberarzt" for item in requirements
-    )
-    employee_qualifications = {name.strip().casefold() for name in employee.qualification_names}
-    if qualification_required and not employee_qualifications.intersection(
-        item.position.strip().casefold() for item in requirements
-    ):
+    requirements = shift_requirements(shift_type)
+    matching = qualified_requirements(employee, shift_type)
+    if not matching:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Employee role is not required for this shift",
         )
-    matching_requirement = next(
-        (
-            item for item in requirements
-            if item.position.strip().casefold() in employee_qualifications
-        ),
-        None,
+    qualification_required = len(requirements) > 1 or any(
+        item.position.strip().casefold() == "oberarzt" for item in requirements
     )
-    if qualification_required and matching_requirement is not None:
-        staffed_for_position = db.scalar(
-            select(func.count(func.distinct(models.Assignment.id)))
-            .join(models.Employee)
-            .join(
-                models.employee_qualification_access,
-                models.employee_qualification_access.c.employee_id == models.Employee.id,
-            )
-            .join(
-                models.DepartmentQualification,
-                models.DepartmentQualification.id == models.employee_qualification_access.c.qualification_id,
-            )
-            .where(
+    if qualification_required:
+        # A person counts for every requirement they qualify for, so one person can
+        # cover e.g. both a physician and a practice-instructor position.
+        staffed_by_position: dict[str, int] = {}
+        for existing in db.scalars(
+            select(models.Assignment).where(
                 models.Assignment.shift_type_id == shift_type.id,
                 models.Assignment.starts_at == assignment.starts_at,
-                func.lower(models.DepartmentQualification.name) == matching_requirement.position.casefold(),
             )
-        ) or 0
-        if staffed_for_position >= matching_requirement.required_staff:
+        ):
+            for item in qualified_requirements(existing.employee, shift_type):
+                key = item.position.strip().casefold()
+                staffed_by_position[key] = staffed_by_position.get(key, 0) + 1
+        if all(
+            staffed_by_position.get(item.position.strip().casefold(), 0) >= item.required_staff
+            for item in matching
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"{matching_requirement.position} positions are already fully staffed",
+                detail=f"{matching[0].position} positions are already fully staffed",
             )
-    overlaps = db.scalar(
-        select(models.Assignment.id).where(
-            models.Assignment.employee_id == assignment.employee_id,
-            models.Assignment.starts_at < assignment.ends_at,
-            models.Assignment.ends_at > assignment.starts_at,
-        ).limit(1)
-    )
-    if overlaps is not None:
+    if has_overlapping_assignment(db, employee.id, assignment.starts_at, assignment.ends_at):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee already has an overlapping shift")
     if employee_is_absent(db, employee.id, assignment.starts_at, assignment.ends_at):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee is absent during this shift")
@@ -3072,22 +3155,15 @@ def smart_selection(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shift type not found")
     if not can_access_department(principal, shift_type.department_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shift type not found")
-    employee_query = select(models.Employee).order_by(models.Employee.name)
-    if scoped_to_department(principal):
-        employee_query = employee_query.where(models.Employee.department_id.in_(accessible_department_ids(principal)))
+    employee_query = select(models.Employee).where(
+        models.employee_in_departments([shift_type.department_id])
+    ).order_by(models.Employee.name)
     employees = list(db.scalars(employee_query))
     candidates: list[dict[str, object]] = []
     rules = load_work_rules(db)
     for employee in employees:
-        conflicts = db.scalar(
-            select(models.Assignment.id).where(
-                models.Assignment.employee_id == employee.id,
-                models.Assignment.starts_at < ends_at,
-                models.Assignment.ends_at > starts_at,
-            ).limit(1)
-        )
         if (
-            conflicts is not None
+            has_overlapping_assignment(db, employee.id, starts_at, ends_at)
             or employee_is_absent(db, employee.id, starts_at, ends_at)
             or work_rule_violation(
                 db,
@@ -3100,21 +3176,8 @@ def smart_selection(
             ) is not None
         ):
             continue
-        employee_qualifications = {name.strip().casefold() for name in employee.qualification_names}
-        role_match = shift_type.position.strip().casefold() in employee_qualifications
-        requirements = shift_type.staffing_requirements or [
-            models.ShiftStaffingRequirement(
-                position=shift_type.position,
-                required_staff=shift_type.required_staff,
-            )
-        ]
-        qualification_required = len(requirements) > 1 or any(
-            item.position.strip().casefold() == "oberarzt" for item in requirements
-        )
-        if qualification_required and not any(
-            item.position.strip().casefold() in employee_qualifications
-            for item in requirements
-        ):
+        matching = qualified_requirements(employee, shift_type)
+        if not matching:
             continue
         week_start = starts_at.replace(hour=0, minute=0, second=0, microsecond=0)
         planned_assignments = len(list(db.scalars(
@@ -3128,10 +3191,11 @@ def smart_selection(
             "employee_id": employee.id,
             "employee_name": employee.name,
             "role": employee.role,
-            "role_match": role_match,
+            "role_match": True,
+            "positions": [item.position for item in matching],
             "planned_assignments": planned_assignments,
         })
-    candidates.sort(key=lambda item: (not item["role_match"], item["planned_assignments"], item["employee_name"]))
+    candidates.sort(key=lambda item: (item["planned_assignments"], item["employee_name"]))
     return {"position": shift_type.position, "candidates": candidates}
 
 
@@ -3141,16 +3205,18 @@ def approve_smart_assignment(
     principal: Principal = Depends(require_approve),
     db: Session = Depends(get_db),
 ) -> AssignmentRead:
-    employee = db.get(models.Employee, assignment.employee_id)
+    employee = db.scalar(
+        select(models.Employee).where(models.Employee.id == assignment.employee_id).with_for_update()
+    )
     shift_type = db.get(models.ShiftType, assignment.shift_type_id)
     if employee is None or shift_type is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee or shift type not found")
     if scoped_to_department(principal) and (
         not can_access_department(principal, shift_type.department_id)
-        or not can_access_department(principal, employee.department_id)
+        or not can_plan_employee(principal, employee)
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only approve for your own department")
-    if shift_type.department_id != employee.department_id:
+    if not employee.in_department(shift_type.department_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee and shift must belong to the same department")
     return save_assignment(assignment, employee, shift_type, db)
 

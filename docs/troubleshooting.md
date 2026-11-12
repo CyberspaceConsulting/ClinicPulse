@@ -80,7 +80,8 @@ Die API liefert Fehler als JSON mit dem Feld `detail`.
 | `Employee already has an overlapping shift`          | Andere Zeit oder Mitarbeitenden wählen         |
 | `Employee is absent during this shift`               | Abwesenheit prüfen                             |
 | `… is already fully staffed`                         | Schicht ist voll besetzt                       |
-| `Employee and shift must belong to the same department` | Passende Abteilung wählen                   |
+| `Employee and shift must belong to the same department` | Die Person gehört nicht zur Abteilung der Schicht; Zuordnung in der Teamverwaltung ergänzen |
+| `Employee role is not required for this shift`       | Die Person hat keine für die Schicht geforderte Qualifikation dieser Abteilung |
 | `Work on Sundays or public holidays is disabled …`   | Sonntagsarbeit in der Betriebskonfiguration erlauben |
 | `At least 15 Sundays per calendar year must remain free …` | Sonntagsdienste reduzieren               |
 | `… legally required break (ArbZG §4)`                | Pause im Schichttyp ergänzen                   |
