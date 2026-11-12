@@ -99,7 +99,11 @@ h1, h2, h3, p { margin-top: 0; }
 .dashboard-card > strong { font-size: 30px; letter-spacing: -.8px; }
 .dashboard-card > span:not(.eyebrow) { color: #64736f; font-size: 12px; }
 .dashboard-card .text-button { padding: 0; }
-.dashboard-shortcuts, .dashboard-calendar, .dashboard-coverage { padding: 20px; }
+.dashboard-shortcuts, .dashboard-calendar, .dashboard-coverage, .dashboard-absence-list { padding: 20px; }
+.dashboard-absence-row { display: grid; gap: 5px; padding: 12px 0; border-top: 1px solid #e8eeec; font-size: 13px; overflow-wrap: anywhere; }
+.dashboard-absence-row span { color: #64736f; font-size: 12px; }
+.dashboard-absence-actions { display: flex; flex-wrap: wrap; gap: 16px; }
+.dashboard-absence-actions .text-button { font-size: 12px; }
 .dashboard-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .dashboard-section-heading .eyebrow { margin-bottom: 5px; }
 .dashboard-section-heading h2 { margin: 0; font-size: 17px; }
@@ -291,7 +295,14 @@ h1, h2, h3, p { margin-top: 0; }
 .today-empty { padding: 14px 0 0; }
 .restricted-panel { padding: 25px; }.restricted-panel h2 { font-size: 16px; }.restricted-panel p { color: #7e8c89; font-size: 12px; margin: 0; }
 .management-section { margin-top: 25px; border-top: 1px solid #e5ece9; padding-top: 18px; }
-.management-section h3 { margin: 18px 0 9px; font-size: 13px; }
+.management-section h3 { margin: 18px 0 9px; font-size: 14px; }
+.management-section .management-row strong, .management-section .user-form > strong { font-size: 13px; }
+.management-section .management-row small { font-size: 11px; }
+.management-section .management-row .text-button { font-size: 12px; }
+.management-section .management-row > div:first-child:has(small) { display: grid; gap: 2px; }
+.management-section .inline-form input, .management-section .inline-form .secondary { font-size: 12px; }
+.management-section .stack label, .management-section .permission-note { font-size: 12px; }
+.management-section .stack input, .management-section .stack select { font-size: 13px; }
 .inline-form { display: flex; gap: 7px; margin: 0 0 8px; }
 .inline-form input { min-width: 0; flex: 1; border: 1px solid #dce5e2; border-radius: 6px; padding: 8px 9px; font-size: 11px; }
 .inline-form .secondary { padding: 7px 9px; font-size: 10px; }
@@ -342,7 +353,10 @@ html[data-theme="dark"] .theme-options button,
 html[data-theme="dark"] .stack input,
 html[data-theme="dark"] .stack select { background-color: #1b2927; color: #e0e9e6; border-color: #344541; }
 html[data-theme="dark"] .mobile-plan-selector,
-html[data-theme="dark"] .department-picker { background-color: #1b2927; color: #e0e9e6; border-color: #344541; }
+html[data-theme="dark"] .department-picker,
+html[data-theme="dark"] .absence-mode select { background-color: #1b2927; color: #e0e9e6; border-color: #344541; }
+html[data-theme="dark"] .dashboard-absence-row { border-color: #344541; }
+html[data-theme="dark"] .dashboard-absence-row span { color: #a9bbb6; }
 html[data-theme="dark"] .department-picker legend { color: #cbd8d4; }
 html[data-theme="dark"] .institution-label { color: #b9d3ca; border-color: #344541; background: #1b2927; }
 html[data-theme="dark"] .institution-label strong { color: #e0e9e6; }
@@ -423,7 +437,7 @@ html[data-theme="dark"] .management-row { border-color: #344541; }
 @media (max-width: 720px) {
   .admin-summary-grid, .dashboard-shortcuts .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-card { min-height: 125px; padding: 14px; }
-  .dashboard-shortcuts, .dashboard-calendar, .dashboard-coverage { padding: 14px; }
+  .dashboard-shortcuts, .dashboard-calendar, .dashboard-coverage, .dashboard-absence-list { padding: 14px; }
   .dashboard-calendar-days { gap: 4px; }
   .dashboard-calendar-day { padding: 8px 2px; }
   .dashboard-calendar-day > small { font-size: 8px; }
@@ -503,6 +517,8 @@ html[data-theme="dark"] .settings-tabs button { color: #a9b9b5; }
 html[data-theme="dark"] .settings-tabs button.active { color: #7fd3bf; border-bottom-color: #7fd3bf; }
 
 .absence-layout { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 16px; align-items: start; }
+.absence-mode { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; }
+.absence-mode select { border: 1px solid #dce5e2; border-radius: 6px; padding: 8px; background: white; color: #273b38; }
 .absence-layout > .absence-panel:only-child { grid-column: 1 / -1; }
 .absence-panel { padding: 18px; }
 .absence-list .management-row { padding: 6px 0; }

@@ -47,6 +47,7 @@ type SessionInfo = {
   idle_timeout_minutes?: number | null
   role_key: string
   department_id: number | null
+  employee_id: number | null
   can_view: boolean
   can_edit: boolean
   can_approve: boolean
@@ -213,6 +214,7 @@ const theme = ref(localStorage.getItem('clinicpulse-theme') ?? 'light')
 const username = ref('')
 const roleKey = ref('ADMIN')
 const departmentId = ref<number | null>(null)
+const sessionEmployeeId = ref<number | null>(null)
 const canView = ref(true)
 const canEdit = ref(true)
 const canApprove = ref(true)
@@ -454,6 +456,11 @@ const showAbsences = ref(false)
 const showNextShifts = ref(false)
 const showDashboard = ref(false)
 const dashboardBusy = ref(false)
+const dashboardProfileError = ref<string | Error>('')
+const absencesLoaded = ref(false)
+const ownAbsences = ref<Absence[]>([])
+const ownAbsencesLoaded = ref(false)
+const absenceMode = ref<'own' | 'team'>('own')
 const adminDashboardSummary = ref({ users: 0, departments: 0, employees: 0 })
 const sickCoveragePreviews = ref<Record<number, SickCoveragePreview>>({})
 const sickCoverageBusyIds = ref<number[]>([])
@@ -477,6 +484,10 @@ const canViewAbsences = computed(() =>
   || (canView.value && ['OBERARZT', 'HOSPITAL_MANAGEMENT'].includes(roleKey.value))
   || canApprove.value,
 )
+const canViewOwnAbsences = computed(() => roleKey.value === 'EMPLOYEE' || sessionEmployeeId.value !== null)
+const hasTeamAbsenceAccess = computed(() => canViewAbsences.value && (roleKey.value !== 'EMPLOYEE' || canApprove.value))
+const useOwnAbsenceEndpoint = computed(() => roleKey.value !== 'EMPLOYEE' || canApprove.value)
+const canAccessAbsences = computed(() => canViewAbsences.value || canViewOwnAbsences.value)
 const absences = ref<Absence[]>([])
 const absenceKind = ref<Absence['kind']>('vacation')
 const absenceStart = ref('')
@@ -552,9 +563,16 @@ const dashboardNextAssignment = computed(() =>
     .filter((assignment) => new Date(assignment.starts_at).getTime() >= Date.now())
     .sort((left, right) => left.starts_at.localeCompare(right.starts_at))[0] ?? null,
 )
-const dashboardPendingAbsences = computed(() =>
-  absences.value.filter((absence) => absence.status === 'pending' && absence.kind !== 'sick').length,
+const displayName = computed(() =>
+  [profile.value?.first_name?.trim(), profile.value?.last_name?.trim()].filter(Boolean).join(' ') || username.value,
 )
+const dashboardPendingAbsences = computed(() =>
+  absences.value.filter((absence) => absence.status === 'pending' && absence.kind !== 'sick'),
+)
+const dashboardOwnAbsences = computed(() =>
+  useOwnAbsenceEndpoint.value ? ownAbsences.value : absences.value,
+)
+const displayedAbsences = computed(() => absenceMode.value === 'own' ? dashboardOwnAbsences.value : absences.value)
 const dashboardDays = computed(() => Array.from({ length: 7 }, (_, index) => {
   const day = new Date()
   day.setHours(12, 0, 0, 0)
@@ -638,7 +656,7 @@ const planningLoad = computed(() => {
 })
 
 watch(userRoleKey, (role) => {
-  if (role !== 'EMPLOYEE') userEmployeeId.value = null
+  if (role === 'ADMIN' || role === 'KIOSK') userEmployeeId.value = null
   if (role === 'HOSPITAL_MANAGEMENT') {
     userCanView.value = false
     userCanEdit.value = false
@@ -683,6 +701,17 @@ function dateLabel(value: string) {
   })
 }
 
+function absenceDateLabel(value: string) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString(locale.value, {
+    day: 'numeric', month: 'long', year: 'numeric',
+  })
+}
+
+function absenceDepartment(absence: Absence) {
+  const employee = allEmployees.value.find((item) => item.id === absence.employee_id)
+  return departments.value.find((department) => department.id === employee?.department_id)?.name ?? t('management.noDepartment')
+}
+
 let apiAbortController = new AbortController()
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -717,6 +746,7 @@ function storeSession(result: Partial<SessionInfo> & { username: string }) {
   username.value = result.username
   roleKey.value = result.role_key ?? 'ADMIN'
   departmentId.value = result.department_id ?? null
+  sessionEmployeeId.value = result.employee_id ?? null
   canView.value = result.can_view ?? true
   canEdit.value = result.can_edit ?? true
   canApprove.value = result.can_approve ?? true
@@ -814,15 +844,34 @@ async function loadData() {
 
 const kindLabels = computed(() => ({ vacation: t('absence.vacation'), sick: t('absence.sick'), other: t('absence.other') }))
 const statusLabels = computed(() => ({ pending: t('absence.pending'), approved: t('absence.approved'), rejected: t('absence.rejected') }))
-const canRequestAbsence = computed(() => roleKey.value === 'EMPLOYEE' && !licenseReadOnly.value)
+const canRequestAbsence = computed(() => canViewOwnAbsences.value && !licenseReadOnly.value)
 const canRecordAbsence = computed(() => canEditPlan.value)
 
 async function loadAbsences() {
+  absencesLoaded.value = false
   try {
     absences.value = await api<Absence[]>('/absences')
+    absencesLoaded.value = true
   } catch (err) {
+    absences.value = []
     error.value = err instanceof Error ? err : new TranslatedError('absence.loadFailed')
   }
+}
+
+async function loadOwnAbsences() {
+  ownAbsencesLoaded.value = false
+  try {
+    ownAbsences.value = await api<Absence[]>('/absences/mine')
+    ownAbsencesLoaded.value = true
+  } catch (err) {
+    ownAbsences.value = []
+    error.value = err instanceof Error ? err : new TranslatedError('absence.loadFailed')
+  }
+}
+
+async function refreshAbsences() {
+  if (canViewAbsences.value) await loadAbsences()
+  if (canViewOwnAbsences.value && useOwnAbsenceEndpoint.value) await loadOwnAbsences()
 }
 
 async function loadSickCoverage(absence: Absence) {
@@ -896,19 +945,28 @@ async function openDashboard() {
   selectedDay.value = null
   showManagement.value = false
   showSettings.value = false
+  showProfile.value = false
   dashboardBusy.value = true
   error.value = ''
+  dashboardProfileError.value = ''
+  sickCoveragePreviews.value = {}
   try {
+    try {
+      profile.value = await api<ProfileInfo>('/profile/me')
+    } catch (err) {
+      dashboardProfileError.value = err instanceof Error ? err : new TranslatedError('profile.loadFailed')
+    }
+    if (!authenticated.value) return
     if (roleKey.value === 'ADMIN') {
       await loadAdminDashboard()
       return
     }
     if (!hasScheduleAccess.value) {
-      await openManagement()
+      if (canViewOwnAbsences.value) await loadOwnAbsences()
       return
     }
     await Promise.all([loadData(), loadDashboardAssignments()])
-    if (canViewAbsences.value) await loadAbsences()
+    await refreshAbsences()
     await checkPendingVacationRequests()
     const todayDate = localDate(new Date())
     const horizon = new Date()
@@ -1023,8 +1081,9 @@ async function createArchive() {
   }
 }
 
-async function openAbsences() {
-  if (roleKey.value === 'ADMIN' || !canView.value) return
+async function openAbsences(mode?: 'own' | 'team') {
+  if (!canAccessAbsences.value) return
+  absenceMode.value = mode ?? (hasTeamAbsenceAccess.value ? 'team' : 'own')
   showDashboard.value = false
   vacationAlertQueue.value = []
   showPlanning.value = false
@@ -1034,8 +1093,11 @@ async function openAbsences() {
   showAbsences.value = true
   absenceStart.value = absenceStart.value || localDate(new Date())
   absenceEnd.value = absenceEnd.value || absenceStart.value
-  if (!absenceEmployeeId.value && employees.value.length) absenceEmployeeId.value = String(employees.value[0].id)
-  await loadAbsences()
+  const firstOtherEmployee = employees.value.find((employee) => employee.id !== sessionEmployeeId.value)
+  if (!employees.value.some((employee) => String(employee.id) === absenceEmployeeId.value && employee.id !== sessionEmployeeId.value)) {
+    absenceEmployeeId.value = firstOtherEmployee ? String(firstOtherEmployee.id) : ''
+  }
+  await refreshAbsences()
 }
 
 async function openNextShifts() {
@@ -1060,18 +1122,19 @@ async function openNextShifts() {
 async function submitAbsence() {
   error.value = ''
   try {
-    await api('/absences', {
+    const own = absenceMode.value === 'own'
+    await api(own && useOwnAbsenceEndpoint.value ? '/absences/mine' : '/absences', {
       method: 'POST',
       body: JSON.stringify({
         kind: absenceKind.value,
         start_date: absenceStart.value,
         end_date: absenceEnd.value,
         note: absenceNote.value.trim() || null,
-        ...(roleKey.value === 'EMPLOYEE' ? {} : { employee_id: Number(absenceEmployeeId.value) }),
+        ...(own ? {} : { employee_id: Number(absenceEmployeeId.value) }),
       }),
     })
     absenceNote.value = ''
-    await loadAbsences()
+    await refreshAbsences()
   } catch (err) {
     error.value = err instanceof Error ? err : new TranslatedError('absence.saveFailed')
   }
@@ -1081,7 +1144,7 @@ async function decideAbsence(absence: Absence, decision: 'approved' | 'rejected'
   error.value = ''
   try {
     await api(`/absences/${absence.id}/decision`, { method: 'POST', body: JSON.stringify({ decision }) })
-    await loadAbsences()
+    await refreshAbsences()
   } catch (err) {
     error.value = err instanceof Error ? err : new TranslatedError('absence.decisionFailed')
   }
@@ -1090,8 +1153,9 @@ async function decideAbsence(absence: Absence, decision: 'approved' | 'rejected'
 async function removeAbsence(absence: Absence) {
   error.value = ''
   try {
-    await api(`/absences/${absence.id}`, { method: 'DELETE' })
-    await loadAbsences()
+    const own = sessionEmployeeId.value !== null && absence.employee_id === sessionEmployeeId.value
+    await api(own && useOwnAbsenceEndpoint.value ? `/absences/mine/${absence.id}` : `/absences/${absence.id}`, { method: 'DELETE' })
+    await refreshAbsences()
   } catch (err) {
     error.value = err instanceof Error ? err : new TranslatedError('absence.deleteFailed')
   }
@@ -1615,6 +1679,15 @@ async function logout() {
   requiredPassword.value = ''
   requiredPasswordConfirm.value = ''
   username.value = ''
+  sessionEmployeeId.value = null
+  profile.value = null
+  absences.value = []
+  absencesLoaded.value = false
+  ownAbsences.value = []
+  ownAbsencesLoaded.value = false
+  dashboardProfileError.value = ''
+  sickCoveragePreviews.value = {}
+  vacationAlertQueue.value = []
   assignments.value = []
   employees.value = []
   shiftTypes.value = []
@@ -2221,7 +2294,7 @@ async function toggleUserLock(user: AccountUser) {
         can_view: userCanView.value,
         can_edit: userRoleKey.value === 'KIOSK' || userRoleKey.value === 'PERSONNEL' || userRoleKey.value === 'HOSPITAL_MANAGEMENT' ? false : userCanEdit.value,
         can_approve: userRoleKey.value === 'KIOSK' || userRoleKey.value === 'PERSONNEL' || userRoleKey.value === 'HOSPITAL_MANAGEMENT' ? false : userCanApprove.value,
-        employee_id: userRoleKey.value === 'EMPLOYEE' ? userEmployeeId.value : null,
+        employee_id: ['ADMIN', 'KIOSK'].includes(userRoleKey.value) ? null : userEmployeeId.value,
         ...(userId.value ? { new_password: userPassword.value || null } : { password: mailEnabled.value && userEmail.value.trim() ? null : userPassword.value || null }),
       }
       const saved = await api<AccountUser>(userId.value ? `/users/${userId.value}` : '/users', {
@@ -2475,7 +2548,8 @@ async function checkPendingVacationRequests() {
     }
     const seen = new Set<number>(saved)
     const newRequests = pending.filter((absence) =>
-      absence.kind === 'vacation' && !seen.has(absence.id))
+      absence.kind === 'vacation' && absence.employee_id !== sessionEmployeeId.value
+      && absence.requested_by !== username.value && !seen.has(absence.id))
     if (!newRequests.length) return
     for (const absence of newRequests) seen.add(absence.id)
     localStorage.setItem(key, JSON.stringify([...seen].slice(-100)))
@@ -2618,10 +2692,11 @@ onBeforeUnmount(() => {
         <button v-for="department in departments" :key="department.id" class="nav-item plan-nav-item" :title="department.name" :class="{ active: selectedPlanId === department.id }" @click="selectPlan(department.id)"><span>▦</span><span class="plan-nav-name">{{ department.name }}</span></button>
       </div>
       <p class="nav-caption nav-caption-spaced">{{ t('nav.workspace') }}</p>
-      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showPlanning }" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
+      <button class="nav-item" :title="t('dashboard.title')" :class="{ active: showDashboard }" @click="void openDashboard()"><span>⌂</span> {{ t('dashboard.title') }}</button>
+      <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.schedule')" :class="{ active: !showDashboard && !showPlanning }" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null"><span>▦</span> {{ t('page.schedule') }}</button>
       <button v-if="roleKey === 'EMPLOYEE'" class="nav-item" :title="t('schedule.nextShifts')" :class="{ active: showNextShifts }" @click="void openNextShifts()"><span>◷</span> {{ t('schedule.nextShifts') }}</button>
       <button v-if="canEditPlan" class="nav-item" :title="t('page.planning')" :class="{ active: showPlanning }" @click="openPlanning()"><span>✧</span> {{ t('page.planning') }}</button>
-      <button v-if="canViewAbsences" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
+      <button v-if="canAccessAbsences" class="nav-item" :title="t('page.absences')" @click="void openAbsences()"><span>☾</span> {{ t('page.absences') }}</button>
       <button v-if="canViewArchive" class="nav-item" :title="t('page.archive')" @click="void openArchive()"><span>▤</span> {{ t('page.archive') }}</button>
       <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" class="nav-item" :title="t('page.notifications')" :class="{ active: showNotifications }" @click="openNotificationsPage()"><span>♧</span> {{ t('page.notifications') }} <b v-if="notifications.length" class="nav-count">{{ notifications.length }}</b></button>
       <button v-if="canManageTeam" class="nav-item" :title="t('nav.teamManagement')" :class="{ active: showManagement }" @click="void openManagement()"><span>♙</span> {{ t('nav.teamManagement') }}</button>
@@ -2638,10 +2713,11 @@ onBeforeUnmount(() => {
 
     <section class="workspace">
       <nav class="mobile-navigation" :aria-label="t('nav.mobileNavigation')">
+        <button @click="void openDashboard()">{{ t('dashboard.title') }}</button>
         <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" @click="showDashboard = false; showPlanning = false; showNotifications = false; showAbsences = false; showNextShifts = false; selectedDay = null">{{ t('page.schedule') }}</button>
         <button v-if="roleKey === 'EMPLOYEE'" @click="void openNextShifts()">{{ t('schedule.nextShifts') }}</button>
         <button v-if="canEditPlan" @click="openPlanning()">{{ t('page.planning') }}</button>
-        <button v-if="canViewAbsences" @click="void openAbsences()">{{ t('page.absences') }}</button>
+        <button v-if="canAccessAbsences" @click="void openAbsences()">{{ t('page.absences') }}</button>
         <button v-if="canViewArchive" @click="void openArchive()">{{ t('page.archive') }}</button>
         <button v-if="hasScheduleAccess && roleKey !== 'PERSONNEL'" @click="openNotificationsPage()">{{ t('page.notifications') }}</button>
         <button v-if="canManageTeam" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
@@ -2672,10 +2748,11 @@ onBeforeUnmount(() => {
         <div class="page-heading">
           <div>
             <p class="eyebrow">{{ t(roleKey === 'ADMIN' ? 'dashboard.adminEyebrow' : 'dashboard.eyebrow') }}</p>
-            <h1>{{ t(roleKey === 'ADMIN' ? 'dashboard.adminTitle' : 'dashboard.greeting', { name: username }) }}</h1>
-            <p class="muted">{{ t(roleKey === 'ADMIN' ? 'dashboard.adminDescription' : 'dashboard.description') }}</p>
+            <h1>{{ t(roleKey === 'ADMIN' ? 'dashboard.adminTitle' : 'dashboard.greeting', { name: displayName }) }}</h1>
+            <p class="muted">{{ t(roleKey === 'ADMIN' ? 'dashboard.adminDescription' : hasScheduleAccess ? 'dashboard.description' : 'schedule.noAccessDescription') }}</p>
           </div>
         </div>
+        <div v-if="dashboardProfileError" class="alert" role="alert"><span>{{ errorMessage(dashboardProfileError) }}</span><button @click="dashboardProfileError = ''" :aria-label="t('dashboard.dismiss')">×</button></div>
         <div v-if="error" class="alert" role="alert"><span>{{ displayedError }}</span><button @click="error = ''" :aria-label="t('dashboard.dismiss')">×</button></div>
         <p v-if="dashboardBusy" class="muted" role="status">{{ t('dashboard.loading') }}</p>
         <template v-if="roleKey === 'ADMIN'">
@@ -2698,7 +2775,7 @@ onBeforeUnmount(() => {
             </div>
           </section>
         </template>
-        <template v-else>
+        <template v-else-if="hasScheduleAccess">
           <section class="dashboard-grid employee-dashboard-grid">
             <article class="panel dashboard-card next-duty-card">
               <span class="eyebrow">{{ t('dashboard.nextDuty') }}</span>
@@ -2711,10 +2788,27 @@ onBeforeUnmount(() => {
             </article>
             <article class="panel dashboard-card absence-shortcut-card">
               <span class="eyebrow">{{ t('page.absences') }}</span>
-              <strong v-if="canApprove">{{ dashboardPendingAbsences }}</strong>
-              <span>{{ canApprove ? t('dashboard.pendingRequests') : t('dashboard.absencePrompt') }}</span>
-              <button v-if="canRequestAbsence || canViewAbsences" class="primary" @click="void openAbsences()">{{ canRequestAbsence ? t('dashboard.requestAbsence') : t('dashboard.reviewRequests') }}</button>
+              <strong v-if="hasTeamAbsenceAccess && canApprove && absencesLoaded">{{ dashboardPendingAbsences.length }}</strong>
+              <span>{{ hasTeamAbsenceAccess && canApprove ? t('dashboard.pendingRequests') : t('dashboard.absencePrompt') }}</span>
+              <button v-if="canAccessAbsences" class="primary" @click="void openAbsences(canRequestAbsence ? 'own' : 'team')">{{ canRequestAbsence ? t('dashboard.requestAbsence') : t('dashboard.reviewRequests') }}</button>
             </article>
+          </section>
+          <section v-if="hasTeamAbsenceAccess && (canApprove || canEdit)" class="panel dashboard-absence-list">
+            <div class="dashboard-section-heading"><h2>{{ t('dashboard.pendingRequests') }}</h2><button class="text-button" @click="void openAbsences()">{{ t('dashboard.reviewRequests') }}</button></div>
+            <template v-if="absencesLoaded">
+              <article v-for="absence in dashboardPendingAbsences" :key="absence.id" class="dashboard-absence-row">
+                <strong>{{ absence.employee_name }} · {{ kindLabels[absence.kind] }}</strong>
+                <span>{{ absenceDepartment(absence) }}</span>
+                <span>{{ absenceDateLabel(absence.start_date) }} – {{ absenceDateLabel(absence.end_date) }}</span>
+                <span v-if="absence.requested_by">{{ t('absence.requestedBy', { name: absence.requested_by }) }}<template v-if="absence.created_at">{{ t('absence.onDate', { date: new Date(absence.created_at).toLocaleString(locale) }) }}</template></span>
+                <span v-if="absence.note">{{ t('absence.note', { note: absence.note }) }}</span>
+                <div v-if="canApprove && !licenseReadOnly && absence.employee_id !== sessionEmployeeId && absence.requested_by !== username" class="dashboard-absence-actions">
+                  <button class="text-button" @click="decideAbsence(absence, 'approved')">{{ t('absence.approve') }}</button>
+                  <button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">{{ t('absence.reject') }}</button>
+                </div>
+              </article>
+              <p v-if="!dashboardPendingAbsences.length" class="muted">{{ t('dashboard.noPendingRequests') }}</p>
+            </template>
           </section>
           <section class="panel dashboard-calendar">
             <div class="dashboard-section-heading"><div><p class="eyebrow">{{ t('dashboard.calendarEyebrow') }}</p><h2>{{ t('dashboard.calendarTitle') }}</h2></div><button class="text-button" @click="showDashboard = false; selectedDay = null">{{ t('page.schedule') }}</button></div>
@@ -2738,6 +2832,20 @@ onBeforeUnmount(() => {
             </article>
           </section>
         </template>
+        <section v-else-if="canManageTeam" class="panel dashboard-shortcuts">
+          <div class="dashboard-section-heading"><h2>{{ t('nav.teamManagement') }}</h2></div>
+          <button class="secondary" @click="void openManagement()">{{ t('nav.teamManagement') }}</button>
+        </section>
+        <section v-if="canViewOwnAbsences" class="panel dashboard-absence-list">
+          <div class="dashboard-section-heading"><h2>{{ t('dashboard.ownAbsences') }}</h2><button v-if="roleKey !== 'EMPLOYEE'" class="text-button" @click="void openAbsences('own')">{{ t('dashboard.requestAbsence') }}</button></div>
+          <template v-if="useOwnAbsenceEndpoint ? ownAbsencesLoaded : absencesLoaded">
+            <article v-for="absence in dashboardOwnAbsences" :key="absence.id" class="dashboard-absence-row">
+              <strong>{{ kindLabels[absence.kind] }}</strong>
+              <span>{{ absenceDateLabel(absence.start_date) }} – {{ absenceDateLabel(absence.end_date) }} · {{ absence.kind === 'sick' ? t('absence.noApproval') : statusLabels[absence.status] }}</span>
+            </article>
+            <p v-if="!dashboardOwnAbsences.length" class="muted">{{ t('dashboard.noOwnAbsences') }}</p>
+          </template>
+        </section>
       </main>
       <main v-else-if="showPlanning" class="content">
         <div class="page-heading">
@@ -2795,18 +2903,19 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="absence-layout">
-          <section v-if="canRequestAbsence || canRecordAbsence" class="panel absence-panel">
+          <label v-if="canViewOwnAbsences && hasTeamAbsenceAccess" class="absence-mode">{{ t('absence.view') }}<select v-model="absenceMode"><option value="own">{{ t('dashboard.ownAbsences') }}</option><option value="team">{{ t('absence.teamAbsences') }}</option></select></label>
+          <section v-if="absenceMode === 'own' ? canRequestAbsence : canRecordAbsence && roleKey !== 'EMPLOYEE'" class="panel absence-panel">
           <form class="stack absence-form" @submit.prevent="submitAbsence">
-              <label v-if="!canRequestAbsence">{{ t('absence.employee') }}<select v-model="absenceEmployeeId" required><option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
+              <label v-if="absenceMode === 'team'">{{ t('absence.employee') }}<select v-model="absenceEmployeeId" required><option v-for="employee in employees.filter((item) => item.id !== sessionEmployeeId)" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
               <label>{{ t('absence.kind') }}<select v-model="absenceKind"><option value="vacation">{{ t('absence.vacation') }}</option><option value="sick">{{ t('absence.sick') }}</option><option value="other">{{ t('absence.other') }}</option></select></label>
               <div class="form-row"><label>{{ t('absence.from') }}<input v-model="absenceStart" type="date" required /></label><label>{{ t('absence.to') }}<input v-model="absenceEnd" type="date" :min="absenceStart" required /></label></div>
               <label>{{ t('absence.optionalNote') }}<input v-model="absenceNote" maxlength="500" /></label>
               <p v-if="absenceKind === 'sick'" class="muted">{{ t('absence.sickNotice') }}</p>
-            <button class="primary full">{{ canRequestAbsence && absenceKind !== 'sick' ? t('absence.submit') : absenceKind === 'sick' && canRequestAbsence ? t('absence.reportSick') : t('absence.record') }}</button>
+            <button class="primary full">{{ absenceMode === 'own' && absenceKind !== 'sick' ? t('absence.submit') : absenceKind === 'sick' && absenceMode === 'own' ? t('absence.reportSick') : t('absence.record') }}</button>
             </form>
           </section>
           <section class="panel absence-panel absence-list">
-          <div v-for="absence in absences" :key="absence.id" class="management-row absence-row">
+          <div v-for="absence in displayedAbsences" :key="absence.id" class="management-row absence-row">
             <div>
               <strong>{{ absence.employee_name }} · {{ kindLabels[absence.kind] }}</strong>
               <small>{{ dateLabel(absence.start_date) }} – {{ dateLabel(absence.end_date) }} · {{ absence.kind === 'sick' ? t('absence.noApproval') : statusLabels[absence.status] }}</small>
@@ -2815,11 +2924,11 @@ onBeforeUnmount(() => {
               <small v-if="absence.note">{{ t('absence.note', { note: absence.note }) }}</small>
             </div>
             <div v-if="!licenseReadOnly">
-              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && canApprove"><button class="text-button" @click="decideAbsence(absence, 'approved')">{{ t('absence.approve') }}</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">{{ t('absence.reject') }}</button></template>
-              <button v-if="(roleKey === 'EMPLOYEE' && absence.status === 'pending') || canRecordAbsence" class="text-button danger-text" @click="removeAbsence(absence)">{{ roleKey === 'EMPLOYEE' ? t('absence.withdraw') : t('absence.delete') }}</button>
+              <template v-if="absence.status === 'pending' && absence.kind !== 'sick' && canApprove && absence.employee_id !== sessionEmployeeId && absence.requested_by !== username"><button class="text-button" @click="decideAbsence(absence, 'approved')">{{ t('absence.approve') }}</button><button class="text-button danger-text" @click="decideAbsence(absence, 'rejected')">{{ t('absence.reject') }}</button></template>
+              <button v-if="((absence.employee_id === sessionEmployeeId || (roleKey === 'EMPLOYEE' && !sessionEmployeeId)) && absence.status === 'pending') || (canRecordAbsence && roleKey !== 'EMPLOYEE' && absence.employee_id !== sessionEmployeeId)" class="text-button danger-text" @click="removeAbsence(absence)">{{ absence.employee_id === sessionEmployeeId || roleKey === 'EMPLOYEE' ? t('absence.withdraw') : t('absence.delete') }}</button>
             </div>
           </div>
-          <p v-if="!absences.length" class="notification-empty">{{ t('absence.empty') }}</p>
+          <p v-if="!displayedAbsences.length && (absenceMode === 'own' && useOwnAbsenceEndpoint ? ownAbsencesLoaded : absencesLoaded)" class="notification-empty">{{ t('absence.empty') }}</p>
           </section>
         </div>
       </main>
@@ -3272,7 +3381,7 @@ onBeforeUnmount(() => {
               <p v-if="!mailEnabled" class="muted">{{ t('management.temporaryPasswordNotice') }}</p>
               <label>{{ t('management.accountType') }}<select v-model="userRoleKey"><option v-if="systemRoleSelectable('ADMIN')" value="ADMIN">{{ t('role.admin') }}</option><template v-for="option in roleCatalog.access_roles" :key="option.key"><option v-if="systemRoleSelectable(option.key)" :value="option.key">{{ option.key === 'KIOSK' ? t('role.kioskDescription') : option.key === 'EMPLOYEE' ? t('role.employeeDescription') : roleLabel(option.key) }}</option></template></select></label>
               <fieldset v-if="!['ADMIN', 'HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey)" class="department-picker"><legend>{{ t('management.accessibleSchedules') }}</legend><label v-for="department in departments" :key="department.id"><input v-model="userDepartmentIds" type="checkbox" :value="department.id" />{{ department.name }}</label></fieldset>
-              <label v-if="userRoleKey === 'EMPLOYEE'">{{ t('management.linkedPerson') }}<select v-model="userEmployeeId" required><option :value="null" disabled>{{ t('management.choose') }}</option><option v-for="person in allEmployees.filter((item) => userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
+              <label v-if="!['ADMIN', 'KIOSK'].includes(userRoleKey)">{{ t('management.linkedPerson') }}<select v-model="userEmployeeId" :required="userRoleKey === 'EMPLOYEE'"><option :value="null" :disabled="userRoleKey === 'EMPLOYEE'">{{ userRoleKey === 'EMPLOYEE' ? t('management.choose') : t('management.noLinkedPerson') }}</option><option v-for="person in allEmployees.filter((item) => ['HOSPITAL_MANAGEMENT', 'PERSONNEL'].includes(userRoleKey) || userDepartmentIds.includes(item.department_id ?? -1))" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select></label>
               <template v-if="userRoleKey !== 'PERSONNEL'">
                 <label class="permission-toggle"><input v-model="userCanView" type="checkbox" :disabled="userRoleKey === 'KIOSK'" /> {{ t('management.viewSchedule') }}</label>
                 <label class="permission-toggle"><input v-model="userCanEdit" type="checkbox" :disabled="['HOSPITAL_MANAGEMENT', 'KIOSK', 'PERSONNEL'].includes(userRoleKey)" /> {{ t('management.editShifts') }}</label>

@@ -1290,6 +1290,98 @@ def test_employee_self_service_absence_workflow(client):
     assert client.get("/api/absences", headers=_login_headers(client, "erika", "secure-password-123")).json()[-1]["id"] == absence_id
 
 
+def test_linked_management_personal_absences_are_separate_and_cannot_be_self_approved(client):
+    admin = auth_header(client)
+    department = client.post("/api/departments", headers=admin, json={"name": "Chirurgie"}).json()["id"]
+    other_department = client.post("/api/departments", headers=admin, json={"name": "Station"}).json()["id"]
+    employee = client.post("/api/employees", headers=admin, json={
+        "first_name": "Alex", "last_name": "Beispiel", "role": "Arzt", "department_id": department,
+    }).json()["id"]
+    other = client.post("/api/employees", headers=admin, json={
+        "first_name": "Kim", "last_name": "Beispiel", "role": "Arzt", "department_id": department,
+    }).json()["id"]
+    payload = {
+        "first_name": "Alex", "last_name": "Beispiel", "username": "linked-planner",
+        "password": "secure-password-123", "role_key": "OBERARZT",
+        "department_ids": [department, other_department], "employee_id": employee,
+        "can_view": True, "can_edit": True, "can_approve": True,
+    }
+    created = client.post("/api/users", headers=admin, json=payload)
+    assert created.status_code == 201, created.text
+    user_id = created.json()["id"]
+    assert created.json()["employee_id"] == employee
+    duplicate = client.post("/api/users", headers=admin, json={**payload, "username": "duplicate"})
+    assert duplicate.status_code == 409
+    update = {key: value for key, value in payload.items() if key != "password"}
+    assert client.put(f"/api/users/{user_id}", headers=admin, json=update).status_code == 200
+    invalid_update = client.put(f"/api/users/{user_id}", headers=admin, json={
+        **update, "department_ids": [other_department], "department_id": other_department,
+    })
+    assert invalid_update.status_code == 422
+    moved = client.put(f"/api/employees/{employee}", headers=admin, json={
+        "first_name": "Alex", "last_name": "Beispiel", "role": "Arzt", "department_id": department,
+    })
+    assert moved.status_code == 200
+    stored = next(user for user in client.get("/api/users", headers=admin).json() if user["id"] == user_id)
+    assert set(stored["department_ids"]) == {department, other_department}
+
+    planner = _login_headers(client, "linked-planner", "secure-password-123")
+    assert client.get("/api/auth/session", headers=planner).json()["employee_id"] == employee
+    request_data = {"kind": "vacation", "start_date": "2030-03-04", "end_date": "2030-03-08"}
+    assert client.post("/api/absences/mine", headers=planner, json={**request_data, "employee_id": other}).status_code == 403
+    assert client.post("/api/absences", headers=planner, json={**request_data, "employee_id": employee}).status_code == 403
+    request = client.post("/api/absences/mine", headers=planner, json=request_data)
+    assert request.status_code == 201, request.text
+    assert request.json()["status"] == "pending"
+    absence_id = request.json()["id"]
+    assert [item["id"] for item in client.get("/api/absences/mine", headers=planner).json()] == [absence_id]
+    assert client.post(f"/api/absences/{absence_id}/decision", headers=planner, json={"decision": "approved"}).status_code == 403
+    assert client.get("/api/absences/mine", headers=admin).status_code == 403
+    assert client.put(f"/api/users/{user_id}", headers=admin, json={**update, "employee_id": None}).status_code == 200
+    unlinked_planner = _login_headers(client, "linked-planner", "secure-password-123")
+    assert client.post(f"/api/absences/{absence_id}/decision", headers=unlinked_planner, json={"decision": "approved"}).status_code == 403
+    assert client.put(f"/api/users/{user_id}", headers=admin, json=update).status_code == 200
+    planner = _login_headers(client, "linked-planner", "secure-password-123")
+
+    assert client.post("/api/users", headers=admin, json={
+        "first_name": "Kim", "last_name": "Beispiel", "username": "other-planner",
+        "password": "secure-password-123", "role_key": "OBERARZT", "department_id": department,
+        "employee_id": other, "can_view": True, "can_edit": True, "can_approve": True,
+    }).status_code == 201
+    other_planner = _login_headers(client, "other-planner", "secure-password-123")
+    assert client.get("/api/absences/mine", headers=other_planner).json() == []
+    assert client.delete(f"/api/absences/mine/{absence_id}", headers=other_planner).status_code == 404
+    assert client.post(f"/api/absences/{absence_id}/decision", headers=other_planner, json={"decision": "approved"}).status_code == 200
+    assert client.delete(f"/api/absences/mine/{absence_id}", headers=planner).status_code == 409
+    assert client.delete(f"/api/absences/{absence_id}", headers=planner).status_code == 409
+    second = client.post("/api/absences/mine", headers=planner, json={
+        "kind": "other", "start_date": "2030-05-01", "end_date": "2030-05-02",
+    })
+    assert second.status_code == 201
+    assert client.delete(f"/api/absences/mine/{second.json()['id']}", headers=planner).status_code == 204
+
+
+def test_linked_personnel_can_access_only_personal_absences_without_schedule_access(client):
+    admin = auth_header(client)
+    department = client.post("/api/departments", headers=admin, json={"name": "Personal"}).json()["id"]
+    employee = client.post("/api/employees", headers=admin, json={
+        "first_name": "Sam", "last_name": "Beispiel", "role": "Personal", "department_id": department,
+    }).json()["id"]
+    created = client.post("/api/users", headers=admin, json={
+        "first_name": "Sam", "last_name": "Beispiel", "username": "personnel",
+        "password": "secure-password-123", "role_key": "PERSONNEL", "employee_id": employee,
+    })
+    assert created.status_code == 201, created.text
+    personnel = _login_headers(client, "personnel", "secure-password-123")
+    assert client.get("/api/absences", headers=personnel).status_code == 403
+    request = client.post("/api/absences/mine", headers=personnel, json={
+        "kind": "sick", "start_date": "2030-05-01", "end_date": "2030-05-02",
+    })
+    assert request.status_code == 201
+    assert request.json()["status"] == "approved"
+    assert [item["id"] for item in client.get("/api/absences/mine", headers=personnel).json()] == [request.json()["id"]]
+
+
 def test_sick_coverage_suggests_and_atomically_replaces_a_shift(client):
     admin = auth_header(client)
     department_id = client.post(

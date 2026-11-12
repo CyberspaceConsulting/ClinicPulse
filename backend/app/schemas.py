@@ -342,8 +342,8 @@ class UserCreate(PersonName, PersonalDetails):
                 raise ValueError("Employee accounts must be linked to an employee")
             if not self.can_view:
                 raise ValueError("Employee accounts must have schedule view access")
-        elif self.employee_id is not None:
-            raise ValueError("Only employee accounts can be linked to an employee")
+        elif self.role_key in {"ADMIN", "KIOSK"} and self.employee_id is not None:
+            raise ValueError("Administrator and kiosk accounts cannot be linked to an employee")
         return self
 
 
@@ -383,8 +383,8 @@ class UserUpdate(PersonName, PersonalDetails):
                 raise ValueError("Employee accounts must be linked to an employee")
             if not self.can_view:
                 raise ValueError("Employee accounts must have schedule view access")
-        elif self.employee_id is not None:
-            raise ValueError("Only employee accounts can be linked to an employee")
+        elif self.role_key in {"ADMIN", "KIOSK"} and self.employee_id is not None:
+            raise ValueError("Administrator and kiosk accounts cannot be linked to an employee")
         return self
 
 
@@ -438,6 +438,7 @@ class SessionResponse(BaseModel):
     username: str
     role_key: str = "ADMIN"
     department_id: int | None = None
+    employee_id: int | None = None
     can_view: bool = True
     can_edit: bool = True
     can_approve: bool = True
