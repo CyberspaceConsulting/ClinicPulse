@@ -2,22 +2,53 @@
 
 ## Erste Schritte zur Diagnose
 
+Für eine Release-Installation im Installationsverzeichnis (normalerweise `clinicpulse`):
+
+```sh
+docker compose ps -a
+docker compose logs --tail=100 backend db web
+```
+
+Für eine manuelle Quellcode-Installation im Repository-Hauptverzeichnis:
+
 ```sh
 docker compose -f docker/docker-compose.yml ps
-docker compose -f docker/docker-compose.yml logs --tail 100 api
+docker compose -f docker/docker-compose.yml logs --tail 100 backend
 docker compose -f docker/docker-compose.yml logs --tail 100 db
 ```
 
-Der Zustand der API lässt sich über `GET /api/health` prüfen. Bitte keine Zugangsdaten, Schlüssel oder echten Personendaten in Logs oder Issues veröffentlichen.
+Der Zustand der API lässt sich über `GET /api/health` prüfen. Bitte keine Zugangsdaten, Schlüssel oder echten Personendaten in Logs oder Issues veröffentlichen. Bei einer Installation über `deploy/install.sh` aus dem Checkout verwende für Compose dieselbe Datei und dieselben Einstellungen wie beim Start.
+
+## Fehlende Fahrzeugspalte beim Start
+
+Wenn Release `v-0.3.4.1-alpha` mit einer bestehenden Datenbank beim Start `column shift_types.vehicle_id does not exist` meldet, schlägt die Migration fehl und nginx gibt 502 zurück. Verwende ein Release mit der korrigierten Migration, sobald es verfügbar ist. Das Datenbank-Volume und den bestehenden Verschlüsselungsschlüssel nicht löschen.
+
+Als Zwischenlösung kann bei genau dieser Fehlermeldung die fehlende Spalte ergänzt werden. Zuerst im Release-Installationsverzeichnis eine Datenbanksicherung erstellen und ihren Erfolg prüfen. Die Datei enthält möglicherweise sensible Daten und muss geschützt aufbewahrt werden:
+
+```sh
+umask 077
+docker compose exec -T db pg_dump -U clinicpulse -d clinicpulse > backup-vor-migration.sql
+```
+
+Nur nach erfolgreicher Sicherung die Spalte ergänzen und das Backend neu starten:
+
+```sh
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U clinicpulse -d clinicpulse -c 'ALTER TABLE shift_types ADD COLUMN IF NOT EXISTS vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE RESTRICT' && \
+docker compose restart backend && \
+docker compose ps -a && \
+docker compose logs --tail=100 backend
+```
+
+Meldet das Backend danach einen anderen Fehler, dessen Logs prüfen. Eine bereits eingerichtete Datenbank führt zum Login; die Ersteinrichtung erscheint nur, wenn noch kein Administrator vorhanden ist.
 
 ## Häufige Probleme
 
 | Problem                                         | Ursache und Lösung                                                                                                       |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `docker compose` findet keine Datei             | Compose-Datei liegt unter `docker/docker-compose.yml`; Befehle mit `-f docker/docker-compose.yml` im Hauptverzeichnis ausführen. |
-| `api` startet nicht / Secret fehlt              | `secrets/data_encryption_key` und `secrets/smtp_password` müssen existieren (siehe [Installation](getting-started/installation.md)). |
-| `api` wartet auf `db`                           | Datenbank noch nicht gesund; `docker compose ... logs db` prüfen.                                                        |
-| Verschlüsselte Daten nicht lesbar               | Der Schlüssel in `secrets/data_encryption_key` wurde geändert oder fehlt. Ursprünglichen Schlüssel wiederherstellen.      |
+| `backend` startet nicht / Schlüssel fehlt       | Bei vorhandener Datenbank den ursprünglichen Schlüssel wiederherstellen, nicht neu erzeugen (siehe [Backup](features/backup.md)). |
+| `backend` wartet auf `db`                       | Datenbank noch nicht gesund; `docker compose ... logs db` prüfen.                                                        |
+| Verschlüsselte Daten nicht lesbar               | Datenschlüssel fehlt, ist falsch oder die Daten sind beschädigt. Ursprünglichen Schlüssel wiederherstellen.             |
 | Port 8080 belegt                                | `CLINICPULSE_PORT` auf einen freien Port setzen.                                                                         |
 | Einrichtung scheitert an der Lizenz             | Ausgehenden HTTPS-Zugriff auf `CLINICPULSE_LICENSE_API_URL` prüfen (Firewall, Proxy, DNS).                               |
 | Einladungs-E-Mails kommen nicht an              | [E-Mail](features/mail.md) prüfen: SMTP-Daten, TLS, öffentliche HTTPS-Adresse; Testversand nutzen.                       |
@@ -41,7 +72,7 @@ Der Zustand der API lässt sich über `GET /api/health` prüfen. Bitte keine Zug
 | 422  | Eingabe ungültig (Validierung)                                              |
 | 423  | Lizenz im Nur-Lesen-Modus                                                   |
 | 429  | Zu viele Anmeldeversuche                                                    |
-| 502  | Ungültige Antwort des Passwort-Prüfdienstes                                 |
+| 502  | Backend nicht erreichbar (Proxy) oder ungültige Antwort des Passwort-Prüfdienstes |
 | 503  | Externer Dienst nicht erreichbar (Lizenzserver, Passwortprüfung)            |
 
 ## Fehlermeldungen

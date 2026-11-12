@@ -1,13 +1,13 @@
 """Command line backup tool (run inside the API container).
 
 On the NEW instance, create a key pair first; it prints the public key and writes a protected key file:
-  docker compose exec api python -m app.backup_cli keygen /backups/recovery-key.cpkey
+    docker compose exec backend python -m app.backup_cli keygen /backups/recovery-key.cpkey
 
 On the OLD instance, create a backup readable only with that key (or use the stored recipients):
-  docker compose exec api python -m app.backup_cli export /backups/manual.cpbak --recipient CPPUB1:...
+    docker compose exec backend python -m app.backup_cli export /backups/manual.cpbak --recipient CPPUB1:...
 
 On the NEW instance, restore it:
-  docker compose exec api python -m app.backup_cli import /backups/manual.cpbak --key /backups/recovery-key.cpkey --yes
+    docker compose exec backend python -m app.backup_cli import /backups/manual.cpbak --key /backups/recovery-key.cpkey --yes
 
 The key-file password is read from CLINICPULSE_KEY_PASSPHRASE or prompted for.
 """

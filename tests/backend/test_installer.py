@@ -1,7 +1,10 @@
 import hashlib
 import os
 from pathlib import Path
+import stat
 import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +24,8 @@ def installer_environment(tmp_path, *, checksum=None, docker_failure=""):
     (bin_dir / "docker").write_text(
         """#!/bin/sh
 printf "%s\\n" "$*" >> "$DOCKER_LOG"
+printf "%s|%s\\n" "$PWD" "$*" >> "$DOCKER_CWD_LOG"
+printf "%s|%s\\n" "$PWD" "${COMPOSE_ENV_FILES:-}" >> "$DOCKER_ENV_FILES_LOG"
 [ "$*" != "$DOCKER_FAIL_ON" ] || exit 23
 """,
         encoding="utf-8",
@@ -52,6 +57,8 @@ esac
     environment.update({
         "PATH": f"{bin_dir}:{environment['PATH']}",
         "DOCKER_LOG": str(tmp_path / "docker.log"),
+        "DOCKER_CWD_LOG": str(tmp_path / "docker-cwd.log"),
+        "DOCKER_ENV_FILES_LOG": str(tmp_path / "docker-env-files.log"),
         "DOCKER_FAIL_ON": docker_failure,
         "RELEASE_FIXTURES": str(fixtures),
     })
@@ -78,14 +85,15 @@ def test_piped_installer_downloads_verifies_and_starts_release(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert (install_dir / "compose.yaml").read_bytes() == compose
-    assert (install_dir / "secrets" / "data_encryption_key").read_text(encoding="utf-8") == "test-encryption-key\n"
+    assert not (install_dir / "secrets").exists()
     docker_commands = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
     assert "compose pull" in docker_commands
     assert "compose up -d" in docker_commands
     assert "http://localhost:8080" in result.stdout
 
 
-def test_source_installer_builds_local_compose_without_downloading_release(tmp_path):
+@pytest.mark.parametrize("with_dotenv, fail_build, with_env_files", [(False, False, False), (True, False, False), (False, True, False), (True, False, True)])
+def test_source_installer_builds_local_compose_without_downloading_release(tmp_path, with_dotenv, fail_build, with_env_files):
     environment, _ = installer_environment(tmp_path)
     repository = tmp_path / "repository"
     deploy_dir = repository / "deploy"
@@ -98,6 +106,19 @@ def test_source_installer_builds_local_compose_without_downloading_release(tmp_p
     source_compose = docker_dir / "docker-compose.yml"
     source_compose.write_text("services:\n  web:\n    build: ../frontend\n", encoding="utf-8")
     install_dir = tmp_path / "installation"
+    environment.pop("COMPOSE_ENV_FILES", None)
+    if with_dotenv:
+        install_dir.mkdir()
+        (install_dir / ".env").write_text("CLINICPULSE_PORT=9090\n", encoding="utf-8")
+    if with_env_files:
+        (install_dir / "custom.env").write_text("CLINICPULSE_PORT=9091\n", encoding="utf-8")
+        environment["COMPOSE_ENV_FILES"] = "custom.env"
+    env_file = install_dir / ".env" if with_dotenv else Path("/dev/null")
+    build_command = (f"compose --file {source_compose} build" if with_env_files else
+                     f"compose --env-file {env_file} --file {source_compose} build")
+    start_command = f"compose --file {source_compose} up --no-build -d"
+    if fail_build:
+        environment["DOCKER_FAIL_ON"] = build_command
 
     result = subprocess.run(
         ["sh", str(installer), str(install_dir)],
@@ -108,11 +129,23 @@ def test_source_installer_builds_local_compose_without_downloading_release(tmp_p
         check=False,
     )
 
+    docker_commands = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
+    assert build_command in docker_commands
+    docker_cwds = (tmp_path / "docker-cwd.log").read_text(encoding="utf-8").splitlines()
+    assert f"{repository}|{build_command}" in docker_cwds
+    if with_env_files:
+        env_logs = (tmp_path / "docker-env-files.log").read_text(encoding="utf-8").splitlines()
+        assert f"{repository}|{install_dir / 'custom.env'}" in env_logs
+    if fail_build:
+        assert result.returncode == 23
+        assert start_command not in docker_commands
+        assert "ClinicPulse is starting" not in result.stdout
+        return
     assert result.returncode == 0, result.stderr
     assert "Using the local source checkout" in result.stdout
-    assert (install_dir / "secrets" / "data_encryption_key").exists()
-    docker_commands = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
-    assert f"compose --file {source_compose} up --build -d" in docker_commands
+    assert not (install_dir / "secrets").exists()
+    assert start_command in docker_commands
+    assert f"{install_dir}|{start_command}" in docker_cwds
     assert "compose pull" not in docker_commands
     assert not (install_dir / "compose.yaml").exists()
 
@@ -124,6 +157,7 @@ def test_repeat_install_preserves_key_and_existing_backups(tmp_path):
     assert first.returncode == 0, first.stderr
 
     key_path = install_dir / "secrets" / "data_encryption_key"
+    key_path.parent.mkdir()
     key_path.write_text("existing-production-key\n", encoding="utf-8")
     backup_path = install_dir / "backups" / "previous-backup"
     backup_path.write_text("existing backup", encoding="utf-8")
@@ -133,7 +167,91 @@ def test_repeat_install_preserves_key_and_existing_backups(tmp_path):
     assert second.returncode == 0, second.stderr
     assert key_path.read_text(encoding="utf-8") == "existing-production-key\n"
     assert backup_path.read_text(encoding="utf-8") == "existing backup"
-    assert "Keeping existing encryption key." in second.stdout
+    assert "Imported the existing encryption key" in second.stdout
+    assert f"--volume {key_path}:/run/clinicpulse-import:ro" in (tmp_path / "docker.log").read_text(encoding="utf-8")
+
+
+def test_installer_uses_external_key_and_does_not_create_a_replacement(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    key = tmp_path / "external-key"
+    key.write_text("existing-key\n", encoding="utf-8")
+    environment["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = str(key)
+    install_dir = tmp_path / "installation"
+
+    result = run_piped_installer(tmp_path, environment, install_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert key.read_text(encoding="utf-8") == "existing-key\n"
+    assert not (install_dir / "secrets" / "data_encryption_key").exists()
+    assert f"--volume {key}:/run/clinicpulse-import:ro" in (tmp_path / "docker.log").read_text(encoding="utf-8")
+
+
+def test_installer_rejects_missing_external_key(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    environment["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = str(tmp_path / "missing-key")
+    result = run_piped_installer(tmp_path, environment, tmp_path / "installation")
+    assert result.returncode != 0
+    assert "must already exist" in result.stderr
+    assert (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines() == ["compose version"]
+
+
+def test_installer_rejects_missing_external_smtp_password(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    environment["CLINICPULSE_SMTP_PASSWORD_SECRET_FILE"] = str(tmp_path / "missing-smtp")
+    result = run_piped_installer(tmp_path, environment, tmp_path / "installation")
+    assert result.returncode != 0
+    assert "SMTP password file must already exist" in result.stderr
+
+
+@pytest.mark.parametrize("configured_in_dotenv", [False, True])
+def test_installer_refuses_external_key_mode(tmp_path, configured_in_dotenv):
+    environment, _ = installer_environment(tmp_path)
+    install_dir = tmp_path / "installation"
+    if configured_in_dotenv:
+        environment.pop("CLINICPULSE_EXTERNAL_KEY_FILE", None)
+        install_dir.mkdir()
+        (install_dir / ".env").write_text("CLINICPULSE_EXTERNAL_KEY_FILE=/secure/key\n", encoding="utf-8")
+    else:
+        environment["CLINICPULSE_EXTERNAL_KEY_FILE"] = "/secure/key"
+    result = run_piped_installer(tmp_path, environment, install_dir)
+    assert result.returncode != 0
+    assert "must be updated with their existing Compose files" in result.stderr
+    assert (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines() == ["compose version"]
+
+
+def test_installer_requires_external_smtp_environment_when_configured_in_dotenv(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    environment.pop("CLINICPULSE_SMTP_PASSWORD_SECRET_FILE", None)
+    install_dir = tmp_path / "installation"
+    install_dir.mkdir()
+    (install_dir / ".env").write_text("CLINICPULSE_SMTP_PASSWORD_SECRET_FILE=/secure/smtp\n", encoding="utf-8")
+    result = run_piped_installer(tmp_path, environment, install_dir)
+    assert result.returncode != 0
+    assert "in the environment" in result.stderr
+
+
+def test_installer_requires_external_key_environment_when_configured_in_dotenv(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    environment.pop("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE", None)
+    install_dir = tmp_path / "installation"
+    install_dir.mkdir()
+    (install_dir / ".env").write_text("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE=/secure/key\n", encoding="utf-8")
+    result = run_piped_installer(tmp_path, environment, install_dir)
+    assert result.returncode != 0
+    assert "in the environment" in result.stderr
+    assert not (install_dir / "secrets" / "data_encryption_key").exists()
+
+
+def test_installer_restricts_existing_key_permissions(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    install_dir = tmp_path / "installation"
+    key = install_dir / "secrets" / "data_encryption_key"
+    key.parent.mkdir(parents=True)
+    key.write_text("existing-key\n", encoding="utf-8")
+    key.chmod(0o644)
+    result = run_piped_installer(tmp_path, environment, install_dir)
+    assert result.returncode == 0, result.stderr
+    assert stat.S_IMODE(key.stat().st_mode) == 0o600
 
 
 def test_bad_compose_checksum_stops_before_creating_key_or_starting_containers(tmp_path):
@@ -156,5 +274,5 @@ def test_docker_start_failure_is_reported_without_success_message(tmp_path):
 
     assert result.returncode == 23
     assert "ClinicPulse is starting" not in result.stdout
-    assert (install_dir / "secrets" / "data_encryption_key").exists()
+    assert not (install_dir / "secrets").exists()
     assert (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()[-1] == "compose up -d"

@@ -187,6 +187,23 @@ def test_upgrade_from_legacy_schema_preserves_existing_data(postgres_db):
         assert assignment.starts_at == datetime(2026, 1, 1, 7, tzinfo=timezone.utc)
 
 
+def test_legacy_shift_schema_adds_columns_before_orm_queries(postgres_db):
+    with Session(postgres_db) as session:
+        session.add(models.ShiftType(name="Old shift", start_time=time(7), end_time=time(15)))
+        session.commit()
+    with postgres_db.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE shift_types DROP COLUMN vehicle_id")
+        connection.exec_driver_sql("ALTER TABLE shift_types DROP COLUMN break_minutes")
+        connection.exec_driver_sql("ALTER TABLE shift_types DROP COLUMN break_start_minutes")
+    main.migrate_existing_database()
+    main.migrate_existing_database()
+    with Session(postgres_db) as session:
+        shift = session.scalar(select(models.ShiftType).where(models.ShiftType.name == "Old shift"))
+        assert shift.vehicle_id is None
+        assert shift.break_minutes == 30
+        assert shift.break_start_minutes > 0
+
+
 def test_backup_restores_across_distinct_database_keys(postgres_db, monkeypatch):
     main._migrate_encrypted_columns()
     original_key = os.environ["CLINICPULSE_DATA_ENCRYPTION_KEY"]

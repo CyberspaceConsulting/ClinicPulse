@@ -308,6 +308,7 @@ watch(
 const setupSundayWorkAuthorized = ref(false)
 const setupChecked = ref(false)
 const setupRequired = ref(false)
+const setupCheckFailed = ref(false)
 const institutionName = ref<string | null>(null)
 const error = ref<string | Error>('')
 const displayedError = computed(() => errorMessage(error.value))
@@ -852,6 +853,9 @@ function storeSession(result: Partial<SessionInfo> & { username: string }) {
 }
 
 async function checkSetup(restoreSession = true) {
+  setupChecked.value = false
+  setupCheckFailed.value = false
+  error.value = ''
   try {
     const health = await api<{ version?: string; architecture?: string }>('/health')
     appArchitecture.value = health.architecture ?? ''
@@ -875,6 +879,7 @@ async function checkSetup(restoreSession = true) {
       }
     }
   } catch (err) {
+    setupCheckFailed.value = true
     error.value = err instanceof Error ? err : new TranslatedError('errors.installationStatus')
   } finally {
     setupChecked.value = true
@@ -2802,6 +2807,17 @@ onBeforeUnmount(() => {
 <template>
   <main v-if="!setupChecked" class="login-shell">
     <section class="login-card"><LanguageSelector /><div class="brand-mark">C</div><h1>{{ t('auth.starting') }}</h1><p class="muted">{{ t('auth.checkingSetup') }}</p><footer class="login-footer"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a> · <a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a></footer></section>
+  </main>
+
+  <main v-else-if="setupCheckFailed" class="login-shell">
+    <section class="login-card">
+      <LanguageSelector />
+      <div class="brand-mark">C</div>
+      <h1>{{ t('errors.installationStatus') }}</h1>
+      <p class="error-message" role="alert">{{ displayedError }}</p>
+      <button class="primary full" type="button" @click="checkSetup()">{{ t('auth.retry') }}</button>
+      <footer class="login-footer"><a :href="documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('common.documentation') }}</a></footer>
+    </section>
   </main>
 
   <main v-else-if="setupRequired && !authenticated" class="login-shell">

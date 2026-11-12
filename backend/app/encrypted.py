@@ -4,6 +4,9 @@ import hashlib
 import hmac
 import os
 from pathlib import Path
+import secrets
+import tempfile
+from collections.abc import Callable
 
 from sqlalchemy import String, Text, case, func, literal
 from sqlalchemy.sql.elements import ColumnElement
@@ -11,6 +14,30 @@ from sqlalchemy.types import TypeDecorator
 
 
 SQLITE_TEST_KEY = "clinicpulse-sqlite-tests-only"
+
+
+def ensure_managed_key(key_file: str, database_has_tables: Callable[[], bool]) -> None:
+    path = Path(key_file)
+    if path.exists():
+        return
+    if database_has_tables():
+        raise RuntimeError("Managed encryption key is missing for an existing database; restore the original key")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="ascii", dir=path.parent, delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(base64.b64encode(secrets.token_bytes(48)).decode("ascii") + "\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        try:
+            os.link(temporary_path, path)
+        except FileExistsError:
+            pass
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def load_encryption_key() -> str:
