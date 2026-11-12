@@ -7,7 +7,7 @@ Die Datei `docker/docker-compose.yml` definiert drei Dienste. Starte sie aus dem
 | Dienst | Image / Build                       | Aufgabe                                      |
 | ------ | ----------------------------------- | -------------------------------------------- |
 | `db`   | `postgres:18-alpine`                | PostgreSQL-Datenbank, Healthcheck mit `pg_isready` |
-| `backend` | `docker/api.Dockerfile` (`backend/`) | Backend-API; startet erst, wenn `db` gesund ist |
+| `backend` | `backend/Dockerfile` | Backend-API; startet erst, wenn `db` gesund ist |
 | `web`  | `docker/web.Dockerfile` (`frontend/`) | Frontend mit nginx; veröffentlicht Port `${CLINICPULSE_PORT:-8080}` |
 
 Alle Dienste starten mit `restart: unless-stopped`.

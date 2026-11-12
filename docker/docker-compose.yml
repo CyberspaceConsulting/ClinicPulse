@@ -21,7 +21,7 @@ services:
   backend:
     build:
       context: ../backend
-      dockerfile: ../docker/api.Dockerfile
+      dockerfile: Dockerfile
     environment:
       DB_HOST: db
       DB_NAME: clinicpulse

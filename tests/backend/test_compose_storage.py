@@ -37,6 +37,7 @@ def test_source_compose_keeps_existing_project_and_storage_paths(tmp_path):
     config = json.loads(result.stdout)
     assert config["name"] == "clinicpulse"
     assert config["services"]["backend"]["build"]["context"] == str(ROOT / "backend")
+    assert config["services"]["backend"]["build"]["dockerfile"] == "Dockerfile"
     assert config["services"]["web"]["build"]["context"] == str(ROOT / "frontend")
     assert config["services"]["backend"]["volumes"][0]["source"] == str(ROOT / "backups")
     assert config["services"]["backend"]["volumes"][1]["source"] == "clinicpulse_keys"
@@ -86,14 +87,14 @@ def test_external_key_overlay_uses_read_only_existing_file(base, tmp_path):
     assert subprocess.run(command, env=environment, capture_output=True, text=True).returncode != 0
 
 
-@pytest.mark.parametrize("dockerfile", [ROOT / "docker" / "api.Dockerfile", ROOT / "docker" / "web.Dockerfile"])
+@pytest.mark.parametrize("dockerfile", [ROOT / "backend" / "Dockerfile", ROOT / "docker" / "web.Dockerfile"])
 def test_release_images_identify_repository_for_ghcr_access(dockerfile):
     assert GHCR_SOURCE_LABEL in dockerfile.read_text(encoding="utf-8")
 
 
 def test_release_image_version_is_built_from_the_actual_tag():
     workflow = (ROOT / ".github" / "workflows" / "release-images.yml").read_text(encoding="utf-8")
-    dockerfile = (ROOT / "docker" / "api.Dockerfile").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker" / "compose.release.yaml").read_text(encoding="utf-8")
     assert "CLINICPULSE_IMAGE_VERSION=${{ env.IMAGE_TAG }}" in workflow
     assert "CLINICPULSE_IMAGE_VERSION=${CLINICPULSE_IMAGE_VERSION}" in dockerfile

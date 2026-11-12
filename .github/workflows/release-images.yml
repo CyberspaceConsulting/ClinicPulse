@@ -224,7 +224,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ./backend
-          file: ./docker/api.Dockerfile
+          file: ./backend/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/cyberspaceconsulting/clinicpulse-backend:${{ env.IMAGE_TAG }}
