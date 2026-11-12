@@ -70,6 +70,6 @@ volumes:
 
 secrets:
   clinicpulse_data_encryption_key:
-    file: ./secrets/data_encryption_key
+    file: ${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-./secrets/data_encryption_key}
   smtp_password:
     file: ${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-./secrets/smtp_password}

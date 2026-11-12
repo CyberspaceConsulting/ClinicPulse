@@ -58,11 +58,28 @@ else
   cp "$download_dir/compose.yaml" "$target/compose.yaml"
 fi
 
-if [ ! -f "$target/secrets/data_encryption_key" ]; then
+if [ -z "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ] && [ -f "$target/.env" ] && \
+  grep -Eq '^[[:space:]]*(export[[:space:]]+)?CLINICPULSE_DATA_ENCRYPTION_KEY_FILE[[:space:]]*=' "$target/.env"; then
+  echo "Set CLINICPULSE_DATA_ENCRYPTION_KEY_FILE in the environment when rerunning the installer with an external key" >&2
+  exit 1
+fi
+if [ -n "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ]; then
+  case "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" in
+    /*) ;;
+    *) echo "CLINICPULSE_DATA_ENCRYPTION_KEY_FILE must be an absolute path" >&2; exit 1 ;;
+  esac
+  [ -f "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" ] && [ -r "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" ] || {
+    echo "The configured encryption key file must already exist and be readable" >&2; exit 1
+  }
+  echo "Using the configured encryption key file."
+elif [ ! -f "$target/secrets/data_encryption_key" ]; then
   (umask 077 && openssl rand -base64 48 > "$target/secrets/data_encryption_key")
   echo "Created $target/secrets/data_encryption_key. Back it up separately from the database; without it encrypted data is unrecoverable."
 else
   echo "Keeping existing encryption key."
+fi
+if [ -z "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ]; then
+  chmod 600 "$target/secrets/data_encryption_key"
 fi
 if [ ! -f "$target/secrets/smtp_password" ]; then
   (umask 077 && : > "$target/secrets/smtp_password")
@@ -71,7 +88,7 @@ chmod 600 "$target/secrets/smtp_password"
 
 cd "$target"
 if [ -n "$source_compose" ]; then
-  export CLINICPULSE_DATA_ENCRYPTION_KEY_FILE="$target/secrets/data_encryption_key"
+  export CLINICPULSE_DATA_ENCRYPTION_KEY_FILE="${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-$target/secrets/data_encryption_key}"
   export CLINICPULSE_SMTP_PASSWORD_SECRET_FILE="$target/secrets/smtp_password"
   export CLINICPULSE_BACKUP_HOST_DIR="$target/backups"
   docker compose --file "$source_compose" up --build -d

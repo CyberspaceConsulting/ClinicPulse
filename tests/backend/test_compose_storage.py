@@ -42,6 +42,21 @@ def test_source_compose_keeps_existing_project_and_storage_paths(tmp_path):
     assert config["secrets"]["smtp_password"]["file"] == str(ROOT / "secrets" / "smtp_password")
 
 
+def test_release_compose_uses_external_key_path(tmp_path):
+    environment = os.environ.copy()
+    key_path = tmp_path / "external-key"
+    environment["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = str(key_path)
+    env_file = tmp_path / "empty.env"
+    env_file.write_text("", encoding="utf-8")
+    command = compose_command() + [
+        "--env-file", str(env_file), "-f", str(ROOT / "docker" / "compose.release.yaml"),
+        "config", "--format", "json",
+    ]
+    result = subprocess.run(command, env=environment, capture_output=True, text=True, check=True)
+    config = json.loads(result.stdout)
+    assert config["secrets"]["clinicpulse_data_encryption_key"]["file"] == str(key_path)
+
+
 @pytest.mark.parametrize("dockerfile", [ROOT / "docker" / "api.Dockerfile", ROOT / "docker" / "web.Dockerfile"])
 def test_release_images_identify_repository_for_ghcr_access(dockerfile):
     assert GHCR_SOURCE_LABEL in dockerfile.read_text(encoding="utf-8")

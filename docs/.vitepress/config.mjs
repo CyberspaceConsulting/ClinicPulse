@@ -7,7 +7,17 @@ export default defineConfig({
   base: '/ClinicPulse/',
   lastUpdated: true,
   themeConfig: {
-    nav: [{ text: 'GitHub', link: 'https://github.com/CyberspaceConsulting/ClinicPulse' }],
+    nav: [
+      { text: 'Erste Schritte', link: '/getting-started/' },
+      { text: 'Funktionen', link: '/features/' },
+      { text: 'Releases', link: 'https://github.com/CyberspaceConsulting/ClinicPulse/releases' },
+    ],
+    search: { provider: 'local' },
+    outline: { label: 'Auf dieser Seite' },
+    docFooter: { prev: 'Zurück', next: 'Weiter' },
+    lastUpdated: { text: 'Zuletzt aktualisiert' },
+    sidebarMenuLabel: 'Menü',
+    returnToTopLabel: 'Nach oben',
     sidebar: [
       { text: 'Übersicht', link: '/' },
       {
@@ -46,6 +56,7 @@ export default defineConfig({
       { text: 'Datenschutz-Prüfungen', link: '/development/privacy-checks' },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/CyberspaceConsulting/ClinicPulse' }],
+    footer: { message: 'ClinicPulse befindet sich in einer frühen Alpha-Phase.' },
     editLink: {
       pattern: 'https://github.com/CyberspaceConsulting/ClinicPulse/edit/alpha/docs/:path',
       text: 'Diese Seite bearbeiten',

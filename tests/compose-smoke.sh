@@ -68,6 +68,10 @@ PY
 curl --fail --silent --show-error "http://127.0.0.1:$port/" \
   --output "$temporary_directory/index.html"
 grep -qi "ClinicPulse" "$temporary_directory/index.html"
+not_found_status="$(curl --silent --show-error --output "$temporary_directory/not-found.html" \
+  --write-out '%{http_code}' "http://127.0.0.1:$port/does-not-exist")"
+[ "$not_found_status" = "404" ]
+grep -qi "ClinicPulse" "$temporary_directory/not-found.html"
 backend_container="$(compose ps --quiet backend)"
 [ -n "$backend_container" ]
 [ "$(docker inspect --format '{{.State.Status}}' "$backend_container")" = "running" ]

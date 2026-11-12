@@ -2096,6 +2096,27 @@ def test_existing_invitation_can_be_converted_to_temporary_password(client, monk
     assert client.post("/api/auth/login", json={"username": "invited", "password": "initial-password"}).json()["must_change_password"] is True
 
 
+def test_legacy_shift_columns_migrate_before_loading_shifts(client):
+    with main.engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE shift_types")
+        connection.exec_driver_sql(
+            "CREATE TABLE shift_types (id INTEGER PRIMARY KEY, name VARCHAR(80) NOT NULL, "
+            "start_time TIME NOT NULL, end_time TIME NOT NULL, color VARCHAR(7) NOT NULL, "
+            "position VARCHAR(80) NOT NULL, required_staff INTEGER NOT NULL, department_id INTEGER)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO shift_types (name, start_time, end_time, color, position, required_staff) "
+            "VALUES ('Legacy', '07:00', '15:00', '#000000', 'Nurse', 1)"
+        )
+    main.migrate_existing_database()
+    main.migrate_existing_database()
+    with main.SessionLocal() as session:
+        shift = session.query(main.models.ShiftType).filter_by(name="Legacy").one()
+        assert shift.vehicle_id is None
+        assert shift.break_minutes == 30
+        assert shift.break_start_minutes > 0
+
+
 def test_legacy_mail_and_password_change_columns_migrate_with_safe_defaults(client):
     admin = auth_header(client)
     created = client.post("/api/users", headers=admin, json={

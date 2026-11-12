@@ -1,6 +1,7 @@
 import hashlib
 import os
 from pathlib import Path
+import stat
 import subprocess
 
 
@@ -134,6 +135,53 @@ def test_repeat_install_preserves_key_and_existing_backups(tmp_path):
     assert key_path.read_text(encoding="utf-8") == "existing-production-key\n"
     assert backup_path.read_text(encoding="utf-8") == "existing backup"
     assert "Keeping existing encryption key." in second.stdout
+
+
+def test_installer_uses_external_key_and_does_not_create_a_replacement(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    key = tmp_path / "external-key"
+    key.write_text("existing-key\n", encoding="utf-8")
+    environment["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = str(key)
+    install_dir = tmp_path / "installation"
+
+    result = run_piped_installer(tmp_path, environment, install_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert key.read_text(encoding="utf-8") == "existing-key\n"
+    assert not (install_dir / "secrets" / "data_encryption_key").exists()
+
+
+def test_installer_rejects_missing_external_key(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    environment["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = str(tmp_path / "missing-key")
+    result = run_piped_installer(tmp_path, environment, tmp_path / "installation")
+    assert result.returncode != 0
+    assert "must already exist" in result.stderr
+    assert (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines() == ["compose version"]
+
+
+def test_installer_requires_external_key_environment_when_configured_in_dotenv(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    environment.pop("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE", None)
+    install_dir = tmp_path / "installation"
+    install_dir.mkdir()
+    (install_dir / ".env").write_text("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE=/secure/key\n", encoding="utf-8")
+    result = run_piped_installer(tmp_path, environment, install_dir)
+    assert result.returncode != 0
+    assert "in the environment" in result.stderr
+    assert not (install_dir / "secrets" / "data_encryption_key").exists()
+
+
+def test_installer_restricts_existing_key_permissions(tmp_path):
+    environment, _ = installer_environment(tmp_path)
+    install_dir = tmp_path / "installation"
+    key = install_dir / "secrets" / "data_encryption_key"
+    key.parent.mkdir(parents=True)
+    key.write_text("existing-key\n", encoding="utf-8")
+    key.chmod(0o644)
+    result = run_piped_installer(tmp_path, environment, install_dir)
+    assert result.returncode == 0, result.stderr
+    assert stat.S_IMODE(key.stat().st_mode) == 0o600
 
 
 def test_bad_compose_checksum_stops_before_creating_key_or_starting_containers(tmp_path):
