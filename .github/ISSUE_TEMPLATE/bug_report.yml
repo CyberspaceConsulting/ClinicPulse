@@ -65,7 +65,7 @@ body:
       label: Relevant logs or error messages
       description: |
         Include only the relevant excerpt and redact secrets and identifying information first.
-        For Docker Compose, you can inspect recent logs with `docker compose -f docker/docker-compose.yml logs --tail=100`.
+        For Docker Compose, you can inspect recent logs with `docker compose ps -a docker compose logs --tail=150 backend db web`.
       render: text
     validations:
       required: false
