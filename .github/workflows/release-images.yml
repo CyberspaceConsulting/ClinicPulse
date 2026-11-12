@@ -104,7 +104,7 @@ jobs:
           exit "$summary_status"
 
   frontend-browser:
-    name: Frontend browser (Chromium)
+    name: Frontend browser (Chromium and Firefox)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -115,10 +115,10 @@ jobs:
         id: install
         working-directory: frontend
         run: npm ci
-      - name: Install Chromium
-        id: chromium
+      - name: Install Chromium and Firefox
+        id: browsers
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
       - name: Browser tests
         id: browser
         working-directory: frontend
@@ -144,7 +144,7 @@ jobs:
         if: always()
         env:
           INSTALL_STATUS: ${{ steps.install.outcome }}
-          CHROMIUM_STATUS: ${{ steps.chromium.outcome }}
+          BROWSERS_STATUS: ${{ steps.browsers.outcome }}
           BROWSER_STATUS: ${{ steps.browser.outcome }}
           REPORT_URL: ${{ steps.report.outputs.artifact-url }}
           TRACE_URL: ${{ steps.traces.outputs.artifact-url }}
@@ -155,10 +155,10 @@ jobs:
             echo
             printf '| Check | Status |\n| --- | --- |\n'
             printf '| Install dependencies | %s |\n' "${INSTALL_STATUS:-not run}"
-            printf '| Install Chromium | %s |\n' "${CHROMIUM_STATUS:-not run}"
+            printf '| Install Chromium and Firefox | %s |\n' "${BROWSERS_STATUS:-not run}"
             printf '| Browser tests | %s |\n\n' "${BROWSER_STATUS:-not run}"
             if [ -f tests/junit_summary.py ]; then
-              python tests/junit_summary.py "Desktop and mobile" frontend/test-reports/browser.xml || summary_status=1
+              python tests/junit_summary.py "Chromium and Firefox" frontend/test-reports/browser.xml || summary_status=1
             else
               echo 'JUnit summary unavailable: repository checkout did not complete.'
             fi

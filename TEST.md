@@ -45,11 +45,18 @@ Build und Browser-Tests:
 cd frontend
 npm ci
 npm run build
-npx playwright install --with-deps chromium
+npx playwright install --with-deps chromium firefox
 npm run test:e2e
 ```
 
-Die Browser-Tests verwenden simulierte API-Antworten und ersetzen keine
+Die Browser-Tests laufen mit Chromium und Firefox jeweils mit Desktop- und
+schmalem Bildschirm. Firefox nutzt dabei auch für den schmalen Bildschirm
+den Desktop-Browser, da Playwright keine mobile Firefox-Emulation unterstützt.
+Einzelne Projekte lassen sich beispielsweise mit `npm run test:e2e -- --project=firefox`
+ausführen. `PLAYWRIGHT_CHROMIUM_PATH` ersetzt nur die Chromium-Binärdatei;
+Firefox verwendet den von Playwright installierten Browser.
+
+Die Tests verwenden simulierte API-Antworten und ersetzen keine
 Integrationstests mit einem laufenden Backend.
 
 ## GitHub Actions

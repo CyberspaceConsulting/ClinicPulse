@@ -124,7 +124,7 @@ npm run dev
 cd frontend
 npm ci
 npm run build
-npx playwright install --with-deps chromium
+npx playwright install --with-deps chromium firefox
 npm run test:e2e
 ```
 
