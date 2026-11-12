@@ -4,6 +4,11 @@ workflows:
       - any-glob-to-any-file:
           - '.github/workflows/**'
 
+integrations:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'integrations/**'
+
 backend:
   - changed-files:
       - any-glob-to-any-file:
