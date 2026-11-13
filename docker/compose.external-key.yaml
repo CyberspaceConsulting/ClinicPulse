@@ -2,11 +2,11 @@ services:
   backend:
     restart: "no"
     environment:
-      CLINICPULSE_DATA_ENCRYPTION_KEY_FILE: /run/clinicpulse-external/data_encryption_key
+      MEDORA_DATA_ENCRYPTION_KEY_FILE: /run/medora-external/data_encryption_key
     volumes:
       - type: bind
-        source: ${CLINICPULSE_EXTERNAL_KEY_FILE:?Set CLINICPULSE_EXTERNAL_KEY_FILE to the existing key on unlocked encrypted storage}
-        target: /run/clinicpulse-external/data_encryption_key
+        source: ${MEDORA_EXTERNAL_KEY_FILE:?Set MEDORA_EXTERNAL_KEY_FILE to the existing key on unlocked encrypted storage}
+        target: /run/medora-external/data_encryption_key
         read_only: true
         bind:
           create_host_path: false

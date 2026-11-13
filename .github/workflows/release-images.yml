@@ -25,13 +25,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: clinicpulse_test
+          POSTGRES_USER: medora_test
           POSTGRES_PASSWORD: test-only-password
-          POSTGRES_DB: clinicpulse_test
+          POSTGRES_DB: medora_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U clinicpulse_test -d clinicpulse_test"
+          --health-cmd "pg_isready -U medora_test -d medora_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -52,7 +52,7 @@ jobs:
         id: postgres_tests
         working-directory: backend
         env:
-          TEST_POSTGRES_URL: postgresql+psycopg://clinicpulse_test:test-only-password@localhost:5432/clinicpulse_test
+          TEST_POSTGRES_URL: postgresql+psycopg://medora_test:test-only-password@localhost:5432/medora_test
         run: python -m pytest -q ../tests/backend/test_postgres_integrity.py --junitxml="$RUNNER_TEMP/postgres-tests.xml"
       - uses: actions/setup-node@v7
         with:
@@ -231,9 +231,9 @@ jobs:
           file: ./backend/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/cyberspaceconsulting/clinicpulse-backend:${{ env.IMAGE_TAG }}
+          tags: ghcr.io/cyberspaceconsulting/medora-backend:${{ env.IMAGE_TAG }}
           build-args: |
-            CLINICPULSE_IMAGE_VERSION=${{ env.IMAGE_TAG }}
+            MEDORA_IMAGE_VERSION=${{ env.IMAGE_TAG }}
           provenance: true
           sbom: true
 
@@ -245,7 +245,7 @@ jobs:
           file: ./docker/web.Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/cyberspaceconsulting/clinicpulse-web:${{ env.IMAGE_TAG }}
+          tags: ghcr.io/cyberspaceconsulting/medora-web:${{ env.IMAGE_TAG }}
           provenance: true
           sbom: true
 
@@ -265,9 +265,9 @@ jobs:
           set -euo pipefail
           mkdir -p dist sbom
           for arch in amd64 arm64; do
-            "$SYFT" scan "registry:ghcr.io/cyberspaceconsulting/clinicpulse-backend@${BACKEND_DIGEST}" \
+            "$SYFT" scan "registry:ghcr.io/cyberspaceconsulting/medora-backend@${BACKEND_DIGEST}" \
               --platform "linux/${arch}" -o "cyclonedx-json=sbom/api-${arch}.json"
-            "$SYFT" scan "registry:ghcr.io/cyberspaceconsulting/clinicpulse-web@${WEB_DIGEST}" \
+            "$SYFT" scan "registry:ghcr.io/cyberspaceconsulting/medora-web@${WEB_DIGEST}" \
               --platform "linux/${arch}" -o "cyclonedx-json=sbom/web-${arch}.json"
           done
           SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES=true \
@@ -295,9 +295,9 @@ jobs:
           chmod +x sbom/cyclonedx
           sbom/cyclonedx merge \
             --input-files sbom/api-amd64.json sbom/api-arm64.json sbom/web-amd64.json sbom/web-arm64.json sbom/frontend-dependencies.json \
-            --output-file dist/clinicpulse.cdx.json --output-format json --output-version v1_5
-          sbom/cyclonedx validate --input-file dist/clinicpulse.cdx.json --fail-on-errors
-          python -c "import json; d=json.load(open('dist/clinicpulse.cdx.json')); c=d.get('components', []); assert d['bomFormat'] == 'CycloneDX' and d['specVersion'] == '1.5' and c; assert all(any(x.get('name', '').lower() == n for x in c) for n in ('fastapi', 'vue', 'vite'))"
+            --output-file dist/medora.cdx.json --output-format json --output-version v1_5
+          sbom/cyclonedx validate --input-file dist/medora.cdx.json --fail-on-errors
+          python -c "import json; d=json.load(open('dist/medora.cdx.json')); c=d.get('components', []); assert d['bomFormat'] == 'CycloneDX' and d['specVersion'] == '1.5' and c; assert all(any(x.get('name', '').lower() == n for x in c) for n in ('fastapi', 'vue', 'vite'))"
 
       - name: Prepare pinned release artifacts
         id: prepare
@@ -307,8 +307,8 @@ jobs:
         run: |
           mkdir -p dist
           sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g" docker/compose.release.yaml \
-            | sed "s|clinicpulse-backend:${IMAGE_TAG}|clinicpulse-backend:${IMAGE_TAG}@${BACKEND_DIGEST}|" \
-            | sed "s|clinicpulse-web:${IMAGE_TAG}|clinicpulse-web:${IMAGE_TAG}@${WEB_DIGEST}|" \
+            | sed "s|medora-backend:${IMAGE_TAG}|medora-backend:${IMAGE_TAG}@${BACKEND_DIGEST}|" \
+            | sed "s|medora-web:${IMAGE_TAG}|medora-web:${IMAGE_TAG}@${WEB_DIGEST}|" \
             > dist/compose.yaml
           cp deploy/install.sh dist/install.sh
           cp deploy/verify-integrity.sh dist/verify-integrity.sh
@@ -316,7 +316,7 @@ jobs:
           cp docker/compose.external-key.yaml dist/compose.external-key.yaml
           cp deploy/dependency_track_upload.py dist/dependency_track_upload.py
           chmod +x dist/install.sh
-          (cd dist && sha256sum compose.yaml compose.encrypted.yaml compose.external-key.yaml install.sh verify-integrity.sh clinicpulse.cdx.json dependency_track_upload.py > SHA256SUMS)
+          (cd dist && sha256sum compose.yaml compose.encrypted.yaml compose.external-key.yaml install.sh verify-integrity.sh medora.cdx.json dependency_track_upload.py > SHA256SUMS)
 
       - name: Install Cosign
         id: cosign
@@ -334,7 +334,7 @@ jobs:
           prerelease=""
           case "$IMAGE_TAG" in *-*) prerelease="--prerelease";; esac
           gh release view "$IMAGE_TAG" >/dev/null 2>&1 || gh release create "$IMAGE_TAG" --title "$IMAGE_TAG" --generate-notes $prerelease
-          gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/compose.external-key.yaml dist/install.sh dist/verify-integrity.sh dist/clinicpulse.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS dist/SHA256SUMS.sigstore.json --clobber
+          gh release upload "$IMAGE_TAG" dist/compose.yaml dist/compose.encrypted.yaml dist/compose.external-key.yaml dist/install.sh dist/verify-integrity.sh dist/medora.cdx.json dist/dependency_track_upload.py dist/SHA256SUMS dist/SHA256SUMS.sigstore.json --clobber
       - name: Summarize release publication
         if: always()
         env:

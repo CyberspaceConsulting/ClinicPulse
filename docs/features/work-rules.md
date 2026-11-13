@@ -1,6 +1,6 @@
 # Arbeitszeitregeln
 
-ClinicPulse prüft geplante Arbeits- und Ruhezeiten. Die Prüfungen decken nicht alle gesetzlichen, tariflichen oder betrieblichen Anforderungen ab und sind keine Rechtskonformitätsgarantie.
+Medora prüft geplante Arbeits- und Ruhezeiten. Die Prüfungen decken nicht alle gesetzlichen, tariflichen oder betrieblichen Anforderungen ab und sind keine Rechtskonformitätsgarantie.
 
 ## Einstellbare Grenzen
 

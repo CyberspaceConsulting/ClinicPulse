@@ -164,7 +164,7 @@ async function downloadBackup() {
       const data = await response.json().catch(() => ({}))
       throw new ApiError(data && 'detail' in data ? data.detail : null, response.status)
     }
-    const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'clinicpulse.cpbak'
+    const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'medora.cpbak'
     const url = URL.createObjectURL(await response.blob())
     const link = document.createElement('a')
     link.href = url
@@ -205,7 +205,7 @@ async function createRecoveryKey() {
     const url = URL.createObjectURL(await response.blob())
     const link = document.createElement('a')
     link.href = url
-    link.download = 'clinicpulse-recovery-key.cpkey'
+    link.download = 'medora-recovery-key.cpkey'
     link.click()
     URL.revokeObjectURL(url)
     keyPassphrase.value = ''

@@ -145,11 +145,11 @@ test('unknown paths show a translated not-found page without querying the API', 
   })
   await page.goto('/does-not-exist')
   await expect(page.getByRole('heading', { name: 'Seite nicht gefunden' })).toBeVisible()
-  await expect(page).toHaveTitle('ClinicPulse - Seite nicht gefunden')
+  await expect(page).toHaveTitle('Medora - Seite nicht gefunden')
   await expect(page.getByRole('link', { name: 'Zur Startseite' })).toHaveAttribute('href', '/')
   await page.getByLabel('Sprache').selectOption('en')
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
-  await expect(page).toHaveTitle('ClinicPulse - Page not found')
+  await expect(page).toHaveTitle('Medora - Page not found')
   expect(apiRequests).toBe(0)
 })
 
@@ -182,7 +182,7 @@ test('password guidance uses the stored locale on the setup screen', async ({ pa
   await mockApi(page)
   await page.route('**/api/setup/status', (route) => route.fulfill({ json: { setup_required: true, institution_name: null } }))
   await page.route('**/api/password/check', (route) => route.fulfill({ json: { compromised_count: 2 } }))
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
@@ -197,7 +197,7 @@ test('password guidance uses the stored locale on the setup screen', async ({ pa
 
 test('English login and navigation use the stored locale', async ({ page }) => {
   await mockApi(page)
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
   await page.getByLabel('Username').fill('planer')
@@ -206,19 +206,19 @@ test('English login and navigation use the stored locale', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Welcome, planer', exact: true })).toBeVisible()
   await expect(page.locator('nav.mobile-navigation')).toHaveAttribute('aria-label', 'Mobile navigation')
   await expect(page.getByRole('button', { name: 'Open notifications' })).toBeVisible()
-  await expect(page).toHaveTitle('ClinicPulse – Overview')
+  await expect(page).toHaveTitle('Medora – Overview')
   if (await page.locator('nav.mobile-navigation').isVisible()) {
     await page.locator('nav.mobile-navigation').getByRole('button', { name: 'Schedule', exact: true }).click()
   } else {
     await page.locator('.sidebar .nav-item[title="Schedule"]').click()
   }
-  await expect(page).toHaveTitle('ClinicPulse – Schedule')
+  await expect(page).toHaveTitle('Medora – Schedule')
 })
 
 test('administrator is taken to a useful dashboard with shortcuts to settings', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await mockApi(page, 'ADMIN')
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -236,7 +236,7 @@ test('administrator is taken to a useful dashboard with shortcuts to settings', 
 test('mobile administrator toolbar remains usable when an error is displayed', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await mockApi(page, 'ADMIN')
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -514,7 +514,7 @@ test('an administrator can assign an Oberarzt as department leader', async ({ pa
     assignedLeader = route.request().postDataJSON().manager_user_id
     await route.fulfill({ json: { ...departmentData, manager_user_id: assignedLeader } })
   })
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'de'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'de'))
   await page.goto('/')
   await page.getByLabel('Benutzername').fill('admin')
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
@@ -542,7 +542,7 @@ test('a pending vacation request opens an attention dialog', async ({ page }) =>
 
 test('English shift forms and system role use localized labels while preserving values', async ({ page }) => {
   await mockApi(page)
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('planer')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -580,7 +580,7 @@ test('team management displays translated labels and preserves account and depar
     functions: ['Pflegefachkraft', 'Eigene Funktion'],
     access_roles: [{ key: 'HOSPITAL_MANAGEMENT', label: 'Wachleitung' }, { key: 'OBERARZT', label: 'Oberarzt' }, { key: 'EMPLOYEE', label: 'Mitarbeiter' }],
   } }))
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('planer')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -703,7 +703,7 @@ test('team management displays translated labels and preserves account and depar
     await dialog.getByRole('button', { name: '＋ Mitarbeiter' }).click()
     await dialog.getByLabel('Vorname').fill('Ada')
     await dialog.getByLabel('Nachname').fill('Beispiel')
-    await dialog.getByLabel('ClinicPulse-Zugang einrichten').check()
+    await dialog.getByLabel('Medora-Zugang einrichten').check()
     await dialog.getByLabel('Benutzername').fill('ada-employee')
     await dialog.locator('label.password-input input').fill('employee-password')
     const onboardRequest = page.waitForRequest((req) => req.url().endsWith('/api/employees/onboard') && req.method() === 'POST')
@@ -799,7 +799,7 @@ test('English profile editing keeps user data and submits unchanged API values',
   await page.route('**/api/profile/department', (route) => route.fulfill({ json: [
     { username: 'Kollege', role_key: 'EMPLOYEE', profile_image_data: null, department_id: 1 },
   ] }))
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('planer')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -826,7 +826,7 @@ test('English archive preserves names and archive request values', async ({ page
       start_date: '2026-10-01', end_date: '2026-10-31', department_id: 1, department_name: 'Chirurgie',
       note: 'Notiz', entry_count: 1, content_sha256: 'abc' }] })
   })
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('planer')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -847,7 +847,7 @@ test('English archive preserves names and archive request values', async ({ page
 
 test('English absence request keeps user data and translates labels and status', async ({ page }) => {
   await mockApi(page, 'EMPLOYEE')
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('alex')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -900,7 +900,7 @@ test('schedule API conflict is translated into German', async ({ page }) => {
 
 test('English planning preview and approval retain custom names', async ({ page }) => {
   await mockApi(page)
-  await page.addInitScript(() => localStorage.setItem('clinicpulse-locale', 'en'))
+  await page.addInitScript(() => localStorage.setItem('medora-locale', 'en'))
   await page.goto('/')
   await page.getByLabel('Username').fill('planer')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
@@ -924,8 +924,8 @@ test('update selector shows the installed image and uses main and test channels'
   await page.route('**/api/admin/updates**', (route) => route.fulfill({ json: {
     current_version: 'v-0.2.1-alpha', channel, latest_version: 'v-0.2.2-alpha',
     update_available: true, status: 'update_available', message: 'Version v-0.2.2-alpha ist verfügbar.',
-    release_url: 'https://github.com/orgs/CyberspaceConsulting/packages/container/package/clinicpulse-backend',
-    repository_url: 'https://github.com/CyberspaceConsulting/ClinicPulse', checked_at: '',
+    release_url: 'https://github.com/orgs/CyberspaceConsulting/packages/container/package/medora-backend',
+    repository_url: 'https://github.com/CyberspaceConsulting/Medora', checked_at: '',
   } }))
   await page.route('**/api/admin/update-channel', (route) => {
     channel = route.request().postDataJSON().channel
@@ -950,7 +950,7 @@ test('backup interface translates without changing the restore confirmation cont
   await mockApi(page, 'ADMIN')
   await page.route('**/api/admin/updates**', (route) => route.fulfill({ json: {
     current_version: 'test', channel: 'main', latest_version: null, update_available: false,
-    status: 'up_to_date', message: 'ClinicPulse ist auf dem aktuellen Release-Stand.', release_url: null, repository_url: '', checked_at: '',
+    status: 'up_to_date', message: 'Medora ist auf dem aktuellen Release-Stand.', release_url: null, repository_url: '', checked_at: '',
   } }))
   await page.route('**/api/admin/business-configuration', (route) => route.fulfill({ json: {
     federal_state: 'Berlin', operational_profile: 'hospital', timezone: 'Europe/Berlin', sunday_work_authorized: false,
@@ -991,7 +991,7 @@ test('backup interface translates without changing the restore confirmation cont
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.locator('.toast-error')).toHaveCount(0)
-  await expect(page.getByText('ClinicPulse is up to date.')).toBeVisible()
+  await expect(page.getByText('Medora is up to date.')).toBeVisible()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.locator('.toast-error')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '☼ Light' })).toBeVisible()
@@ -1118,7 +1118,7 @@ test('language selector works before and after login and persists across reload'
 test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page }) => {
   await mockApi(page)
   await page.goto('/')
-  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/ClinicPulse/')
+  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/Medora/')
   await page.getByLabel('Benutzername').fill('planer')
   await page.getByLabel('Passwort', { exact: true }).fill('falsch')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
@@ -1126,7 +1126,7 @@ test('Anmeldung zeigt Fehler und erlaubt anschließend Abmeldung', async ({ page
   await page.getByLabel('Passwort', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Willkommen, planer', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/ClinicPulse/')
+  await expect(page.getByRole('link', { name: 'Dokumentation' })).toHaveAttribute('href', 'https://cyberspaceconsulting.github.io/Medora/')
   await page.getByRole('button', { name: 'Abmelden', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Willkommen zurück' })).toBeVisible()
 })
@@ -1184,8 +1184,8 @@ test('validation and parameterized API errors retain details across language cha
   await expect(page.getByText('Frühdienst Team A on 2026-11-16 is already fully staffed')).toBeVisible()
   for (const [serverDetail, expected] of [
     ['Das Passwort muss mindestens 12 Zeichen lang sein', 'The password must be at least 12 characters long'],
-    ['Das Backup enthält die unbekannte Tabelle „events“ – wahrscheinlich stammt es aus einer neueren ClinicPulse-Version', 'The backup contains the unknown table “events”; it may be from a newer ClinicPulse version'],
-    ['Das Backup enthält unbekannte Spalten in „events“ – bitte zuerst ClinicPulse aktualisieren', 'The backup contains unknown columns in “events”; update ClinicPulse first'],
+    ['Das Backup enthält die unbekannte Tabelle „events“ – wahrscheinlich stammt es aus einer neueren Medora-Version', 'The backup contains the unknown table “events”; it may be from a newer Medora version'],
+    ['Das Backup enthält unbekannte Spalten in „events“ – bitte zuerst Medora aktualisieren', 'The backup contains unknown columns in “events”; update Medora first'],
     ['Host-Key stimmt nicht überein (Server meldet SHA256:abc)', 'Host key does not match (server reports SHA256:abc)'],
     ['SFTP-Verbindung fehlgeschlagen: TimeoutError', 'SFTP connection failed: TimeoutError'],
     ['SFTP-Fehler: OSError', 'SFTP error: OSError'],

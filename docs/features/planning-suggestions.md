@@ -1,6 +1,6 @@
 # Planungsvorschläge
 
-ClinicPulse kann Besetzungen vorschlagen. Vorschläge sind Entwürfe und werden erst nach einer Freigabe zu Dienstzuweisungen.
+Medora kann Besetzungen vorschlagen. Vorschläge sind Entwürfe und werden erst nach einer Freigabe zu Dienstzuweisungen.
 
 ## Planungsentwurf (Optimierung)
 

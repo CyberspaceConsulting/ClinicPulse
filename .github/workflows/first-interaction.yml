@@ -22,15 +22,15 @@ jobs:
         id: greeting
         with:
           issue_message: |
-            ## 👋 Welcome to ClinicPulse, and thanks for opening your first issue!
+            ## 👋 Welcome to Medora, and thanks for opening your first issue!
 
-            Thanks for taking the time to report this. Bug reports, ideas and questions from users are how ClinicPulse gets better. A maintainer will triage this issue as soon as possible. In the meantime, here's what helps us act on it quickly.
+            Thanks for taking the time to report this. Bug reports, ideas and questions from users are how Medora gets better. A maintainer will triage this issue as soon as possible. In the meantime, here's what helps us act on it quickly.
 
             ### 🐛 Reporting a bug?
 
             Please make sure the issue includes:
 
-            - **ClinicPulse version** and **how you run it** (for example Docker Compose or locally).
+            - **Medora version** and **how you run it** (for example Docker Compose or locally).
             - **Steps to reproduce**, plus what you expected and what happened instead.
             - Relevant logs, after removing passwords, tokens, personal information and other sensitive data.
               For a Docker Compose deployment, run this from the directory containing the Compose file:
@@ -49,7 +49,7 @@ jobs:
 
             🛠️  Want to fix it yourself?
 
-            You're very welcome to! Leave a comment here so nobody duplicates the work, then read [CONTRIBUTING.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/CONTRIBUTING.md) for the setup and PR checklist. For bigger changes, let's agree on the approach in this issue before you write the code. See the [internationalization guide](https://cyberspaceconsulting.github.io/ClinicPulse/features/internationalization) for translations.
+            You're very welcome to! Leave a comment here so nobody duplicates the work, then read [CONTRIBUTING.md](https://github.com/CyberspaceConsulting/Medora/blob/alpha/CONTRIBUTING.md) for the setup and PR checklist. For bigger changes, let's agree on the approach in this issue before you write the code. See the [internationalization guide](https://cyberspaceconsulting.github.io/Medora/features/internationalization) for translations.
 
             📌 Good to know
 
@@ -58,15 +58,15 @@ jobs:
 
             Thanks again, and welcome!
           pr_message: |
-            ## 👋 Welcome to ClinicPulse, and thanks for your first pull request!
+            ## 👋 Welcome to Medora, and thanks for your first pull request!
 
-            It's great to have you here. Code, tests, documentation and translations all help improve ClinicPulse. A maintainer will review your contribution.
+            It's great to have you here. Code, tests, documentation and translations all help improve Medora. A maintainer will review your contribution.
 
             ### ✅ Before review
 
             - **Target the appropriate branch**, usually `alpha`, and keep the diff focused on your change.
-            - **Run the relevant checks** documented in [TEST.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/TEST.md). New behavior should include tests where practical.
-            - **Update the documentation** for user-facing changes; see [`docs/`](https://github.com/CyberspaceConsulting/ClinicPulse/tree/alpha/docs).
+            - **Run the relevant checks** documented in [TEST.md](https://github.com/CyberspaceConsulting/Medora/blob/alpha/TEST.md). New behavior should include tests where practical.
+            - **Update the documentation** for user-facing changes; see [`docs/`](https://github.com/CyberspaceConsulting/Medora/tree/alpha/docs).
 
             <details>
             <summary><strong>🧭 Project rules worth knowing</strong></summary>
@@ -75,7 +75,7 @@ jobs:
 
             - **Preserve API compatibility.** Document and test any intentional contract changes.
             - **Use the locale files** in `frontend/src/i18n/locales/` for UI text; see the internationalization guide.
-            - Follow the project's [contribution guide](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/CONTRIBUTING.md).
+            - Follow the project's [contribution guide](https://github.com/CyberspaceConsulting/Medora/blob/alpha/CONTRIBUTING.md).
 
             </details>
 
@@ -87,8 +87,8 @@ jobs:
 
             ### 💬 Need help?
 
-            - Questions about the code or the direction of a change: ask right here, or open a thread in [Discussions](https://github.com/CyberspaceConsulting/ClinicPulse/discussions).
-            - Bigger changes go more smoothly when they start as an [issue](https://github.com/CyberspaceConsulting/ClinicPulse/issues), so we can agree on the scope first.
+            - Questions about the code or the direction of a change: ask right here, or open a thread in [Discussions](https://github.com/CyberspaceConsulting/Medora/discussions).
+            - Bigger changes go more smoothly when they start as an [issue](https://github.com/CyberspaceConsulting/Medora/issues), so we can agree on the scope first.
             - Found a security issue? Please don't post it publicly. Email **info@cyberspaceconsulting.de** instead.
 
             Reviews are a conversation, so expect a round or two of feedback. That's normal, not a sign something is wrong.

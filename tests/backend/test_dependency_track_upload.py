@@ -76,7 +76,7 @@ def test_upload_sends_project_version_and_sbom_to_local_api(release_files):
     assert token == "test-processing-token"
     assert received["path"] == "/api/v1/bom"
     assert received["key"] == "test-api-key"
-    assert received["payload"]["projectName"] == "ClinicPulse"
+    assert received["payload"]["projectName"] == "Medora"
     assert received["payload"]["projectVersion"] == "v0.1.0"
     assert received["payload"]["autoCreate"] is True
     assert upload.base64.b64decode(received["payload"]["bom"]) == sbom

@@ -1,6 +1,6 @@
 # Lizenz
 
-Für die Ersteinrichtung und den Betrieb ist ein gültiger Lizenzzugang erforderlich. Der API-Dienst prüft die Lizenz über den Lizenzdienst (`CLINICPULSE_LICENSE_API_URL`, HTTPS) und validiert signierte Tokens mit einem öffentlichen RSA-Schlüssel (mind. 2048 Bit).
+Für die Ersteinrichtung und den Betrieb ist ein gültiger Lizenzzugang erforderlich. Der API-Dienst prüft die Lizenz über den Lizenzdienst (`MEDORA_LICENSE_API_URL`, HTTPS) und validiert signierte Tokens mit einem öffentlichen RSA-Schlüssel (mind. 2048 Bit).
 
 ## Verhalten
 
@@ -16,9 +16,9 @@ Für die Ersteinrichtung und den Betrieb ist ein gültiger Lizenzzugang erforder
 
 | Variable                              | Zweck                                          |
 | ------------------------------------- | ---------------------------------------------- |
-| `CLINICPULSE_LICENSE_API_URL`         | Adresse des Lizenzdienstes                     |
-| `CLINICPULSE_LICENSE_PUBLIC_KEY_FILE` | Datei mit dem öffentlichen Schlüssel (optional) |
-| `CLINICPULSE_LICENSE_PUBLIC_KEY`      | öffentlicher Schlüssel als Text (optional)     |
+| `MEDORA_LICENSE_API_URL`         | Adresse des Lizenzdienstes                     |
+| `MEDORA_LICENSE_PUBLIC_KEY_FILE` | Datei mit dem öffentlichen Schlüssel (optional) |
+| `MEDORA_LICENSE_PUBLIC_KEY`      | öffentlicher Schlüssel als Text (optional)     |
 
 Ohne eigene Angabe wird der mitgelieferte Schlüssel verwendet. Administratoren können den Status prüfen und ein Token einspielen.
 

@@ -21,13 +21,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: clinicpulse_test
+          POSTGRES_USER: medora_test
           POSTGRES_PASSWORD: test-only-password
-          POSTGRES_DB: clinicpulse_test
+          POSTGRES_DB: medora_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U clinicpulse_test -d clinicpulse_test"
+          --health-cmd "pg_isready -U medora_test -d medora_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -52,7 +52,7 @@ jobs:
         id: postgres_tests
         working-directory: backend
         env:
-          TEST_POSTGRES_URL: postgresql+psycopg://clinicpulse_test:test-only-password@localhost:5432/clinicpulse_test
+          TEST_POSTGRES_URL: postgresql+psycopg://medora_test:test-only-password@localhost:5432/medora_test
         run: .venv/bin/python -m pytest -q ../tests/backend/test_postgres_integrity.py --junitxml="$RUNNER_TEMP/postgres-tests.xml"
       - name: Upload test reports
         id: reports

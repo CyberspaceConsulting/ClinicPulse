@@ -22,7 +22,7 @@ def license_key(monkeypatch):
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
-    monkeypatch.setenv("CLINICPULSE_LICENSE_PUBLIC_KEY", public_key.decode())
+    monkeypatch.setenv("MEDORA_LICENSE_PUBLIC_KEY", public_key.decode())
     return private_key
 
 
@@ -30,8 +30,8 @@ def license_key(monkeypatch):
 def valid_license_token(license_key):
     return jwt.encode(
         {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": "test-customer",
             "jti": "test-license-1",
             "institution_name": "Klinikum Beispiel",
@@ -48,8 +48,8 @@ def valid_license_token(license_key):
 def blocked_license_token(license_key):
     return jwt.encode(
         {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": "test-customer",
             "jti": "blocked-license-1",
             "iat": datetime.now(timezone.utc),
@@ -64,7 +64,7 @@ def blocked_license_token(license_key):
 @pytest.fixture
 def client(valid_license_token, license_key, monkeypatch):
     monkeypatch.setenv("TEST_LICENSE_TOKEN", valid_license_token)
-    monkeypatch.setenv("CLINICPULSE_LICENSE_API_URL", "https://license.test/api/v1")
+    monkeypatch.setenv("MEDORA_LICENSE_API_URL", "https://license.test/api/v1")
 
     class FakeResponse:
         status = 200
@@ -95,8 +95,8 @@ def client(valid_license_token, license_key, monkeypatch):
         if license_status == "GRACE_PERIOD" and grace_until is not None and grace_until <= now.timestamp():
             license_status = "BLOCKED"
         claims = {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": license_claims["sub"],
             "jti": "status-test-id",
             "iat": now,

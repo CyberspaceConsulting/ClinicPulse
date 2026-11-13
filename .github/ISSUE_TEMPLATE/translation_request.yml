@@ -1,11 +1,11 @@
 name: Translation Request
-description: Request a language or report a translation issue in ClinicPulse
+description: Request a language or report a translation issue in Medora
 labels: ["localisation"]
 body:
   - type: markdown
     attributes:
       value: |
-        ClinicPulse currently offers German and English; some English interface text is still incomplete. See the [localization guide](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/docs/development/localization.md) before proposing a contribution.
+        Medora currently offers German and English; some English interface text is still incomplete. See the [localization guide](https://github.com/CyberspaceConsulting/Medora/blob/alpha/docs/development/localization.md) before proposing a contribution.
 
   - type: dropdown
     id: request_type

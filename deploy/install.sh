@@ -1,19 +1,19 @@
 #!/bin/sh
-# ClinicPulse installer. Usage: ./install.sh [install-directory]
+# Medora installer. Usage: ./install.sh [install-directory]
 set -eu
 
-target="${1:-clinicpulse}"
+target="${1:-medora}"
 command -v docker >/dev/null 2>&1 || { echo "Docker is required" >&2; exit 1; }
 # The release images are multi-arch (amd64 + arm64); Docker pulls the matching variant itself.
 case "$(uname -m)" in
   x86_64|amd64|aarch64|arm64) ;;
-  *) echo "Unsupported CPU architecture $(uname -m): ClinicPulse needs 64-bit x86 or ARM (e.g. Raspberry Pi 4/5 with a 64-bit OS)" >&2; exit 1 ;;
+  *) echo "Unsupported CPU architecture $(uname -m): Medora needs 64-bit x86 or ARM (e.g. Raspberry Pi 4/5 with a 64-bit OS)" >&2; exit 1 ;;
 esac
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required" >&2; exit 1; }
 mkdir -p "$target"
 target="$(cd "$target" && pwd)"
-if [ -n "${CLINICPULSE_EXTERNAL_KEY_FILE:-}" ] || { [ -f "$target/.env" ] && \
-  grep -Eq '^[[:space:]]*(export[[:space:]]+)?CLINICPULSE_EXTERNAL_KEY_FILE[[:space:]]*=' "$target/.env"; }; then
+if [ -n "${MEDORA_EXTERNAL_KEY_FILE:-}" ] || { [ -f "$target/.env" ] && \
+  grep -Eq '^[[:space:]]*(export[[:space:]]+)?MEDORA_EXTERNAL_KEY_FILE[[:space:]]*=' "$target/.env"; }; then
   echo "External-key installations must be updated with their existing Compose files, not the installer" >&2
   exit 1
 fi
@@ -28,10 +28,10 @@ else
 fi
 
 if [ -n "$here" ] && [ -f "$here/compose.yaml" ]; then
-  command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the ClinicPulse release" >&2; exit 1; }
+  command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the Medora release" >&2; exit 1; }
   cosign verify-blob \
     --bundle "$here/SHA256SUMS.sigstore.json" \
-    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/Medora/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     "$here/SHA256SUMS" >/dev/null || {
       echo "The release checksum signature is invalid" >&2
@@ -61,12 +61,12 @@ elif [ -n "$here" ] && [ -f "$here/../docker/docker-compose.yml" ]; then
   source_compose="$(cd "$here/../docker" && pwd)/docker-compose.yml"
   echo "Using the local source checkout and building its Docker images."
 else
-  command -v curl >/dev/null 2>&1 || { echo "curl is required to download the ClinicPulse release" >&2; exit 1; }
-  command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required to verify the ClinicPulse release" >&2; exit 1; }
-  command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the ClinicPulse release" >&2; exit 1; }
+  command -v curl >/dev/null 2>&1 || { echo "curl is required to download the Medora release" >&2; exit 1; }
+  command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required to verify the Medora release" >&2; exit 1; }
+  command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the Medora release" >&2; exit 1; }
   download_dir="$(mktemp -d)"
   trap 'rm -rf "$download_dir"' EXIT HUP INT TERM
-  release_url="https://github.com/CyberspaceConsulting/ClinicPulse/releases/latest/download"
+  release_url="https://github.com/CyberspaceConsulting/Medora/releases/latest/download"
   curl --fail --location --retry 3 --silent --show-error \
     -o "$download_dir/compose.yaml" "$release_url/compose.yaml"
   curl --fail --location --retry 3 --silent --show-error \
@@ -77,7 +77,7 @@ else
     -o "$download_dir/verify-integrity.sh" "$release_url/verify-integrity.sh"
   cosign verify-blob \
     --bundle "$download_dir/SHA256SUMS.sigstore.json" \
-    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/Medora/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     "$download_dir/SHA256SUMS" >/dev/null || {
       echo "The release checksum signature is invalid" >&2
@@ -103,25 +103,25 @@ else
   cp "$download_dir/SHA256SUMS.sigstore.json" "$target/SHA256SUMS.sigstore.json"
 fi
 
-if [ -z "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ] && [ -f "$target/.env" ] && \
-  grep -Eq '^[[:space:]]*(export[[:space:]]+)?CLINICPULSE_DATA_ENCRYPTION_KEY_FILE[[:space:]]*=' "$target/.env"; then
-  echo "Set CLINICPULSE_DATA_ENCRYPTION_KEY_FILE in the environment when rerunning the installer with an external key" >&2
+if [ -z "${MEDORA_DATA_ENCRYPTION_KEY_FILE:-}" ] && [ -f "$target/.env" ] && \
+  grep -Eq '^[[:space:]]*(export[[:space:]]+)?MEDORA_DATA_ENCRYPTION_KEY_FILE[[:space:]]*=' "$target/.env"; then
+  echo "Set MEDORA_DATA_ENCRYPTION_KEY_FILE in the environment when rerunning the installer with an external key" >&2
   exit 1
 fi
-if [ -z "${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-}" ] && [ -f "$target/.env" ] && \
-  grep -Eq '^[[:space:]]*(export[[:space:]]+)?CLINICPULSE_SMTP_PASSWORD_SECRET_FILE[[:space:]]*=' "$target/.env"; then
-  echo "Set CLINICPULSE_SMTP_PASSWORD_SECRET_FILE in the environment when rerunning the installer with an external SMTP secret" >&2
+if [ -z "${MEDORA_SMTP_PASSWORD_SECRET_FILE:-}" ] && [ -f "$target/.env" ] && \
+  grep -Eq '^[[:space:]]*(export[[:space:]]+)?MEDORA_SMTP_PASSWORD_SECRET_FILE[[:space:]]*=' "$target/.env"; then
+  echo "Set MEDORA_SMTP_PASSWORD_SECRET_FILE in the environment when rerunning the installer with an external SMTP secret" >&2
   exit 1
 fi
-if [ -n "${CLINICPULSE_DATA_ENCRYPTION_KEY_FILE:-}" ]; then
-  case "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" in
+if [ -n "${MEDORA_DATA_ENCRYPTION_KEY_FILE:-}" ]; then
+  case "$MEDORA_DATA_ENCRYPTION_KEY_FILE" in
     /*) ;;
-    *) echo "CLINICPULSE_DATA_ENCRYPTION_KEY_FILE must be an absolute path" >&2; exit 1 ;;
+    *) echo "MEDORA_DATA_ENCRYPTION_KEY_FILE must be an absolute path" >&2; exit 1 ;;
   esac
-  [ -f "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" ] && [ -r "$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE" ] || {
+  [ -f "$MEDORA_DATA_ENCRYPTION_KEY_FILE" ] && [ -r "$MEDORA_DATA_ENCRYPTION_KEY_FILE" ] || {
     echo "The configured encryption key file must already exist and be readable" >&2; exit 1
   }
-  legacy_key="$CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"
+  legacy_key="$MEDORA_DATA_ENCRYPTION_KEY_FILE"
 elif [ -f "$target/secrets/data_encryption_key" ]; then
   legacy_key="$target/secrets/data_encryption_key"
   chmod 700 "$target/secrets"
@@ -129,12 +129,12 @@ elif [ -f "$target/secrets/data_encryption_key" ]; then
 else
   legacy_key=""
 fi
-legacy_smtp="${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-$target/secrets/smtp_password}"
+legacy_smtp="${MEDORA_SMTP_PASSWORD_SECRET_FILE:-$target/secrets/smtp_password}"
 case "$legacy_smtp" in
   /*) ;;
   *) legacy_smtp="$target/$legacy_smtp" ;;
 esac
-if [ -n "${CLINICPULSE_SMTP_PASSWORD_SECRET_FILE:-}" ] && [ ! -f "$legacy_smtp" ]; then
+if [ -n "${MEDORA_SMTP_PASSWORD_SECRET_FILE:-}" ] && [ ! -f "$legacy_smtp" ]; then
   echo "The configured SMTP password file must already exist" >&2
   exit 1
 fi
@@ -149,30 +149,30 @@ compose() {
 }
 
 import_secret() {
-  compose run --rm --no-deps --volume "$1:/run/clinicpulse-import:ro" --entrypoint /bin/sh backend -c '
+  compose run --rm --no-deps --volume "$1:/run/medora-import:ro" --entrypoint /bin/sh backend -c '
     set -eu
     umask 077
-    destination="/var/lib/clinicpulse-secrets/$1"
-    mkdir -p /var/lib/clinicpulse-secrets
-    chmod 700 /var/lib/clinicpulse-secrets
+    destination="/var/lib/medora-secrets/$1"
+    mkdir -p /var/lib/medora-secrets
+    chmod 700 /var/lib/medora-secrets
     if [ -e "$destination" ]; then
-      cmp -s /run/clinicpulse-import "$destination" || {
+      cmp -s /run/medora-import "$destination" || {
         echo "Existing managed secret differs from the original; refusing to overwrite it" >&2
         exit 1
       }
     else
-      temporary="$(mktemp /var/lib/clinicpulse-secrets/.import.XXXXXXXX)"
+      temporary="$(mktemp /var/lib/medora-secrets/.import.XXXXXXXX)"
       trap '\''rm -f "$temporary"'\'' EXIT
-      cp /run/clinicpulse-import "$temporary"
+      cp /run/medora-import "$temporary"
       if ! ln "$temporary" "$destination"; then
-        cmp -s /run/clinicpulse-import "$destination" || exit 1
+        cmp -s /run/medora-import "$destination" || exit 1
       fi
     fi
   ' -- "$2"
 }
 
 if [ -n "$source_compose" ]; then
-  export CLINICPULSE_BACKUP_HOST_DIR="$target/backups"
+  export MEDORA_BACKUP_HOST_DIR="$target/backups"
   (
     if [ -n "${COMPOSE_ENV_FILES:-}" ]; then
       resolved_env_files=""
@@ -217,5 +217,5 @@ else
   compose up -d
   sh ./verify-integrity.sh --check-running
 fi
-echo "Back up the clinicpulse_keys volume separately from the database; without its key encrypted data is unrecoverable."
-echo "ClinicPulse is starting on http://localhost:${CLINICPULSE_PORT:-8080}"
+echo "Back up the medora_keys volume separately from the database; without its key encrypted data is unrecoverable."
+echo "Medora is starting on http://localhost:${MEDORA_PORT:-8080}"

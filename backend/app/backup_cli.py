@@ -9,7 +9,7 @@ On the OLD instance, create a backup readable only with that key (or use the sto
 On the NEW instance, restore it:
     docker compose exec backend python -m app.backup_cli import /backups/manual.cpbak --key /backups/recovery-key.cpkey --yes
 
-The key-file password is read from CLINICPULSE_KEY_PASSPHRASE or prompted for.
+The key-file password is read from MEDORA_KEY_PASSPHRASE or prompted for.
 """
 import argparse
 import getpass
@@ -21,7 +21,7 @@ from .backup_core import BackupError, create_backup, generate_recovery_key, load
 
 
 def _passphrase(confirm: bool) -> str:
-    value = os.environ.get("CLINICPULSE_KEY_PASSPHRASE")
+    value = os.environ.get("MEDORA_KEY_PASSPHRASE")
     if value:
         return value
     value = getpass.getpass("Passwort der Schlüsseldatei: ")
@@ -31,7 +31,7 @@ def _passphrase(confirm: bool) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m app.backup_cli", description="ClinicPulse backup tool")
+    parser = argparse.ArgumentParser(prog="python -m app.backup_cli", description="Medora backup tool")
     commands = parser.add_subparsers(dest="command", required=True)
     keygen = commands.add_parser("keygen", help="Create a recovery key pair (prints the public key)")
     keygen.add_argument("file", type=Path)

@@ -25,12 +25,12 @@ project_dir="$(cd "$project_dir" && pwd)"
 script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 command -v docker >/dev/null 2>&1 || { echo "Docker is required" >&2; exit 1; }
-command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the ClinicPulse release" >&2; exit 1; }
+command -v cosign >/dev/null 2>&1 || { echo "Cosign is required to verify the Medora release" >&2; exit 1; }
 command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required" >&2; exit 1; }
 
 cosign verify-blob \
   --bundle "$release_dir/SHA256SUMS.sigstore.json" \
-  --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+  --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/Medora/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   "$release_dir/SHA256SUMS" >/dev/null || {
     echo "The release checksum signature is invalid" >&2
@@ -66,11 +66,11 @@ backend_image=""
 web_image=""
 for image in $images; do
   case "$image" in
-    ghcr.io/cyberspaceconsulting/clinicpulse-backend*@sha256:*)
+    ghcr.io/cyberspaceconsulting/medora-backend*@sha256:*)
       [ -z "$backend_image" ] || { echo "The release contains multiple backend images" >&2; exit 1; }
       backend_image="$image"
       ;;
-    ghcr.io/cyberspaceconsulting/clinicpulse-web*@sha256:*)
+    ghcr.io/cyberspaceconsulting/medora-web*@sha256:*)
       [ -z "$web_image" ] || { echo "The release contains multiple web images" >&2; exit 1; }
       web_image="$image"
       ;;
@@ -78,7 +78,7 @@ for image in $images; do
 done
 
 for image in "$backend_image" "$web_image"; do
-  [ -n "$image" ] || { echo "The signed Compose file must pin both ClinicPulse images by digest" >&2; exit 1; }
+  [ -n "$image" ] || { echo "The signed Compose file must pin both Medora images by digest" >&2; exit 1; }
   digest="${image##*@sha256:}"
   case "$digest" in
     *[!0-9a-fA-F]*|'') echo "The release contains an invalid image digest" >&2; exit 1 ;;
@@ -97,8 +97,8 @@ for service in backend web; do
   running_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
   running_id="$(docker inspect --format '{{.Image}}' "$container_id")"
   case "$service:$running_ref" in
-    backend:ghcr.io/cyberspaceconsulting/clinicpulse-backend*@sha256:*) ;;
-    web:ghcr.io/cyberspaceconsulting/clinicpulse-web*@sha256:*) ;;
+    backend:ghcr.io/cyberspaceconsulting/medora-backend*@sha256:*) ;;
+    web:ghcr.io/cyberspaceconsulting/medora-web*@sha256:*) ;;
     *) echo "The running $service container does not use a digest-pinned official image" >&2; exit 1 ;;
   esac
   image_found=false

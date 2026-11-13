@@ -1,6 +1,6 @@
 # Internationalisierung
 
-ClinicPulse erhält eine erweiterbare Sprachunterstützung für seine Oberfläche.
+Medora erhält eine erweiterbare Sprachunterstützung für seine Oberfläche.
 Die Einstellung gilt für den jeweiligen Browser und ändert weder gespeicherte
 Personen- und Abteilungsnamen noch andere selbst eingegebene Inhalte.
 
@@ -20,10 +20,10 @@ Einrichtungsseiten sowie nach der Anmeldung in der oberen Leiste. Wähle
 **Deutsch** oder **English** aus der Liste. Bereits übersetzte Texte und das
 Sprachmerkmal der Seite ändern sich sofort; ein Neuladen ist nicht nötig.
 
-Die Auswahl wird im `localStorage` dieses Browsers unter `clinicpulse-locale`
+Die Auswahl wird im `localStorage` dieses Browsers unter `medora-locale`
 gespeichert. Andere Browser oder Geräte übernehmen sie nicht automatisch.
 Wird die Auswahl gelöscht oder enthält sie einen nicht unterstützten Wert,
-verwendet ClinicPulse Deutsch.
+verwendet Medora Deutsch.
 
 | Code | Sprache | Stand |
 | --- | --- | --- |

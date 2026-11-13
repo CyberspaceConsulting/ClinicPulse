@@ -1,11 +1,11 @@
 name: Question
-description: Ask about using, configuring, or installing ClinicPulse
+description: Ask about using, configuring, or installing Medora
 labels: ["question"]
 body:
   - type: markdown
     attributes:
       value: |
-        Check the [README](https://github.com/CyberspaceConsulting/ClinicPulse#readme), [documentation](https://github.com/CyberspaceConsulting/ClinicPulse/tree/alpha/docs), and existing issues first.
+        Check the [README](https://github.com/CyberspaceConsulting/Medora#readme), [documentation](https://github.com/CyberspaceConsulting/Medora/tree/alpha/docs), and existing issues first.
 
         Do not include real patient or employee data, passwords, license tokens, encryption keys, or other secrets.
 
@@ -28,7 +28,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: ClinicPulse version
+      label: Medora version
       placeholder: "e.g. v-0.2.0-alpha"
     validations:
       required: false

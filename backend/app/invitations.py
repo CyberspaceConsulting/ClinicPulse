@@ -19,7 +19,7 @@ class MailConfiguration:
 
 
 def environment_mail_configuration() -> MailConfiguration:
-    password_file = os.environ.get("CLINICPULSE_SMTP_PASSWORD_FILE")
+    password_file = os.environ.get("MEDORA_SMTP_PASSWORD_FILE")
     password = ""
     if password_file:
         try:
@@ -27,14 +27,14 @@ def environment_mail_configuration() -> MailConfiguration:
         except OSError as exc:
             raise RuntimeError("Configured SMTP password file cannot be read") from exc
     return MailConfiguration(
-        public_url=os.environ.get("CLINICPULSE_PUBLIC_URL", "").strip().rstrip("/"),
-        smtp_host=os.environ.get("CLINICPULSE_SMTP_HOST", "").strip(),
-        smtp_port=int(os.environ.get("CLINICPULSE_SMTP_PORT", "587")),
-        smtp_username=os.environ.get("CLINICPULSE_SMTP_USERNAME", ""),
+        public_url=os.environ.get("MEDORA_PUBLIC_URL", "").strip().rstrip("/"),
+        smtp_host=os.environ.get("MEDORA_SMTP_HOST", "").strip(),
+        smtp_port=int(os.environ.get("MEDORA_SMTP_PORT", "587")),
+        smtp_username=os.environ.get("MEDORA_SMTP_USERNAME", ""),
         smtp_password=password,
-        from_address=os.environ.get("CLINICPULSE_SMTP_FROM", "").strip(),
-        use_ssl=os.environ.get("CLINICPULSE_SMTP_USE_SSL", "false").casefold() == "true",
-        use_starttls=os.environ.get("CLINICPULSE_SMTP_USE_STARTTLS", "true").casefold() == "true",
+        from_address=os.environ.get("MEDORA_SMTP_FROM", "").strip(),
+        use_ssl=os.environ.get("MEDORA_SMTP_USE_SSL", "false").casefold() == "true",
+        use_starttls=os.environ.get("MEDORA_SMTP_USE_STARTTLS", "true").casefold() == "true",
     )
 
 
@@ -82,12 +82,12 @@ def send_invitation(
     _validate(configuration)
     invite_url = f"{configuration.public_url.rstrip('/')}/#{urlencode({'invite': token})}"
     message = EmailMessage()
-    message["Subject"] = "Dein Zugang zu ClinicPulse"
+    message["Subject"] = "Dein Zugang zu Medora"
     message["From"] = configuration.from_address
     message["To"] = recipient
     message.set_content(
         f"Hallo,\n\n"
-        f"für dich wurde ein ClinicPulse-Zugang mit dem Benutzernamen „{username}“ angelegt.\n"
+        f"für dich wurde ein Medora-Zugang mit dem Benutzernamen „{username}“ angelegt.\n"
         f"Öffne innerhalb von 24 Stunden den folgenden Einmal-Link und lege dein eigenes Passwort fest:\n\n"
         f"{invite_url}\n\n"
         "Der Link ist nur einmal verwendbar. Falls du diese Einladung nicht erwartet hast, "
@@ -98,10 +98,10 @@ def send_invitation(
 
 def send_test_email(recipient: str, configuration: MailConfiguration) -> None:
     message = EmailMessage()
-    message["Subject"] = "ClinicPulse – Test der E-Mail-Konfiguration"
+    message["Subject"] = "Medora – Test der E-Mail-Konfiguration"
     message["From"] = configuration.from_address
     message["To"] = recipient
     message.set_content(
-        "Der E-Mail-Versand für diese ClinicPulse-Instanz ist erfolgreich konfiguriert.\n"
+        "Der E-Mail-Versand für diese Medora-Instanz ist erfolgreich konfiguriert.\n"
     )
     _send(message, configuration)

@@ -7,12 +7,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-_configured_version = os.environ.get("CLINICPULSE_IMAGE_VERSION") or os.environ.get("CLINICPULSE_VERSION", "0.1.0")
+_configured_version = os.environ.get("MEDORA_IMAGE_VERSION") or os.environ.get("MEDORA_VERSION", "0.1.0")
 APP_VERSION = f"v{_configured_version}" if _configured_version.startswith("-") else _configured_version
-REPOSITORY_URL = "https://github.com/CyberspaceConsulting/ClinicPulse"
-PACKAGE_URL = "https://github.com/orgs/CyberspaceConsulting/packages/container/package/clinicpulse-backend"
+REPOSITORY_URL = "https://github.com/CyberspaceConsulting/Medora"
+PACKAGE_URL = "https://github.com/orgs/CyberspaceConsulting/packages/container/package/medora-backend"
 REGISTRY_URL = "https://ghcr.io"
-IMAGE_NAMES = ("cyberspaceconsulting/clinicpulse-backend", "cyberspaceconsulting/clinicpulse-web")
+IMAGE_NAMES = ("cyberspaceconsulting/medora-backend", "cyberspaceconsulting/medora-web")
 CHECK_INTERVAL = timedelta(hours=6)
 ERROR_CACHE_INTERVAL = timedelta(minutes=5)
 VERSION_PATTERN = re.compile(
@@ -102,7 +102,7 @@ class UpdateChecker:
             latest_version=latest_version,
             release_url=PACKAGE_URL,
             update_available=update_available,
-            message=f"Version {latest_version} ist verfügbar." if update_available else "ClinicPulse ist auf dem aktuellen Release-Stand.",
+            message=f"Version {latest_version} ist verfügbar." if update_available else "Medora ist auf dem aktuellen Release-Stand.",
         )
 
     @staticmethod

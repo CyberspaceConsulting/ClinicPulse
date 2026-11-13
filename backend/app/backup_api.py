@@ -335,7 +335,7 @@ def create_recovery_key(body: RecoveryKeyBody, _: Principal = Depends(require_ad
     return Response(
         content=key_file, media_type="application/octet-stream",
         headers={
-            "Content-Disposition": 'attachment; filename="clinicpulse-recovery-key.cpkey"',
+            "Content-Disposition": 'attachment; filename="medora-recovery-key.cpkey"',
             "X-Public-Key": public_key,
             "Cache-Control": "no-store",
         },

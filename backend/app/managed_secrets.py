@@ -13,7 +13,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-MAGIC = b"CLINICPULSE-KEYS-1\n"
+MAGIC = b"MEDORA-KEYS-1\n"
+LEGACY_MAGIC = b"CLINICPULSE-KEYS-1\n"
 MIN_PASSPHRASE_LENGTH = 12
 
 
@@ -47,12 +48,13 @@ def export_secrets(directory: Path, passphrase: str, key_file: Path | None = Non
 
 
 def restore_secrets(directory: Path, data: bytes, passphrase: str, key_directory: Path | None = None) -> None:
-    if not data.startswith(MAGIC) or len(data) < len(MAGIC) + 16 + 12 + 16:
+    magic = next((header for header in (MAGIC, LEGACY_MAGIC) if data.startswith(header)), None)
+    if magic is None or len(data) < len(magic) + 16 + 12 + 16:
         raise ValueError("Invalid secret backup")
-    offset = len(MAGIC)
+    offset = len(magic)
     salt, nonce, ciphertext = data[offset:offset + 16], data[offset + 16:offset + 28], data[offset + 28:]
     try:
-        plaintext = AESGCM(_derive_key(passphrase, salt)).decrypt(nonce, ciphertext, MAGIC)
+        plaintext = AESGCM(_derive_key(passphrase, salt)).decrypt(nonce, ciphertext, magic)
         payload = json.loads(plaintext)
     except (InvalidTag, ValueError, UnicodeDecodeError) as exc:
         raise ValueError("Incorrect password or damaged secret backup") from exc
@@ -94,14 +96,14 @@ def restore_secrets(directory: Path, data: bytes, passphrase: str, key_directory
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Encrypted backup of managed ClinicPulse secrets")
+    parser = argparse.ArgumentParser(description="Encrypted backup of managed Medora secrets")
     parser.add_argument("action", choices=("export", "import"))
     parser.add_argument("file", type=Path)
     parser.add_argument("--key-directory", type=Path, help="Existing private directory for external-key recovery")
     args = parser.parse_args()
-    directory = Path(os.environ.get("CLINICPULSE_MANAGED_KEY_FILE", "/var/lib/clinicpulse-secrets/data_encryption_key")).parent
-    external_key = os.environ.get("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE")
-    configured_smtp = os.environ.get("CLINICPULSE_SMTP_PASSWORD_FILE")
+    directory = Path(os.environ.get("MEDORA_MANAGED_KEY_FILE", "/var/lib/medora-secrets/data_encryption_key")).parent
+    external_key = os.environ.get("MEDORA_DATA_ENCRYPTION_KEY_FILE")
+    configured_smtp = os.environ.get("MEDORA_SMTP_PASSWORD_FILE")
     smtp_file = Path(configured_smtp) if configured_smtp not in (None, "", "/run/secrets/smtp_password") else None
     try:
         if args.action == "export" and args.key_directory is not None:

@@ -42,7 +42,7 @@ class RemoteFile:
 
 
 def backup_base_dir() -> Path:
-    return Path(os.environ.get("CLINICPULSE_BACKUP_DIR", "/backups"))
+    return Path(os.environ.get("MEDORA_BACKUP_DIR", "/backups"))
 
 
 def validate_config(kind: str, config: dict[str, Any], previous: dict[str, Any] | None = None) -> dict[str, Any]:

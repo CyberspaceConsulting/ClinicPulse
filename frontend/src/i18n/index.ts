@@ -17,7 +17,7 @@ function isLocale(value: string | null): value is Locale {
   return value !== null && Object.hasOwn(translations, value)
 }
 
-const storageKey = 'clinicpulse-locale'
+const storageKey = 'medora-locale'
 const storedLocale = localStorage.getItem(storageKey)
 export const locale = ref<Locale>(isLocale(storedLocale) ? storedLocale : 'de')
 
