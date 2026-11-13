@@ -95,7 +95,7 @@ const knownErrors: Record<string, TranslationKey> = {
   'Lizenzserver ist momentan nicht erreichbar': 'api.licenseServerUnreachable',
   'Lizenz-Token oder Status ungültig': 'api.invalidLicense',
   'Lizenz-Token oder signierter Lizenzstatus ist ungültig': 'api.invalidSignedLicense',
-  'Lizenz enthält kein ClinicPulse-Kernfeature': 'api.licenseCoreMissing',
+  'Lizenz enthält kein Medora-Kernfeature': 'api.licenseCoreMissing',
   'Diese Lizenz ist gesperrt': 'api.licenseLocked',
   'License installation is not initialized': 'api.licenseNotInitialized',
   'Die Lizenz enthält kein Bundesland. Bitte im License Manager beim Kunden hinterlegen und Token neu ausstellen.': 'api.licenseStateMissing',
@@ -140,7 +140,7 @@ const knownErrors: Record<string, TranslationKey> = {
   'Die Schlüsseldatei ist beschädigt': 'api.backupRecoveryFileDamaged',
   'Binärwerte werden im Backup nicht unterstützt': 'api.backupBinaryUnsupported',
   'Es ist kein Empfänger-Schlüssel hinterlegt – ein Backup wird nie unverschlüsselt erstellt': 'api.backupNoRecipient',
-  'Die Datei ist kein ClinicPulse-Backup': 'api.backupNotClinicPulse',
+  'Die Datei ist kein Medora-Backup': 'api.backupNotMedora',
   'Die Backup-Datei ist beschädigt': 'api.backupDamaged',
   'Dieses Backup wurde nicht für diese Instanz bzw. diesen Schlüssel verschlüsselt': 'api.backupWrongKey',
   'Backup beschädigt oder manipuliert': 'api.backupTampered',
@@ -186,7 +186,7 @@ const knownErrors: Record<string, TranslationKey> = {
   'Limit optimization to a maximum of 150 open positions per day': 'api.optimizationPositions',
   'Select a smaller department for day optimization': 'api.optimizationDepartment',
   'Optimization has too many eligible employee-position combinations': 'api.optimizationCombinations',
-  'ClinicPulse ist auf dem aktuellen Release-Stand.': 'updates.current',
+  'Medora ist auf dem aktuellen Release-Stand.': 'updates.current',
   'Der optionale GitHub-Zugriffsschlüssel ist nicht lesbar.': 'updates.tokenUnreadable',
   'Kein öffentlich erreichbares GitHub-Release gefunden.': 'updates.noPublicRelease',
   'GitHub hat die Update-Abfrage begrenzt oder verweigert.': 'updates.rateLimited',
@@ -209,9 +209,9 @@ export function apiErrorDetail(detail: unknown): string | null {
     if (requiredField?.[1]) return t('api.backupFieldRequired', { field: requiredField[1] })
     const passphraseLength = /^Das Passwort muss mindestens (\d+) Zeichen lang sein$/.exec(detail)
     if (passphraseLength?.[1]) return t('api.backupPassphraseLength', { count: passphraseLength[1] })
-    const unknownTable = /^Das Backup enthält die unbekannte Tabelle „([^“]+)“ – wahrscheinlich stammt es aus einer neueren ClinicPulse-Version$/.exec(detail)
+    const unknownTable = /^Das Backup enthält die unbekannte Tabelle „([^“]+)“ – wahrscheinlich stammt es aus einer neueren Medora-Version$/.exec(detail)
     if (unknownTable?.[1]) return t('api.backupUnknownTable', { name: unknownTable[1] })
-    const unknownColumns = /^Das Backup enthält unbekannte Spalten in „([^“]+)“ – bitte zuerst ClinicPulse aktualisieren$/.exec(detail)
+    const unknownColumns = /^Das Backup enthält unbekannte Spalten in „([^“]+)“ – bitte zuerst Medora aktualisieren$/.exec(detail)
     if (unknownColumns?.[1]) return t('api.backupUnknownColumns', { name: unknownColumns[1] })
     const fullyStaffed = /^(.+) on (\d{4}-\d{2}-\d{2}) is already fully staffed$/.exec(detail)
     if (fullyStaffed?.[1] && fullyStaffed[2]) return t('api.shiftFullyStaffed', { name: fullyStaffed[1], date: fullyStaffed[2] })

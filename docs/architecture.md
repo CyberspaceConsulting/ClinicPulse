@@ -1,6 +1,6 @@
 # Architektur
 
-ClinicPulse besteht aus drei Docker-Compose-Diensten (`docker/docker-compose.yml`):
+Medora besteht aus drei Docker-Compose-Diensten (`docker/docker-compose.yml`):
 
 | Dienst | Aufgabe                                                                  | Netzwerke                 |
 | ------ | ------------------------------------------------------------------------ | ------------------------- |
@@ -8,7 +8,7 @@ ClinicPulse besteht aus drei Docker-Compose-Diensten (`docker/docker-compose.yml
 | `backend` | Backend-API (Python), Lizenzprüfung, Planung, Backup                  | `application`, `database` |
 | `db`   | PostgreSQL                                                               | `database` (intern)       |
 
-Das Netzwerk `database` ist als `internal` konfiguriert: Die Datenbank ist nicht von außen erreichbar. Sensible Datenbankfelder werden mit einem Schlüssel aus dem separaten Docker-Volume `clinicpulse_keys` verschlüsselt; das Volume selbst ist nicht automatisch verschlüsselt.
+Das Netzwerk `database` ist als `internal` konfiguriert: Die Datenbank ist nicht von außen erreichbar. Sensible Datenbankfelder werden mit einem Schlüssel aus dem separaten Docker-Volume `medora_keys` verschlüsselt; das Volume selbst ist nicht automatisch verschlüsselt.
 
 ## Backend (`backend/app/`)
 
@@ -51,4 +51,4 @@ Geänderte Fehler (HTTP 409): `Employee role is not required for this shift` (Qu
 
 ## Tests
 
-Backend-Tests mit pytest in `tests/backend/`, Browser-Tests mit Playwright in `tests/frontend/`. Siehe [TEST.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/TEST.md).
+Backend-Tests mit pytest in `tests/backend/`, Browser-Tests mit Playwright in `tests/frontend/`. Siehe [TEST.md](https://github.com/CyberspaceConsulting/Medora/blob/alpha/TEST.md).

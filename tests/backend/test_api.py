@@ -23,14 +23,14 @@ def auth_header(client):
     assert setup.status_code == 201
     assert "access_token" not in setup.json()
     assert "HttpOnly" in setup.headers["set-cookie"]
-    access_token = client.cookies.get("clinicpulse_session")
+    access_token = client.cookies.get("medora_session")
     assert access_token
     response = client.post(
         "/api/auth/login",
         json={"username": "test-admin", "password": "test-password-with-twelve"},
     )
     assert response.status_code == 200
-    return {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    return {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
 
 
 def test_planning_requires_authentication(client):
@@ -79,7 +79,7 @@ def test_new_accounts_accept_eight_character_passwords(client):
         },
     )
     assert setup.status_code == 201
-    admin = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    admin = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     accepted = client.post(
         "/api/users",
         headers=admin,
@@ -175,13 +175,13 @@ def test_initial_setup_requires_valid_signed_license(
     assert blocked.status_code == 403
     assert blocked.json()["detail"] == "Diese Lizenz ist gesperrt"
 
-    monkeypatch.delenv("CLINICPULSE_LICENSE_PUBLIC_KEY")
-    monkeypatch.setenv("CLINICPULSE_LICENSE_PUBLIC_KEY_FILE", "/missing/license-public.pem")
+    monkeypatch.delenv("MEDORA_LICENSE_PUBLIC_KEY")
+    monkeypatch.setenv("MEDORA_LICENSE_PUBLIC_KEY_FILE", "/missing/license-public.pem")
     unconfigured = client.post("/api/setup", json=setup_data)
     assert unconfigured.status_code == 503
     assert unconfigured.json()["detail"] == "Lizenzprüfung ist nicht konfiguriert"
 
-    monkeypatch.setenv("CLINICPULSE_LICENSE_PUBLIC_KEY", "not a PEM public key")
+    monkeypatch.setenv("MEDORA_LICENSE_PUBLIC_KEY", "not a PEM public key")
     misconfigured = client.post("/api/setup", json=setup_data)
     assert misconfigured.status_code == 503
 
@@ -222,7 +222,7 @@ def test_create_and_list_staff_shifts_and_assignments(client):
     )
     assert planner_response.status_code == 201
     client.post("/api/auth/login", json={"username": "planner", "password": "planner-password-1234"})
-    headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    headers = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     shift_response = client.post(
         "/api/shift-types",
         json={
@@ -643,8 +643,8 @@ def test_update_check_is_admin_only_and_returns_version_info(client, monkeypatch
             "update_available": True,
             "status": "update_available",
             "message": "Version 0.2.0 ist verfügbar.",
-            "release_url": "https://github.com/CyberspaceConsulting/ClinicPulse/releases/tag/v0.2.0",
-            "repository_url": "https://github.com/CyberspaceConsulting/ClinicPulse",
+            "release_url": "https://github.com/CyberspaceConsulting/Medora/releases/tag/v0.2.0",
+            "repository_url": "https://github.com/CyberspaceConsulting/Medora",
             "checked_at": "2026-10-13T00:00:00+00:00",
         },
     )
@@ -751,7 +751,7 @@ def test_browser_sessions_expire_after_idle_but_kiosk_sessions_do_not(client):
         signing_key,
         algorithm="HS256",
     )
-    client.cookies.set("clinicpulse_session", stale_cookie)
+    client.cookies.set("medora_session", stale_cookie)
     assert client.get("/api/departments").status_code == 401
     client.cookies.clear()
 
@@ -762,7 +762,7 @@ def test_browser_sessions_expire_after_idle_but_kiosk_sessions_do_not(client):
     assert fresh_login.status_code == 200
     activity_response = client.get("/api/departments")
     assert activity_response.status_code == 200
-    assert "clinicpulse_session=" in activity_response.headers["set-cookie"]
+    assert "medora_session=" in activity_response.headers["set-cookie"]
 
 
 def test_kiosk_session_does_not_use_inactivity_opt_out_checkbox(client, monkeypatch):
@@ -808,7 +808,7 @@ def test_kiosk_session_does_not_use_inactivity_opt_out_checkbox(client, monkeypa
             root.signing_key,
             algorithm="HS256",
         )
-    client.cookies.set("clinicpulse_session", kiosk_cookie)
+    client.cookies.set("medora_session", kiosk_cookie)
     assert client.get("/api/departments").status_code == 200
 
 
@@ -887,7 +887,7 @@ def test_department_scope_and_planner_permissions(client):
         json={"username": "oberarzt", "password": "secure-password-123"},
     )
     assert login.status_code == 200
-    planner_cookie = client.cookies.get("clinicpulse_session")
+    planner_cookie = client.cookies.get("medora_session")
     planner_headers = {"Authorization": f"Bearer {planner_cookie}"}
 
     shift = client.post(
@@ -919,7 +919,7 @@ def test_department_scope_and_planner_permissions(client):
         "/api/auth/login",
         json={"username": "chefarzt", "password": "secure-chief-pass-123"},
     )
-    chief_headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    chief_headers = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     assert len(client.get("/api/shift-types", headers=chief_headers).json()) == 1
     assert client.post(
         "/api/shift-types",
@@ -950,7 +950,7 @@ def test_department_scope_and_planner_permissions(client):
         "/api/auth/login",
         json={"username": "planner-viewer", "password": "viewer-password-1234"},
     )
-    viewer_headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    viewer_headers = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     assert client.get("/api/shift-types", headers=viewer_headers).status_code == 200
     assert client.post(
         "/api/shift-types",
@@ -981,7 +981,7 @@ def test_department_scope_and_planner_permissions(client):
         "/api/auth/login",
         json={"username": "radiology-planner", "password": "radiology-password-123"},
     )
-    radiology_headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    radiology_headers = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     other_shift = client.post(
         "/api/shift-types",
         headers=radiology_headers,
@@ -1004,7 +1004,7 @@ def test_department_scope_and_planner_permissions(client):
         "/api/auth/login",
         json={"username": "chefarzt", "password": "secure-chief-pass-123"},
     )
-    chief_headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    chief_headers = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     visible_shifts = client.get("/api/shift-types", headers=chief_headers)
     assert [shift["name"] for shift in visible_shifts.json()] == ["Chirurgie Früh"]
 
@@ -1167,7 +1167,7 @@ def test_users_can_switch_between_all_assigned_department_plans(client):
 
 
 def test_password_check_uses_pwned_password_range_prefix_only(client, monkeypatch):
-    password = "ClinicPulse-Testing-2026!"
+    password = "Medora-Testing-2026!"
     digest = hashlib.sha1(password.encode()).hexdigest().upper()
     requested_urls = []
 
@@ -1214,7 +1214,7 @@ def test_hospital_management_manages_accounts_but_cannot_edit_schedules(client):
     assert manager.status_code == 201
     assert manager.json()["can_view"] is False
     client.post("/api/auth/login", json={"username": "management", "password": "management-password-123"})
-    headers = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    headers = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     assert client.get("/api/roles", headers=headers).status_code == 200
     assert client.post("/api/departments", json={"name": "Emergency"}, headers=headers).status_code == 201
     assert client.post(
@@ -1236,7 +1236,7 @@ def test_hospital_management_manages_accounts_but_cannot_edit_schedules(client):
 def _login_headers(client, username, password):
     response = client.post("/api/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200
-    return {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    return {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
 
 
 def test_employee_self_service_absence_workflow(client):
@@ -1714,7 +1714,7 @@ def test_business_configuration_is_selected_during_setup_and_admin_editable(clie
         "operational_profile": "rescue_service",
     })
     assert response.status_code == 201
-    admin = {"Authorization": f"Bearer {client.cookies.get('clinicpulse_session')}"}
+    admin = {"Authorization": f"Bearer {client.cookies.get('medora_session')}"}
     config = client.get("/api/admin/business-configuration", headers=admin)
     assert config.status_code == 200
     assert config.json() == {
@@ -1960,8 +1960,8 @@ def test_15_sunday_rest_days_and_replacement_rest_days_are_enforced(client):
 def test_operational_profile_is_taken_from_license_and_locked(client, license_key):
     token = jwt.encode(
         {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": "managed-customer",
             "jti": "managed-license-1",
             "institution_name": "Rettungswache Nord",
@@ -2060,7 +2060,7 @@ def test_disabled_mail_creates_accounts_with_enforced_password_change(client, mo
     for username, initial in [("offline-user", "start-password"), ("offline-employee", "employee-start")]:
         login = client.post("/api/auth/login", json={"username": username, "password": initial})
         assert login.status_code == 200 and login.json()["must_change_password"] is True
-        token = client.cookies.get("clinicpulse_session")
+        token = client.cookies.get("medora_session")
         restricted = {"Authorization": f"Bearer {token}"}
         assert client.get("/api/auth/session", headers=restricted).json()["must_change_password"] is True
         assert client.get("/api/departments", headers=restricted).status_code == 403
@@ -2239,9 +2239,9 @@ def test_admin_can_save_mail_settings_and_send_a_test_message(client, monkeypatc
         "public_url": "https://clinic.example.test",
         "smtp_host": "mail.example.test",
         "smtp_port": 587,
-        "smtp_username": "clinicpulse",
+        "smtp_username": "medora",
         "smtp_password": "private-mail-password",
-        "from_address": "clinicpulse@example.test",
+        "from_address": "medora@example.test",
         "use_ssl": False,
         "use_starttls": True,
     }
@@ -2659,7 +2659,7 @@ def test_logout_clears_session_cookie_and_idle_timeout_is_configurable(client):
 
     logout = client.post("/api/auth/logout")
     assert logout.status_code == 204
-    assert "clinicpulse_session=" in logout.headers["set-cookie"]
+    assert "medora_session=" in logout.headers["set-cookie"]
     assert "Max-Age=0" in logout.headers["set-cookie"]
     assert client.get("/api/auth/session").status_code == 401
 

@@ -1,6 +1,6 @@
 # Erste Schritte
 
-Diese Seiten führen durch Installation und Betrieb von ClinicPulse.
+Diese Seiten führen durch Installation und Betrieb von Medora.
 
 1. [Installation](installation.md): Release installieren und Anwendung starten
 2. [Docker Compose](docker-compose.md): Dienste, Netzwerke, Volumes und Secrets im Detail

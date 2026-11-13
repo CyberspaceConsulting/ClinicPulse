@@ -16,7 +16,7 @@ Ein Schichttyp beschreibt eine wiederkehrende Schicht:
 
 Eine Schichtart kann mehrere abteilungsspezifische Qualifikationen mit jeweils eigener Soll-Besetzung enthalten, z. B. „2 × Arzt“ und „1 × Praxisanleiter“. Qualifikationen sind **verbindlich**: Es werden nur Mitarbeitende eingeplant oder vorgeschlagen, die mindestens eine geforderte Qualifikation der Schicht-Abteilung besitzen. Eine Person zählt für **jede** geforderte Qualifikation, die sie erfüllt. Ist sie gleichzeitig Arzt und Praxisanleiter, deckt sie beide Anforderungen ab; ohne qualifizierte Person bleibt die Stelle offen. Die Obergrenze je Qualifikation wird bei Schichten mit mehreren Anforderungen und bei „Oberarzt“ geprüft. Bereits gespeicherte Dienste werden nicht verändert. Dienstplanverantwortliche der Abteilung können Schichtarten nachträglich bearbeiten. Eine Schichtart, der bereits Dienste zugewiesen sind, kann nicht gelöscht werden („Shift type is in use“).
 
-Wird keine Pause angegeben, setzt ClinicPulse die gesetzliche Mindestpause (siehe [Arbeitszeitregeln](work-rules.md)).
+Wird keine Pause angegeben, setzt Medora die gesetzliche Mindestpause (siehe [Arbeitszeitregeln](work-rules.md)).
 
 ## Dienstzuweisungen
 
@@ -41,4 +41,4 @@ Nach einer Krankmeldung ermittelt die Startseite für betroffene, bereits geplan
 
 ## Startseite
 
-Nach Anmeldung und beim Wiederherstellen einer Sitzung öffnet ClinicPulse zuverlässig die Übersicht. Mitarbeitende sehen dort den nächsten Dienst, eine Wochenübersicht und den Einstieg zum Abwesenheitsantrag. Leitende Personen sehen zusätzlich offene Abwesenheitsanträge und gegebenenfalls Krankheitsvertretungen. Administratorkonten erhalten eine eigene Startseite mit Verknüpfungen zu Teamverwaltung, Betrieb, E-Mail, Lizenz, Backups, Sicherheit, Audit-Protokoll und Archivierung.
+Nach Anmeldung und beim Wiederherstellen einer Sitzung öffnet Medora zuverlässig die Übersicht. Mitarbeitende sehen dort den nächsten Dienst, eine Wochenübersicht und den Einstieg zum Abwesenheitsantrag. Leitende Personen sehen zusätzlich offene Abwesenheitsanträge und gegebenenfalls Krankheitsvertretungen. Administratorkonten erhalten eine eigene Startseite mit Verknüpfungen zu Teamverwaltung, Betrieb, E-Mail, Lizenz, Backups, Sicherheit, Audit-Protokoll und Archivierung.

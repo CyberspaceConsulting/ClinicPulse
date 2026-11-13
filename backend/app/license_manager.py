@@ -37,8 +37,8 @@ class VerifiedStatus:
 
 
 def _public_key() -> RSAPublicKey:
-    key_path = os.environ.get("CLINICPULSE_LICENSE_PUBLIC_KEY_FILE")
-    key_pem = os.environ.get("CLINICPULSE_LICENSE_PUBLIC_KEY")
+    key_path = os.environ.get("MEDORA_LICENSE_PUBLIC_KEY_FILE")
+    key_pem = os.environ.get("MEDORA_LICENSE_PUBLIC_KEY")
     if key_path:
         try:
             key_pem = Path(key_path).read_text(encoding="utf-8")
@@ -50,7 +50,7 @@ def _public_key() -> RSAPublicKey:
         except OSError as exc:
             raise LicenseConfigurationError("Bundled license public key cannot be read") from exc
     if not key_pem:
-        raise LicenseConfigurationError("CLINICPULSE_LICENSE_PUBLIC_KEY is not configured")
+        raise LicenseConfigurationError("MEDORA_LICENSE_PUBLIC_KEY is not configured")
     try:
         key = serialization.load_pem_public_key(key_pem.encode())
     except (TypeError, ValueError) as exc:
@@ -148,7 +148,7 @@ def decode_license_claims(token: str) -> dict[str, Any]:
 
 
 def _post_json(path: str, payload: dict[str, str]) -> dict[str, Any]:
-    base_url = os.environ.get("CLINICPULSE_LICENSE_API_URL", DEFAULT_API_URL).rstrip("/")
+    base_url = os.environ.get("MEDORA_LICENSE_API_URL", DEFAULT_API_URL).rstrip("/")
     if not base_url.startswith("https://"):
         raise LicenseConfigurationError("License Manager API must use HTTPS")
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -243,7 +243,7 @@ def activate_license(
         {
             "license_token": license_token,
             "installation_id": installation_id,
-            "clinicpulse_version": version,
+            "medora_version": version,
             "release_channel": release_channel,
             "nonce": nonce,
         },
@@ -264,7 +264,7 @@ def check_license(
         {
             "license_token": license_token,
             "installation_id": installation_id,
-            "clinicpulse_version": version,
+            "medora_version": version,
             "release_channel": release_channel,
             "nonce": nonce,
         },

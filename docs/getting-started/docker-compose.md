@@ -8,7 +8,7 @@ Die Datei `docker/docker-compose.yml` definiert drei Dienste. Starte sie aus dem
 | ------ | ----------------------------------- | -------------------------------------------- |
 | `db`   | `postgres:18-alpine`                | PostgreSQL-Datenbank, Healthcheck mit `pg_isready` |
 | `backend` | `backend/Dockerfile` | Backend-API; startet erst, wenn `db` gesund ist |
-| `web`  | `docker/web.Dockerfile` (`frontend/`) | Frontend mit nginx; veröffentlicht Port `${CLINICPULSE_PORT:-8080}` |
+| `web`  | `docker/web.Dockerfile` (`frontend/`) | Frontend mit nginx; veröffentlicht Port `${MEDORA_PORT:-8080}` |
 
 Alle Dienste starten mit `restart: unless-stopped`.
 
@@ -21,17 +21,17 @@ Alle Dienste starten mit `restart: unless-stopped`.
 
 | Volume / Pfad                                   | Inhalt                                              |
 | ----------------------------------------------- | --------------------------------------------------- |
-| `clinicpulse_data`                              | PostgreSQL-Daten                                    |
-| `clinicpulse_keys`                              | Verwalteter Datenschlüssel und optionales SMTP-Passwort |
-| `${CLINICPULSE_BACKUP_HOST_DIR:-../backups}`    | Sicherungen, im API-Container unter `/backups`      |
+| `medora_data`                              | PostgreSQL-Daten                                    |
+| `medora_keys`                              | Verwalteter Datenschlüssel und optionales SMTP-Passwort |
+| `${MEDORA_BACKUP_HOST_DIR:-../backups}`    | Sicherungen, im API-Container unter `/backups`      |
 
 ## Schlüsselverwaltung
 
-Das Backend erzeugt den Datenschlüssel bei einer leeren Datenbank automatisch im separaten Volume `clinicpulse_keys`. Bei einer vorhandenen Datenbank ohne Schlüssel verweigert es den Start. Das Volume ist nicht automatisch verschlüsselt; Docker- und Host-Administratoren können darauf zugreifen. Sichere den Schlüssel wie unter [Backup und Wiederherstellung](../features/backup.md#verschlusseltes-schlussel-backup) beschrieben.
+Das Backend erzeugt den Datenschlüssel bei einer leeren Datenbank automatisch im separaten Volume `medora_keys`. Bei einer vorhandenen Datenbank ohne Schlüssel verweigert es den Start. Das Volume ist nicht automatisch verschlüsselt; Docker- und Host-Administratoren können darauf zugreifen. Sichere den Schlüssel wie unter [Backup und Wiederherstellung](../features/backup.md#verschlusseltes-schlussel-backup) beschrieben.
 
 ## Weitere Compose-Dateien
 
-`docker/compose.release.yaml` und `docker/compose.encrypted.yaml` ergänzen den Betrieb mit Release-Images bzw. verschlüsseltem Datenverzeichnis (`CLINICPULSE_ENCRYPTED_PGDATA`). `docker/compose.external-key.yaml` bindet einen [extern verwalteten Schlüssel](environment-variables.md#externer-schlussel-auf-verschlusseltem-speicher) schreibgeschützt ein.
+`docker/compose.release.yaml` und `docker/compose.encrypted.yaml` ergänzen den Betrieb mit Release-Images bzw. verschlüsseltem Datenverzeichnis (`MEDORA_ENCRYPTED_PGDATA`). `docker/compose.external-key.yaml` bindet einen [extern verwalteten Schlüssel](environment-variables.md#externer-schlussel-auf-verschlusseltem-speicher) schreibgeschützt ein.
 
 ## Befehle
 

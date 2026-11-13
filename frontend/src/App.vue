@@ -215,7 +215,7 @@ const mustChangePassword = ref(false)
 const requiredPassword = ref('')
 const requiredPasswordConfirm = ref('')
 const requiredCurrentPassword = ref('')
-const theme = ref(localStorage.getItem('clinicpulse-theme') ?? 'light')
+const theme = ref(localStorage.getItem('medora-theme') ?? 'light')
 const username = ref('')
 const roleKey = ref('ADMIN')
 const departmentId = ref<number | null>(null)
@@ -245,7 +245,7 @@ const invitationPassword = ref('')
 const invitationPasswordConfirm = ref('')
 const invitationMessage = ref(false)
 const teamNotice = ref<{ key: TranslationKey; values?: Record<string, string | number> } | null>(null)
-const onboardingMailSkipped = ref(localStorage.getItem('clinicpulse-onboarding-mail-skipped') === 'true')
+const onboardingMailSkipped = ref(localStorage.getItem('medora-onboarding-mail-skipped') === 'true')
 const showMailOnboarding = computed(() =>
   roleKey.value === 'ADMIN' && departments.value.length === 0 && !onboardingMailSkipped.value,
 )
@@ -372,10 +372,10 @@ const managementTabs = computed(() => [
     ? [{ key: 'accounts', label: t('management.accountsTab') }]
     : []),
 ])
-const sidebarCollapsed = ref(localStorage.getItem('clinicpulse-sidebar-collapsed') === '1')
+const sidebarCollapsed = ref(localStorage.getItem('medora-sidebar-collapsed') === '1')
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
-  localStorage.setItem('clinicpulse-sidebar-collapsed', sidebarCollapsed.value ? '1' : '0')
+  localStorage.setItem('medora-sidebar-collapsed', sidebarCollapsed.value ? '1' : '0')
 }
 const showNotifications = ref(false)
 const showProfile = ref(false)
@@ -389,7 +389,7 @@ let idleLogoutTimer: ReturnType<typeof setTimeout> | undefined
 let lastActivityAt = Date.now()
 const idleTimeoutMinutes = ref(5)
 const idleTimeoutMs = () => idleTimeoutMinutes.value * 60 * 1000
-const IDLE_ACTIVITY_STORAGE_KEY = 'clinicpulse-last-activity'
+const IDLE_ACTIVITY_STORAGE_KEY = 'medora-last-activity'
 const employeeId = ref<number | null>(null)
 const employeeRole = ref('Pflegefachkraft')
 const roleCatalog = ref<{
@@ -670,8 +670,8 @@ const pageTitle = computed(() => {
   if (selectedDay.value) return dateLabel(selectedDay.value)
   return t('page.schedule')
 })
-const repositoryUrl = 'https://github.com/CyberspaceConsulting/ClinicPulse'
-const documentationUrl = 'https://cyberspaceconsulting.github.io/ClinicPulse/'
+const repositoryUrl = 'https://github.com/CyberspaceConsulting/Medora'
+const documentationUrl = 'https://cyberspaceconsulting.github.io/Medora/'
 const selectedPlanName = computed(() =>
   selectedPlanId.value === null
     ? t('nav.allSchedules')
@@ -682,7 +682,7 @@ const canEditPlan = computed(() => canEdit.value && !licenseReadOnly.value)
 const hasScheduleAccess = computed(() => roleKey.value !== 'ADMIN' && canView.value)
 
 watch(pageTitle, (title) => {
-  document.title = `ClinicPulse – ${title}`
+  document.title = `Medora – ${title}`
 }, { immediate: true })
 
 watch([authenticated, roleKey], ([isAuthenticated, role]) => {
@@ -1400,7 +1400,7 @@ async function testMailDelivery() {
 
 function skipMailOnboarding() {
   onboardingMailSkipped.value = true
-  localStorage.setItem('clinicpulse-onboarding-mail-skipped', 'true')
+  localStorage.setItem('medora-onboarding-mail-skipped', 'true')
 }
 
 function openAppSettings(tab = 'appearance') {
@@ -1821,7 +1821,7 @@ async function logout() {
 
 function applyTheme(value: string) {
   theme.value = value
-  localStorage.setItem('clinicpulse-theme', value)
+  localStorage.setItem('medora-theme', value)
   document.documentElement.dataset.theme = value
 }
 
@@ -2760,7 +2760,7 @@ async function checkPendingVacationRequests() {
   if (!authenticated.value || !canApprove.value) return
   try {
     const pending = await api<Absence[]>('/absences?status=pending')
-    const key = `clinicpulse-vacation-alerts:${username.value}`
+    const key = `medora-vacation-alerts:${username.value}`
     const saved = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown
     if (!Array.isArray(saved) || saved.some((id) => !Number.isInteger(id))) {
       throw new Error('Stored vacation notification state is invalid')
@@ -3392,7 +3392,7 @@ onBeforeUnmount(() => {
         <section v-else class="panel restricted-panel"><h2>{{ t('schedule.noAccess') }}</h2><p>{{ t('schedule.noAccessDescription') }}</p></section>
       </main>
       <footer v-if="hasScheduleAccess || roleKey === 'ADMIN'" class="page-footer">
-        <span>ClinicPulse · Version {{ displayVersion }}</span>
+        <span>Medora · Version {{ displayVersion }}</span>
         <span>·</span>
         <a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">{{ t('common.github') }}</a>
         <span>·</span>

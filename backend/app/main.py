@@ -136,11 +136,19 @@ def _migrate_encrypted_columns() -> None:
         if dialect == "postgresql":
             connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pgcrypto")
         connection.exec_driver_sql(
-            "CREATE TABLE IF NOT EXISTS clinicpulse_schema_migrations "
+            "CREATE TABLE IF NOT EXISTS medora_schema_migrations "
             "(version INTEGER PRIMARY KEY, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
         )
+        if inspect(connection).has_table("clinicpulse_schema_migrations"):
+            connection.exec_driver_sql(
+                "INSERT INTO medora_schema_migrations (version, applied_at) "
+                "SELECT legacy.version, legacy.applied_at "
+                "FROM clinicpulse_schema_migrations AS legacy "
+                "WHERE legacy.version = 1 AND NOT EXISTS "
+                "(SELECT 1 FROM medora_schema_migrations WHERE version = legacy.version)"
+            )
         if connection.execute(
-            text("SELECT 1 FROM clinicpulse_schema_migrations WHERE version = 1")
+            text("SELECT 1 FROM medora_schema_migrations WHERE version = 1")
         ).first():
             return
 
@@ -176,7 +184,7 @@ def _migrate_encrypted_columns() -> None:
                         UPDATE {table}
                         SET username_lookup = :lookup,
                             username = encode(
-                                pgp_sym_encrypt(username, current_setting('clinicpulse.data_encryption_key')),
+                                pgp_sym_encrypt(username, current_setting('medora.data_encryption_key')),
                                 'base64'
                             )
                         WHERE id = :record_id
@@ -195,7 +203,7 @@ def _migrate_encrypted_columns() -> None:
                     f"""
                         UPDATE {table}
                         SET {column} = encode(
-                            pgp_sym_encrypt({column}, current_setting('clinicpulse.data_encryption_key')),
+                            pgp_sym_encrypt({column}, current_setting('medora.data_encryption_key')),
                             'base64'
                         )
                         WHERE {column} IS NOT NULL
@@ -223,7 +231,7 @@ def _migrate_encrypted_columns() -> None:
             "ON user_accounts (username_lookup)"
         )
         connection.execute(
-            text("INSERT INTO clinicpulse_schema_migrations (version) VALUES (1)")
+            text("INSERT INTO medora_schema_migrations (version) VALUES (1)")
         )
 
 
@@ -605,7 +613,7 @@ async def lifespan(_: FastAPI):
 ARCHITECTURE = {"x86_64": "X86", "amd64": "X86", "aarch64": "ARM", "arm64": "ARM"}.get(
     platform.machine().lower(), platform.machine()
 )
-app = FastAPI(title="ClinicPulse API", version=APP_VERSION, docs_url="/api/docs", lifespan=lifespan)
+app = FastAPI(title="Medora API", version=APP_VERSION, docs_url="/api/docs", lifespan=lifespan)
 app.include_router(absences_router)
 app.include_router(archive_router)
 app.include_router(archive_settings_router)
@@ -635,7 +643,7 @@ def check_password_breach(check: PasswordCheck) -> PasswordCheckResponse:
     prefix, suffix = digest[:5], digest[5:]
     request = urllib.request.Request(
         f"https://api.pwnedpasswords.com/range/{prefix}",
-        headers={"Add-Padding": "true", "User-Agent": "ClinicPulse/PasswordCheck"},
+        headers={"Add-Padding": "true", "User-Agent": "Medora/PasswordCheck"},
     )
     try:
         with urllib.request.urlopen(request, timeout=4) as response:
@@ -1048,7 +1056,7 @@ def replace_license_token(
     release_channel = _license_release_channel(settings)
     license_claims = decode_license_claims(changes.license_token)
     if "features" in license_claims and not has_core_feature(license_claims["features"]):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lizenz enthält kein ClinicPulse-Kernfeature")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lizenz enthält kein Medora-Kernfeature")
     try:
         verified = activate_license(
             changes.license_token,
@@ -1139,7 +1147,7 @@ def setup_admin(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Diese Lizenz ist nicht aktiv: {reason}")
     license_claims = decode_license_claims(setup.license_token)
     if "features" in license_claims and not has_core_feature(license_claims["features"]):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lizenz enthält kein ClinicPulse-Kernfeature")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lizenz enthält kein Medora-Kernfeature")
     _, managed_profile = managed_institution(verified_status.claims, license_claims)
     operational_profile = managed_profile or setup.operational_profile
     federal_state = managed_federal_state(verified_status.claims, license_claims) or setup.federal_state
@@ -1428,7 +1436,7 @@ def list_department_profiles(
 def logout(request: Request) -> Response:
     result = Response(status_code=status.HTTP_204_NO_CONTENT)
     result.delete_cookie(
-        "clinicpulse_session",
+        "medora_session",
         path="/",
         httponly=True,
         secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",

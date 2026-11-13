@@ -33,7 +33,7 @@ def test_issuer_creates_encrypted_keypair_and_valid_license(tmp_path: Path, monk
         None,
         passphrase,
     )
-    monkeypatch.setenv("CLINICPULSE_LICENSE_PUBLIC_KEY_FILE", str(public_key_path))
+    monkeypatch.setenv("MEDORA_LICENSE_PUBLIC_KEY_FILE", str(public_key_path))
     claims = validate_license_token(token)
 
     assert claims["sub"] == "customer-001"
@@ -43,8 +43,8 @@ def test_issuer_creates_encrypted_keypair_and_valid_license(tmp_path: Path, monk
 def test_rejects_expired_grace_period(client, license_key):
     token = jwt.encode(
         {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": "test-customer",
             "jti": "expired-grace-license",
             "iat": datetime.now(timezone.utc),
@@ -127,8 +127,8 @@ def test_overdue_status_is_valid_but_read_only(client, license_key):
     now = datetime.now(timezone.utc)
     status_token = jwt.encode(
         {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": license_claims["sub"],
             "jti": "overdue-status-id",
             "iat": now,
@@ -162,8 +162,8 @@ def test_overdue_status_is_valid_but_read_only(client, license_key):
 def test_expired_license_token_is_still_sent_for_manager_status(client, license_key):
     token = jwt.encode(
         {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": "expired-customer",
             "jti": "expired-license",
             "iat": datetime.now(timezone.utc) - timedelta(days=60),
@@ -213,8 +213,8 @@ def test_status_response_must_match_request_nonce(client, license_key, monkeypat
         now = datetime.now(timezone.utc)
         status_token = jwt.encode(
             {
-                "iss": "clinicpulse-licensing",
-                "aud": "clinicpulse",
+                "iss": "medora-licensing",
+                "aud": "medora",
                 "sub": license_claims["sub"],
                 "jti": "status-test-id",
                 "iat": now,

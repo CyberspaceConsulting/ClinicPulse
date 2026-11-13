@@ -35,11 +35,14 @@ FORMAT_VERSION = 1
 NONCE_LENGTH = 12
 MIN_PASSPHRASE_LENGTH = 12
 PUBLIC_PREFIX = "CPPUB1:"
-KEYFILE_HEADER = "CLINICPULSE RECOVERY KEY v1"
-FILE_PREFIX = "clinicpulse-"
+KEYFILE_HEADER = "MEDORA RECOVERY KEY v1"
+LEGACY_KEYFILE_HEADER = "CLINICPULSE RECOVERY KEY v1"
+FILE_PREFIX = "medora-"
+LEGACY_FILE_PREFIX = "clinicpulse-"
 FILE_SUFFIX = ".cpbak"
 EXCLUDED_TABLES = {"backup_runs", "login_attempts", "backup_recipients"}
-WRAP_INFO = b"clinicpulse-backup-wrap-v2"
+WRAP_INFO = b"medora-backup-wrap-v2"
+LEGACY_WRAP_INFO = b"clinicpulse-backup-wrap-v2"
 MAX_HEADER_BYTES = 256 * 1024
 
 # Serializes backups and restores so a restore never runs against a half-written export.
@@ -61,7 +64,7 @@ def backup_filename(now: datetime | None = None) -> str:
 
 
 def is_backup_filename(name: str) -> bool:
-    return name.startswith(FILE_PREFIX) and name.endswith(FILE_SUFFIX) and "/" not in name and "\\" not in name
+    return name.startswith((FILE_PREFIX, LEGACY_FILE_PREFIX)) and name.endswith(FILE_SUFFIX) and "/" not in name and "\\" not in name
 
 
 def _raw_public(key: X25519PublicKey) -> bytes:
@@ -113,7 +116,7 @@ def load_recovery_key(key_file: bytes | str, passphrase: str) -> X25519PrivateKe
     fields = dict(
         line.split(": ", 1) for line in text.strip().splitlines()[1:] if ": " in line
     )
-    if not text.strip().startswith(KEYFILE_HEADER) or "public" not in fields or "data" not in fields:
+    if not text.strip().startswith((KEYFILE_HEADER, LEGACY_KEYFILE_HEADER)) or "public" not in fields or "data" not in fields:
         raise BackupError("Das ist keine gültige Wiederherstellungsschlüssel-Datei")
     try:
         blob = base64.b64decode(fields["data"], validate=True)
@@ -126,8 +129,8 @@ def load_recovery_key(key_file: bytes | str, passphrase: str) -> X25519PrivateKe
         raise BackupError("Die Schlüsseldatei ist beschädigt") from exc
 
 
-def _wrap_key(shared: bytes, ephemeral_public: bytes, recipient_public: bytes) -> bytes:
-    return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=WRAP_INFO + ephemeral_public + recipient_public).derive(shared)
+def _wrap_key(shared: bytes, ephemeral_public: bytes, recipient_public: bytes, info: bytes) -> bytes:
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info + ephemeral_public + recipient_public).derive(shared)
 
 
 def _backup_tables() -> list[Table]:
@@ -185,7 +188,7 @@ def encrypt_payload(payload: dict[str, Any], public_keys: list[str]) -> bytes:
     for recipient in recipients:
         ephemeral = X25519PrivateKey.generate()
         ephemeral_public = _raw_public(ephemeral.public_key())
-        wrap = _wrap_key(ephemeral.exchange(recipient), ephemeral_public, _raw_public(recipient))
+        wrap = _wrap_key(ephemeral.exchange(recipient), ephemeral_public, _raw_public(recipient), WRAP_INFO)
         nonce = os.urandom(NONCE_LENGTH)
         slots.append({
             "kid": key_id(recipient),
@@ -201,7 +204,7 @@ def encrypt_payload(payload: dict[str, Any], public_keys: list[str]) -> bytes:
 
 def decrypt_payload(data: bytes, private_key: X25519PrivateKey) -> dict[str, Any]:
     if not data.startswith(MAGIC) or len(data) < len(MAGIC) + 4:
-        raise BackupError("Die Datei ist kein ClinicPulse-Backup")
+        raise BackupError("Die Datei ist kein Medora-Backup")
     header_length = int.from_bytes(data[len(MAGIC):len(MAGIC) + 4], "big")
     header_end = len(MAGIC) + 4 + header_length
     if header_length > MAX_HEADER_BYTES or len(data) < header_end + NONCE_LENGTH + 16:
@@ -218,8 +221,17 @@ def decrypt_payload(data: bytes, private_key: X25519PrivateKey) -> dict[str, Any
         raise BackupError("Dieses Backup wurde nicht für diese Instanz bzw. diesen Schlüssel verschlüsselt")
     try:
         ephemeral_public = base64.b64decode(slot["epk"])
-        wrap = _wrap_key(private_key.exchange(X25519PublicKey.from_public_bytes(ephemeral_public)), ephemeral_public, own_public)
-        content_key = AESGCM(wrap).decrypt(base64.b64decode(slot["n"]), base64.b64decode(slot["wk"]), MAGIC)
+        shared = private_key.exchange(X25519PublicKey.from_public_bytes(ephemeral_public))
+        wrapped_key = base64.b64decode(slot["wk"])
+        wrap_nonce = base64.b64decode(slot["n"])
+        for wrap_info in (WRAP_INFO, LEGACY_WRAP_INFO):
+            wrap = _wrap_key(shared, ephemeral_public, own_public, wrap_info)
+            try:
+                content_key = AESGCM(wrap).decrypt(wrap_nonce, wrapped_key, MAGIC)
+                break
+            except InvalidTag:
+                if wrap_info == LEGACY_WRAP_INFO:
+                    raise
         nonce = data[header_end:header_end + NONCE_LENGTH]
         plaintext = AESGCM(content_key).decrypt(nonce, data[header_end + NONCE_LENGTH:], framed)
         payload = json.loads(gzip.decompress(plaintext))
@@ -250,10 +262,10 @@ def _validate_payload(payload: dict[str, Any]) -> dict[str, tuple[Table, dict[st
             continue
         table = tables.get(name)
         if table is None:
-            raise BackupError(f"Das Backup enthält die unbekannte Tabelle „{name}“ – wahrscheinlich stammt es aus einer neueren ClinicPulse-Version")
+            raise BackupError(f"Das Backup enthält die unbekannte Tabelle „{name}“ – wahrscheinlich stammt es aus einer neueren Medora-Version")
         unknown = [column for column in entry["columns"] if column not in table.columns]
         if unknown:
-            raise BackupError(f"Das Backup enthält unbekannte Spalten in „{name}“ – bitte zuerst ClinicPulse aktualisieren")
+            raise BackupError(f"Das Backup enthält unbekannte Spalten in „{name}“ – bitte zuerst Medora aktualisieren")
         result[name] = (table, entry)
     return result
 

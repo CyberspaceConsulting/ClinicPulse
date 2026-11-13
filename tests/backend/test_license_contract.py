@@ -1,4 +1,4 @@
-"""Contract between ClinicPulse and the License Manager (see TEST.md)."""
+"""Contract between Medora and the License Manager (see TEST.md)."""
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -9,8 +9,8 @@ import pytest
 def license_token(license_key, **extra) -> str:
     return jwt.encode(
         {
-            "iss": "clinicpulse-licensing",
-            "aud": "clinicpulse",
+            "iss": "medora-licensing",
+            "aud": "medora",
             "sub": "contract-customer",
             "jti": f"contract-{extra.get('federal_state', 'none')}-{extra.get('operational_profile', 'none')}",
             "iat": datetime.now(timezone.utc),

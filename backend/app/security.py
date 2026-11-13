@@ -109,7 +109,7 @@ def set_session_cookie(
 ) -> None:
     forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     response.set_cookie(
-        "clinicpulse_session",
+        "medora_session",
         issue_token(signing_key, subject, version, remember_me),
         max_age=30 * 24 * 60 * 60 if remember_me else 8 * 60 * 60,
         httponly=True,
@@ -179,7 +179,7 @@ def require_principal(
     request: Request,
     response: Response,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    session_cookie: str | None = Cookie(default=None, alias="clinicpulse_session"),
+    session_cookie: str | None = Cookie(default=None, alias="medora_session"),
     db: Session = Depends(get_db),
 ) -> Principal:
     encoded_token = credentials.credentials if credentials is not None else session_cookie

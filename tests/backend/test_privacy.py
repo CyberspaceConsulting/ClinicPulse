@@ -345,9 +345,9 @@ def test_repository_contains_no_secrets_or_data_files():
 
 def test_browser_storage_holds_only_non_personal_state():
     allowed_keys = {
-        "'clinicpulse-theme'",
-        "'clinicpulse-sidebar-collapsed'",
-        "'clinicpulse-onboarding-mail-skipped'",
+        "'medora-theme'",
+        "'medora-sidebar-collapsed'",
+        "'medora-onboarding-mail-skipped'",
         "IDLE_ACTIVITY_STORAGE_KEY",  # Zeitstempel der letzten Aktivität
         "key",  # Hinweisstatus: nur IDs bereits angezeigter Urlaubsanträge
         "storageKey",  # gewählte Sprache

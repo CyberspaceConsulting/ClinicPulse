@@ -2,7 +2,7 @@
 
 ## Erste Schritte zur Diagnose
 
-Für eine Release-Installation im Installationsverzeichnis (normalerweise `clinicpulse`):
+Für eine Release-Installation im Installationsverzeichnis (normalerweise `medora`):
 
 ```sh
 docker compose ps -a
@@ -27,13 +27,13 @@ Als Zwischenlösung kann bei genau dieser Fehlermeldung die fehlende Spalte erg�
 
 ```sh
 umask 077
-docker compose exec -T db pg_dump -U clinicpulse -d clinicpulse > backup-vor-migration.sql
+docker compose exec -T db pg_dump -U medora -d medora > backup-vor-migration.sql
 ```
 
 Nur nach erfolgreicher Sicherung die Spalte ergänzen und das Backend neu starten:
 
 ```sh
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U clinicpulse -d clinicpulse -c 'ALTER TABLE shift_types ADD COLUMN IF NOT EXISTS vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE RESTRICT' && \
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U medora -d medora -c 'ALTER TABLE shift_types ADD COLUMN IF NOT EXISTS vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE RESTRICT' && \
 docker compose restart backend && \
 docker compose ps -a && \
 docker compose logs --tail=100 backend
@@ -49,8 +49,8 @@ Meldet das Backend danach einen anderen Fehler, dessen Logs prüfen. Eine bereit
 | `backend` startet nicht / Schlüssel fehlt       | Bei vorhandener Datenbank den ursprünglichen Schlüssel wiederherstellen, nicht neu erzeugen (siehe [Backup](features/backup.md)). |
 | `backend` wartet auf `db`                       | Datenbank noch nicht gesund; `docker compose ... logs db` prüfen.                                                        |
 | Verschlüsselte Daten nicht lesbar               | Datenschlüssel fehlt, ist falsch oder die Daten sind beschädigt. Ursprünglichen Schlüssel wiederherstellen.             |
-| Port 8080 belegt                                | `CLINICPULSE_PORT` auf einen freien Port setzen.                                                                         |
-| Einrichtung scheitert an der Lizenz             | Ausgehenden HTTPS-Zugriff auf `CLINICPULSE_LICENSE_API_URL` prüfen (Firewall, Proxy, DNS).                               |
+| Port 8080 belegt                                | `MEDORA_PORT` auf einen freien Port setzen.                                                                         |
+| Einrichtung scheitert an der Lizenz             | Ausgehenden HTTPS-Zugriff auf `MEDORA_LICENSE_API_URL` prüfen (Firewall, Proxy, DNS).                               |
 | Einladungs-E-Mails kommen nicht an              | [E-Mail](features/mail.md) prüfen: SMTP-Daten, TLS, öffentliche HTTPS-Adresse; Testversand nutzen.                       |
 | Anmeldung wird mit „Zu viele Anmeldeversuche“ blockiert | 15-Minuten-Fenster abwarten (`Retry-After`-Header zeigt die Sekunden).                                           |
 | Plötzlich abgemeldet                            | Sitzung wegen Inaktivität abgelaufen; Timeout unter Sicherheit einstellen.                                               |
@@ -61,7 +61,7 @@ Meldet das Backend danach einen anderen Fehler, dessen Logs prüfen. Eine bereit
 
 ## HTTP-Statuscodes
 
-| Code | Bedeutung in ClinicPulse                                                    |
+| Code | Bedeutung in Medora                                                    |
 | ---- | --------------------------------------------------------------------------- |
 | 400  | Ungültige Anfrage, z. B. ungültige oder abgelaufene Einladung               |
 | 401  | Nicht angemeldet, Sitzung ungültig oder abgelaufen, falsche Zugangsdaten, Einrichtung fehlt |
@@ -146,10 +146,10 @@ Die API liefert Fehler als JSON mit dem Feld `detail`.
 | Meldung                                           | Bedeutung / Lösung                                       |
 | ------------------------------------------------- | -------------------------------------------------------- |
 | `Diese Lizenz ist gesperrt` / `… nicht aktiv: <Grund>` | Lizenz beim Anbieter klären                         |
-| `Lizenz enthält kein ClinicPulse-Kernfeature`     | Lizenz umfasst das Produkt nicht                         |
+| `Lizenz enthält kein Medora-Kernfeature`     | Lizenz umfasst das Produkt nicht                         |
 | `Licensed user limit reached`                     | Benutzerlimit erreicht                                   |
 | `License is read-only: <Grund>` (423)             | Kulanzzeit abgelaufen; Lizenz erneuern                   |
-| `Lizenzserver ist momentan nicht erreichbar` (503) | Netzwerk und `CLINICPULSE_LICENSE_API_URL` prüfen       |
+| `Lizenzserver ist momentan nicht erreichbar` (503) | Netzwerk und `MEDORA_LICENSE_API_URL` prüfen       |
 | `Lizenzprüfung ist nicht verfügbar` (503)         | Später erneut versuchen                                  |
 | `Lizenz-Token oder Status ungültig`               | Token prüfen bzw. neu abrufen                            |
 
@@ -175,4 +175,4 @@ Die API liefert Fehler als JSON mit dem Feld `detail`.
 
 ## Hilfe erhalten
 
-Eröffne ein [Issue](https://github.com/CyberspaceConsulting/ClinicPulse/issues) mit Version, Betriebsart, Schritten zur Reproduktion und bereinigten Logs. Sicherheitslücken bitte per E-Mail an info@cyberspaceconsulting.de melden.
+Eröffne ein [Issue](https://github.com/CyberspaceConsulting/Medora/issues) mit Version, Betriebsart, Schritten zur Reproduktion und bereinigten Logs. Sicherheitslücken bitte per E-Mail an info@cyberspaceconsulting.de melden.

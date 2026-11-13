@@ -9,7 +9,7 @@ const failed = ref(false)
 
 watchEffect(() => {
   if (notFound || failed.value) {
-    document.title = `ClinicPulse - ${t(notFound ? 'errorPage.notFoundTitle' : 'errorPage.failureTitle')}`
+    document.title = `Medora - ${t(notFound ? 'errorPage.notFoundTitle' : 'errorPage.failureTitle')}`
   }
 })
 
@@ -24,7 +24,7 @@ onErrorCaptured(() => {
     <section class="login-card error-page" aria-labelledby="error-title">
       <LanguageSelector />
       <div class="brand-mark">C</div>
-      <p class="eyebrow">{{ notFound ? '404' : 'ClinicPulse' }}</p>
+      <p class="eyebrow">{{ notFound ? '404' : 'Medora' }}</p>
       <h1 id="error-title">{{ t(notFound ? 'errorPage.notFoundTitle' : 'errorPage.failureTitle') }}</h1>
       <p class="muted">{{ t(notFound ? 'errorPage.notFoundDescription' : 'errorPage.failureDescription') }}</p>
       <a class="primary error-page-action" href="/">{{ t(notFound ? 'errorPage.home' : 'errorPage.reload') }}</a>

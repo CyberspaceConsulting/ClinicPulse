@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 OVERLAY = ROOT / "docker" / "compose.encrypted.yaml"
 EXTERNAL_KEY_OVERLAY = ROOT / "docker" / "compose.external-key.yaml"
-GHCR_SOURCE_LABEL = 'LABEL org.opencontainers.image.source="https://github.com/CyberspaceConsulting/ClinicPulse"'
+GHCR_SOURCE_LABEL = 'LABEL org.opencontainers.image.source="https://github.com/CyberspaceConsulting/Medora"'
 
 
 def compose_command():
@@ -25,7 +25,7 @@ def compose_command():
 
 def test_source_compose_keeps_existing_project_and_storage_paths(tmp_path):
     environment = os.environ.copy()
-    for name in ("COMPOSE_PROJECT_NAME", "CLINICPULSE_BACKUP_HOST_DIR", "CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"):
+    for name in ("COMPOSE_PROJECT_NAME", "MEDORA_BACKUP_HOST_DIR", "MEDORA_DATA_ENCRYPTION_KEY_FILE"):
         environment.pop(name, None)
     env_file = tmp_path / "empty.env"
     env_file.write_text("", encoding="utf-8")
@@ -35,13 +35,15 @@ def test_source_compose_keeps_existing_project_and_storage_paths(tmp_path):
     ]
     result = subprocess.run(command, env=environment, capture_output=True, text=True, check=True)
     config = json.loads(result.stdout)
-    assert config["name"] == "clinicpulse"
+    assert config["name"] == "medora"
     assert config["services"]["backend"]["build"]["context"] == str(ROOT / "backend")
     assert config["services"]["backend"]["build"]["dockerfile"] == "Dockerfile"
     assert config["services"]["web"]["build"]["context"] == str(ROOT / "frontend")
     assert config["services"]["backend"]["volumes"][0]["source"] == str(ROOT / "backups")
-    assert config["services"]["backend"]["volumes"][1]["source"] == "clinicpulse_keys"
-    assert config["services"]["backend"]["volumes"][1]["target"] == "/var/lib/clinicpulse-secrets"
+    assert config["services"]["backend"]["volumes"][1]["source"] == "medora_keys"
+    assert config["services"]["backend"]["volumes"][1]["target"] == "/var/lib/medora-secrets"
+    assert config["volumes"]["medora_data"]["name"] == "clinicpulse_clinicpulse_data"
+    assert config["volumes"]["medora_keys"]["name"] == "clinicpulse_clinicpulse_keys"
     assert "secrets" not in config
 
 
@@ -56,8 +58,10 @@ def test_release_compose_manages_keys_in_a_separate_volume(tmp_path):
     result = subprocess.run(command, env=environment, capture_output=True, text=True, check=True)
     config = json.loads(result.stdout)
     backend = config["services"]["backend"]
-    assert backend["environment"]["CLINICPULSE_MANAGED_KEY_FILE"] == "/var/lib/clinicpulse-secrets/data_encryption_key"
-    assert any(volume["source"] == "clinicpulse_keys" for volume in backend["volumes"])
+    assert backend["environment"]["MEDORA_MANAGED_KEY_FILE"] == "/var/lib/medora-secrets/data_encryption_key"
+    assert any(volume["source"] == "medora_keys" for volume in backend["volumes"])
+    assert config["volumes"]["medora_data"]["name"] == "clinicpulse_clinicpulse_data"
+    assert config["volumes"]["medora_keys"]["name"] == "clinicpulse_clinicpulse_keys"
     assert "secrets" not in config
 
 
@@ -66,7 +70,7 @@ def test_external_key_overlay_uses_read_only_existing_file(base, tmp_path):
     environment = os.environ.copy()
     key_path = tmp_path / "key"
     key_path.write_text("key", encoding="ascii")
-    environment["CLINICPULSE_EXTERNAL_KEY_FILE"] = str(key_path)
+    environment["MEDORA_EXTERNAL_KEY_FILE"] = str(key_path)
     env_file = tmp_path / "empty.env"
     env_file.write_text("", encoding="utf-8")
     command = compose_command() + [
@@ -76,14 +80,14 @@ def test_external_key_overlay_uses_read_only_existing_file(base, tmp_path):
     result = subprocess.run(command, env=environment, capture_output=True, text=True, check=True)
     services = json.loads(result.stdout)["services"]
     backend = services["backend"]
-    assert backend["environment"]["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] == "/run/clinicpulse-external/data_encryption_key"
-    mount = next(volume for volume in backend["volumes"] if volume["target"] == "/run/clinicpulse-external/data_encryption_key")
+    assert backend["environment"]["MEDORA_DATA_ENCRYPTION_KEY_FILE"] == "/run/medora-external/data_encryption_key"
+    mount = next(volume for volume in backend["volumes"] if volume["target"] == "/run/medora-external/data_encryption_key")
     assert mount["source"] == str(key_path)
     assert mount["read_only"] is True
     assert mount.get("bind", {}).get("create_host_path", False) is False
     assert backend["restart"] == "no"
     assert services["web"]["restart"] == "no"
-    environment.pop("CLINICPULSE_EXTERNAL_KEY_FILE")
+    environment.pop("MEDORA_EXTERNAL_KEY_FILE")
     assert subprocess.run(command, env=environment, capture_output=True, text=True).returncode != 0
 
 
@@ -96,13 +100,13 @@ def test_release_image_version_is_built_from_the_actual_tag():
     workflow = (ROOT / ".github" / "workflows" / "release-images.yml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker" / "compose.release.yaml").read_text(encoding="utf-8")
-    assert "CLINICPULSE_IMAGE_VERSION=${{ env.IMAGE_TAG }}" in workflow
-    assert "CLINICPULSE_IMAGE_VERSION=${CLINICPULSE_IMAGE_VERSION}" in dockerfile
-    assert "clinicpulse-backend:__IMAGE_TAG__" in compose
-    assert "clinicpulse-web:__IMAGE_TAG__" in compose
+    assert "MEDORA_IMAGE_VERSION=${{ env.IMAGE_TAG }}" in workflow
+    assert "MEDORA_IMAGE_VERSION=${MEDORA_IMAGE_VERSION}" in dockerfile
+    assert "medora-backend:__IMAGE_TAG__" in compose
+    assert "medora-web:__IMAGE_TAG__" in compose
     assert "@${BACKEND_DIGEST}" in workflow
     assert "@${WEB_DIGEST}" in workflow
-    assert "CLINICPULSE_VERSION:" not in compose
+    assert "MEDORA_VERSION:" not in compose
 
 
 def test_release_publishes_external_key_overlay_with_checksum():
@@ -117,7 +121,7 @@ def test_release_publishes_external_key_overlay_with_checksum():
 @pytest.mark.parametrize("base", [ROOT / "docker" / "docker-compose.yml", ROOT / "docker" / "compose.release.yaml"])
 def test_encrypted_storage_overlay_keeps_database_mount_explicit(base, tmp_path):
     environment = os.environ.copy()
-    environment["CLINICPULSE_ENCRYPTED_PGDATA"] = str(tmp_path)
+    environment["MEDORA_ENCRYPTED_PGDATA"] = str(tmp_path)
     env_file = tmp_path / "empty.env"
     env_file.write_text("", encoding="utf-8")
     command = compose_command() + [
@@ -134,7 +138,7 @@ def test_encrypted_storage_overlay_keeps_database_mount_explicit(base, tmp_path)
     assert mounts[0].get("bind", {}).get("create_host_path", False) is False
     assert all(services[name]["restart"] == "no" for name in ("db", "backend", "web"))
 
-    environment.pop("CLINICPULSE_ENCRYPTED_PGDATA")
+    environment.pop("MEDORA_ENCRYPTED_PGDATA")
     missing = subprocess.run(command, env=environment, capture_output=True, text=True)
     assert missing.returncode != 0
-    assert "CLINICPULSE_ENCRYPTED_PGDATA" in missing.stderr
+    assert "MEDORA_ENCRYPTED_PGDATA" in missing.stderr

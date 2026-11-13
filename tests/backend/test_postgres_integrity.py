@@ -27,9 +27,9 @@ def postgres_db(monkeypatch):
         pytest.skip("Set TEST_POSTGRES_URL to a disposable PostgreSQL test database")
 
     key = base64.b64encode(b"test-only-database-key-32-bytes!").decode("ascii")
-    monkeypatch.setenv("CLINICPULSE_DATA_ENCRYPTION_KEY", key)
-    monkeypatch.delenv("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE", raising=False)
-    schema = f"clinicpulse_test_{uuid4().hex}"
+    monkeypatch.setenv("MEDORA_DATA_ENCRYPTION_KEY", key)
+    monkeypatch.delenv("MEDORA_DATA_ENCRYPTION_KEY_FILE", raising=False)
+    schema = f"medora_test_{uuid4().hex}"
     admin_engine = create_engine(url)
     if admin_engine.dialect.name != "postgresql":
         admin_engine.dispose()
@@ -44,7 +44,7 @@ def postgres_db(monkeypatch):
     def configure_connection(dbapi_connection, _record):
         with dbapi_connection.cursor() as cursor:
             cursor.execute(f'SET search_path TO "{schema}", public')
-            cursor.execute("SELECT set_config('clinicpulse.data_encryption_key', %s, false)", (key,))
+            cursor.execute("SELECT set_config('medora.data_encryption_key', %s, false)", (key,))
         dbapi_connection.commit()
 
     try:
@@ -99,7 +99,26 @@ def test_legacy_migration_encrypts_data_and_is_idempotent(postgres_db):
         assert connection.execute(text(
             "SELECT username, username_lookup, signing_key, license_token FROM admin_account WHERE id = 1"
         )).one() == stored
-        assert connection.scalar(text("SELECT count(*) FROM clinicpulse_schema_migrations WHERE version = 1")) == 1
+        assert connection.scalar(text("SELECT count(*) FROM medora_schema_migrations WHERE version = 1")) == 1
+
+
+def test_migration_adopts_clinicpulse_marker_without_reencrypting(postgres_db):
+    _seed_legacy_plaintext(postgres_db)
+    main._migrate_encrypted_columns()
+    with postgres_db.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE medora_schema_migrations")
+        connection.exec_driver_sql(
+            "CREATE TABLE clinicpulse_schema_migrations "
+            "(version INTEGER PRIMARY KEY, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        connection.exec_driver_sql("INSERT INTO clinicpulse_schema_migrations (version) VALUES (1)")
+        original_username = connection.scalar(text("SELECT username FROM admin_account WHERE id = 1"))
+
+    main._migrate_encrypted_columns()
+
+    with postgres_db.connect() as connection:
+        assert connection.scalar(text("SELECT username FROM admin_account WHERE id = 1")) == original_username
+        assert connection.scalar(text("SELECT count(*) FROM medora_schema_migrations WHERE version = 1")) == 1
 
 
 def test_failed_encryption_migration_rolls_back_legacy_data(postgres_db):
@@ -119,7 +138,7 @@ def test_failed_encryption_migration_rolls_back_legacy_data(postgres_db):
     with postgres_db.connect() as connection:
         assert connection.scalar(text("SELECT username FROM admin_account WHERE id = 1")) == "legacy-admin"
         assert connection.scalar(text("SELECT name FROM employees WHERE id = 10")) == "Legacy Person"
-        assert not inspect(connection).has_table("clinicpulse_schema_migrations")
+        assert not inspect(connection).has_table("medora_schema_migrations")
 
 
 def test_encrypted_value_rejects_wrong_key(postgres_db):
@@ -206,7 +225,7 @@ def test_legacy_shift_schema_adds_columns_before_orm_queries(postgres_db):
 
 def test_backup_restores_across_distinct_database_keys(postgres_db, monkeypatch):
     main._migrate_encrypted_columns()
-    original_key = os.environ["CLINICPULSE_DATA_ENCRYPTION_KEY"]
+    original_key = os.environ["MEDORA_DATA_ENCRYPTION_KEY"]
     new_key = base64.b64encode(b"another-test-database-key-32-byte").decode("ascii")
     public_key, key_file = backup_core.generate_recovery_key("test-passphrase-long")
     private_key = backup_core.load_recovery_key(key_file, "test-passphrase-long")
@@ -217,8 +236,8 @@ def test_backup_restores_across_distinct_database_keys(postgres_db, monkeypatch)
         ))
         session.commit()
         backup = backup_core.encrypt_payload(backup_core.export_payload(session), [public_key])
-        session.execute(text("SELECT set_config('clinicpulse.data_encryption_key', :key, false)"), {"key": new_key})
-        monkeypatch.setenv("CLINICPULSE_DATA_ENCRYPTION_KEY", new_key)
+        session.execute(text("SELECT set_config('medora.data_encryption_key', :key, false)"), {"key": new_key})
+        monkeypatch.setenv("MEDORA_DATA_ENCRYPTION_KEY", new_key)
         try:
             backup_core.restore_backup(session, backup, private_key, "restore-admin")
             session.expire_all()
@@ -227,7 +246,7 @@ def test_backup_restores_across_distinct_database_keys(postgres_db, monkeypatch)
             assert admin.username_lookup == username_lookup_digest("restore-admin")
             assert admin.username_lookup != username_lookup_digest("restore-admin", original_key)
         finally:
-            session.execute(text("SELECT set_config('clinicpulse.data_encryption_key', :key, false)"), {"key": original_key})
+            session.execute(text("SELECT set_config('medora.data_encryption_key', :key, false)"), {"key": original_key})
             session.commit()
 
 

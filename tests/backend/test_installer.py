@@ -9,8 +9,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "deploy" / "install.sh"
-BACKEND_IMAGE = f"ghcr.io/cyberspaceconsulting/clinicpulse-backend:test@sha256:{'a' * 64}"
-WEB_IMAGE = f"ghcr.io/cyberspaceconsulting/clinicpulse-web:test@sha256:{'b' * 64}"
+BACKEND_IMAGE = f"ghcr.io/cyberspaceconsulting/medora-backend:test@sha256:{'a' * 64}"
+WEB_IMAGE = f"ghcr.io/cyberspaceconsulting/medora-web:test@sha256:{'b' * 64}"
 
 
 def installer_environment(tmp_path, *, checksum=None, docker_failure="", cosign_failure=False):
@@ -54,8 +54,8 @@ if [ "$1" = inspect ] && [ "$2" = --format ]; then
     esac
 elif [ "$1" = image ] && [ "$2" = inspect ]; then
     case "$3" in
-        *clinicpulse-backend*) printf "sha256:backend-image\\n" ;;
-        *clinicpulse-web*) printf "sha256:web-image\\n" ;;
+        *medora-backend*) printf "sha256:backend-image\\n" ;;
+        *medora-web*) printf "sha256:web-image\\n" ;;
     esac
 fi
 [ "$*" != "$DOCKER_FAIL_ON" ] || exit 23
@@ -176,7 +176,7 @@ def test_manual_verifier_checks_running_container_images_against_signed_release(
     assert result.returncode == 0, result.stderr
     assert "running backend and web containers match" in result.stdout
 
-    environment["RUNNING_BACKEND_REF"] = "ghcr.io/cyberspaceconsulting/clinicpulse-backend:modified"
+    environment["RUNNING_BACKEND_REF"] = "ghcr.io/cyberspaceconsulting/medora-backend:modified"
     result = subprocess.run(
         ["sh", str(verifier)],
         cwd=install_dir,
@@ -207,9 +207,9 @@ def test_source_installer_builds_local_compose_without_downloading_release(tmp_p
     environment.pop("COMPOSE_ENV_FILES", None)
     if with_dotenv:
         install_dir.mkdir()
-        (install_dir / ".env").write_text("CLINICPULSE_PORT=9090\n", encoding="utf-8")
+        (install_dir / ".env").write_text("MEDORA_PORT=9090\n", encoding="utf-8")
     if with_env_files:
-        (install_dir / "custom.env").write_text("CLINICPULSE_PORT=9091\n", encoding="utf-8")
+        (install_dir / "custom.env").write_text("MEDORA_PORT=9091\n", encoding="utf-8")
         environment["COMPOSE_ENV_FILES"] = "custom.env"
     env_file = install_dir / ".env" if with_dotenv else Path("/dev/null")
     build_command = (f"compose --file {source_compose} build" if with_env_files else
@@ -237,7 +237,7 @@ def test_source_installer_builds_local_compose_without_downloading_release(tmp_p
     if fail_build:
         assert result.returncode == 23
         assert start_command not in docker_commands
-        assert "ClinicPulse is starting" not in result.stdout
+        assert "Medora is starting" not in result.stdout
         return
     assert result.returncode == 0, result.stderr
     assert "Using the local source checkout" in result.stdout
@@ -266,14 +266,14 @@ def test_repeat_install_preserves_key_and_existing_backups(tmp_path):
     assert key_path.read_text(encoding="utf-8") == "existing-production-key\n"
     assert backup_path.read_text(encoding="utf-8") == "existing backup"
     assert "Imported the existing encryption key" in second.stdout
-    assert f"--volume {key_path}:/run/clinicpulse-import:ro" in (tmp_path / "docker.log").read_text(encoding="utf-8")
+    assert f"--volume {key_path}:/run/medora-import:ro" in (tmp_path / "docker.log").read_text(encoding="utf-8")
 
 
 def test_installer_uses_external_key_and_does_not_create_a_replacement(tmp_path):
     environment, _ = installer_environment(tmp_path)
     key = tmp_path / "external-key"
     key.write_text("existing-key\n", encoding="utf-8")
-    environment["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = str(key)
+    environment["MEDORA_DATA_ENCRYPTION_KEY_FILE"] = str(key)
     install_dir = tmp_path / "installation"
 
     result = run_piped_installer(tmp_path, environment, install_dir)
@@ -281,12 +281,12 @@ def test_installer_uses_external_key_and_does_not_create_a_replacement(tmp_path)
     assert result.returncode == 0, result.stderr
     assert key.read_text(encoding="utf-8") == "existing-key\n"
     assert not (install_dir / "secrets" / "data_encryption_key").exists()
-    assert f"--volume {key}:/run/clinicpulse-import:ro" in (tmp_path / "docker.log").read_text(encoding="utf-8")
+    assert f"--volume {key}:/run/medora-import:ro" in (tmp_path / "docker.log").read_text(encoding="utf-8")
 
 
 def test_installer_rejects_missing_external_key(tmp_path):
     environment, _ = installer_environment(tmp_path)
-    environment["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = str(tmp_path / "missing-key")
+    environment["MEDORA_DATA_ENCRYPTION_KEY_FILE"] = str(tmp_path / "missing-key")
     result = run_piped_installer(tmp_path, environment, tmp_path / "installation")
     assert result.returncode != 0
     assert "must already exist" in result.stderr
@@ -295,7 +295,7 @@ def test_installer_rejects_missing_external_key(tmp_path):
 
 def test_installer_rejects_missing_external_smtp_password(tmp_path):
     environment, _ = installer_environment(tmp_path)
-    environment["CLINICPULSE_SMTP_PASSWORD_SECRET_FILE"] = str(tmp_path / "missing-smtp")
+    environment["MEDORA_SMTP_PASSWORD_SECRET_FILE"] = str(tmp_path / "missing-smtp")
     result = run_piped_installer(tmp_path, environment, tmp_path / "installation")
     assert result.returncode != 0
     assert "SMTP password file must already exist" in result.stderr
@@ -306,11 +306,11 @@ def test_installer_refuses_external_key_mode(tmp_path, configured_in_dotenv):
     environment, _ = installer_environment(tmp_path)
     install_dir = tmp_path / "installation"
     if configured_in_dotenv:
-        environment.pop("CLINICPULSE_EXTERNAL_KEY_FILE", None)
+        environment.pop("MEDORA_EXTERNAL_KEY_FILE", None)
         install_dir.mkdir()
-        (install_dir / ".env").write_text("CLINICPULSE_EXTERNAL_KEY_FILE=/secure/key\n", encoding="utf-8")
+        (install_dir / ".env").write_text("MEDORA_EXTERNAL_KEY_FILE=/secure/key\n", encoding="utf-8")
     else:
-        environment["CLINICPULSE_EXTERNAL_KEY_FILE"] = "/secure/key"
+        environment["MEDORA_EXTERNAL_KEY_FILE"] = "/secure/key"
     result = run_piped_installer(tmp_path, environment, install_dir)
     assert result.returncode != 0
     assert "must be updated with their existing Compose files" in result.stderr
@@ -319,10 +319,10 @@ def test_installer_refuses_external_key_mode(tmp_path, configured_in_dotenv):
 
 def test_installer_requires_external_smtp_environment_when_configured_in_dotenv(tmp_path):
     environment, _ = installer_environment(tmp_path)
-    environment.pop("CLINICPULSE_SMTP_PASSWORD_SECRET_FILE", None)
+    environment.pop("MEDORA_SMTP_PASSWORD_SECRET_FILE", None)
     install_dir = tmp_path / "installation"
     install_dir.mkdir()
-    (install_dir / ".env").write_text("CLINICPULSE_SMTP_PASSWORD_SECRET_FILE=/secure/smtp\n", encoding="utf-8")
+    (install_dir / ".env").write_text("MEDORA_SMTP_PASSWORD_SECRET_FILE=/secure/smtp\n", encoding="utf-8")
     result = run_piped_installer(tmp_path, environment, install_dir)
     assert result.returncode != 0
     assert "in the environment" in result.stderr
@@ -330,10 +330,10 @@ def test_installer_requires_external_smtp_environment_when_configured_in_dotenv(
 
 def test_installer_requires_external_key_environment_when_configured_in_dotenv(tmp_path):
     environment, _ = installer_environment(tmp_path)
-    environment.pop("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE", None)
+    environment.pop("MEDORA_DATA_ENCRYPTION_KEY_FILE", None)
     install_dir = tmp_path / "installation"
     install_dir.mkdir()
-    (install_dir / ".env").write_text("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE=/secure/key\n", encoding="utf-8")
+    (install_dir / ".env").write_text("MEDORA_DATA_ENCRYPTION_KEY_FILE=/secure/key\n", encoding="utf-8")
     result = run_piped_installer(tmp_path, environment, install_dir)
     assert result.returncode != 0
     assert "in the environment" in result.stderr
@@ -371,6 +371,6 @@ def test_docker_start_failure_is_reported_without_success_message(tmp_path):
     result = run_piped_installer(tmp_path, environment, install_dir)
 
     assert result.returncode == 23
-    assert "ClinicPulse is starting" not in result.stdout
+    assert "Medora is starting" not in result.stdout
     assert not (install_dir / "secrets").exists()
     assert (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()[-1] == "compose up -d"

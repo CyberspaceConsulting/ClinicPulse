@@ -1,8 +1,11 @@
 import base64
+import json
+import os
 
 import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from app.managed_secrets import export_secrets, main, restore_secrets
+from app.managed_secrets import _derive_key, export_secrets, main, restore_secrets
 
 
 def test_secret_backup_is_encrypted_and_restores_without_overwriting(tmp_path):
@@ -38,13 +41,27 @@ def test_secret_backup_rejects_tampering_and_short_passphrases(tmp_path):
         restore_secrets(tmp_path / "restore", data[:-1] + bytes([data[-1] ^ 1]), "long backup passphrase")
 
 
+def test_secret_backup_restores_legacy_clinicpulse_format(tmp_path):
+    legacy_magic = b"CLINICPULSE-KEYS-1\n"
+    passphrase = "long backup passphrase"
+    key = base64.b64encode(b"x" * 32).decode("ascii")
+    payload = json.dumps({"data_encryption_key": key, "smtp_password": None}).encode("utf-8")
+    salt, nonce = os.urandom(16), os.urandom(12)
+    data = legacy_magic + salt + nonce + AESGCM(_derive_key(passphrase, salt)).encrypt(nonce, payload, legacy_magic)
+
+    target = tmp_path / "restore"
+    restore_secrets(target, data, passphrase)
+
+    assert (target / "data_encryption_key").read_text(encoding="ascii") == key
+
+
 def test_secret_backup_cli_uses_private_file_and_refuses_overwrite(monkeypatch, tmp_path, capsys):
     source = tmp_path / "source"
     source.mkdir()
     key = base64.b64encode(b"x" * 32).decode()
     (source / "data_encryption_key").write_text(key, encoding="ascii")
     backup = tmp_path / "secrets.cpkeys"
-    monkeypatch.setenv("CLINICPULSE_MANAGED_KEY_FILE", str(source / "data_encryption_key"))
+    monkeypatch.setenv("MEDORA_MANAGED_KEY_FILE", str(source / "data_encryption_key"))
     monkeypatch.setattr("getpass.getpass", lambda _prompt: "long backup passphrase")
     monkeypatch.setattr("sys.argv", ["managed_secrets", "export", str(backup)])
     assert main() == 0
@@ -52,7 +69,7 @@ def test_secret_backup_cli_uses_private_file_and_refuses_overwrite(monkeypatch, 
     assert key not in capsys.readouterr().out
     assert main() == 1
     target = tmp_path / "target"
-    monkeypatch.setenv("CLINICPULSE_MANAGED_KEY_FILE", str(target / "data_encryption_key"))
+    monkeypatch.setenv("MEDORA_MANAGED_KEY_FILE", str(target / "data_encryption_key"))
     monkeypatch.setattr("sys.argv", ["managed_secrets", "import", str(backup)])
     assert main() == 0
     assert (target / "data_encryption_key").read_text(encoding="ascii") == key
@@ -67,8 +84,8 @@ def test_secret_backup_cli_exports_external_key_and_rejects_external_import(monk
     (managed / "data_encryption_key").write_text(base64.b64encode(b"m" * 32).decode(), encoding="ascii")
     (managed / "smtp_password").write_text("smtp-password", encoding="utf-8")
     backup = tmp_path / "backup.cpkeys"
-    monkeypatch.setenv("CLINICPULSE_MANAGED_KEY_FILE", str(managed / "data_encryption_key"))
-    monkeypatch.setenv("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE", str(external))
+    monkeypatch.setenv("MEDORA_MANAGED_KEY_FILE", str(managed / "data_encryption_key"))
+    monkeypatch.setenv("MEDORA_DATA_ENCRYPTION_KEY_FILE", str(external))
     monkeypatch.setattr("getpass.getpass", lambda _prompt: "long backup passphrase")
     monkeypatch.setattr("sys.argv", ["managed_secrets", "export", str(backup)])
     assert main() == 0
@@ -109,9 +126,9 @@ def test_secret_backup_cli_uses_configured_smtp_file(monkeypatch, tmp_path):
     external_smtp = tmp_path / "smtp"
     external_smtp.write_text("actual-smtp", encoding="utf-8")
     backup = tmp_path / "backup.cpkeys"
-    monkeypatch.setenv("CLINICPULSE_MANAGED_KEY_FILE", str(managed / "data_encryption_key"))
-    monkeypatch.delenv("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE", raising=False)
-    monkeypatch.setenv("CLINICPULSE_SMTP_PASSWORD_FILE", str(external_smtp))
+    monkeypatch.setenv("MEDORA_MANAGED_KEY_FILE", str(managed / "data_encryption_key"))
+    monkeypatch.delenv("MEDORA_DATA_ENCRYPTION_KEY_FILE", raising=False)
+    monkeypatch.setenv("MEDORA_SMTP_PASSWORD_FILE", str(external_smtp))
     monkeypatch.setattr("getpass.getpass", lambda _prompt: "long backup passphrase")
     monkeypatch.setattr("sys.argv", ["managed_secrets", "export", str(backup)])
     assert main() == 0

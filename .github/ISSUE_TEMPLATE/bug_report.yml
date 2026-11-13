@@ -1,11 +1,11 @@
 name: Bug Report
-description: Report a reproducible problem with ClinicPulse
+description: Report a reproducible problem with Medora
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for reporting a problem with ClinicPulse. Please search existing issues first and include enough detail to reproduce the problem.
+        Thank you for reporting a problem with Medora. Please search existing issues first and include enough detail to reproduce the problem.
 
         **Do not post real patient, employee, or other sensitive data.** Remove passwords, license tokens, encryption keys, email addresses, and other secrets from logs, screenshots, and configuration snippets.
 
@@ -33,7 +33,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: ClinicPulse version
+      label: Medora version
       description: Find the version in the application or deployment image.
       placeholder: "e.g. v-0.2.0-alpha"
     validations:

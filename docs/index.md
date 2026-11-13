@@ -1,7 +1,7 @@
 ---
 layout: home
 hero:
-  name: ClinicPulse
+  name: Medora
   text: Dienstplanung für Teams mit Schichtbetrieb
   tagline: Selbst gehostet, verschlüsselt und regelbasiert. Aktuell in früher Alpha-Phase.
   actions:
@@ -17,7 +17,7 @@ hero:
 ---
 
 ::: warning Alpha-Status
-ClinicPulse ist keine produktionsreife Lösung für den Einsatz in Kliniken und keine Rechtskonformitätsgarantie. Bis eine unabhängige Sicherheits- und Datenschutzprüfung erfolgt ist, sollten keine echten Gesundheits-, Beschäftigten- oder sonstigen sensiblen Daten verarbeitet werden.
+Medora ist keine produktionsreife Lösung für den Einsatz in Kliniken und keine Rechtskonformitätsgarantie. Bis eine unabhängige Sicherheits- und Datenschutzprüfung erfolgt ist, sollten keine echten Gesundheits-, Beschäftigten- oder sonstigen sensiblen Daten verarbeitet werden.
 :::
 
 ## Wo finde ich was?
@@ -29,4 +29,4 @@ ClinicPulse ist keine produktionsreife Lösung für den Einsatz in Kliniken und 
 | [Fehlerbehebung](/troubleshooting)  | Häufige Probleme, HTTP-Statuscodes und Fehlermeldungen                     |
 | [Architektur](/architecture)        | Dienste, Netzwerke und Backend-Module                                      |
 
-Zum Mitwirken siehe [CONTRIBUTING.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/CONTRIBUTING.md), zu Tests siehe [TEST.md](https://github.com/CyberspaceConsulting/ClinicPulse/blob/alpha/TEST.md).
+Zum Mitwirken siehe [CONTRIBUTING.md](https://github.com/CyberspaceConsulting/Medora/blob/alpha/CONTRIBUTING.md), zu Tests siehe [TEST.md](https://github.com/CyberspaceConsulting/Medora/blob/alpha/TEST.md).

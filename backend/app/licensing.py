@@ -10,8 +10,8 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-ISSUER = "clinicpulse-licensing"
-AUDIENCE = "clinicpulse"
+ISSUER = "medora-licensing"
+AUDIENCE = "medora"
 LICENSE_STATUSES = {"PAID", "GRACE_PERIOD", "BLOCKED"}
 OPERATIONAL_PROFILES = {"hospital", "rescue_service", "ils", "care_facility", "other"}
 FEDERAL_STATES = {
@@ -30,8 +30,8 @@ class LicenseTokenError(Exception):
 
 
 def validate_license_token(token: str) -> dict[str, object]:
-    public_key_file = os.environ.get("CLINICPULSE_LICENSE_PUBLIC_KEY_FILE")
-    public_key = os.environ.get("CLINICPULSE_LICENSE_PUBLIC_KEY")
+    public_key_file = os.environ.get("MEDORA_LICENSE_PUBLIC_KEY_FILE")
+    public_key = os.environ.get("MEDORA_LICENSE_PUBLIC_KEY")
     if public_key_file:
         try:
             public_key = Path(public_key_file).read_text(encoding="utf-8")
@@ -43,7 +43,7 @@ def validate_license_token(token: str) -> dict[str, object]:
         except OSError as exc:
             raise LicenseConfigurationError("Bundled license public key cannot be read") from exc
     if not public_key:
-        raise LicenseConfigurationError("CLINICPULSE_LICENSE_PUBLIC_KEY is not configured")
+        raise LicenseConfigurationError("MEDORA_LICENSE_PUBLIC_KEY is not configured")
     try:
         parsed_public_key = serialization.load_pem_public_key(public_key.encode())
     except (TypeError, ValueError) as exc:
@@ -155,14 +155,14 @@ def issue_license(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="ClinicPulse RSA license key and token tool")
+    parser = argparse.ArgumentParser(description="Medora RSA license key and token tool")
     commands = parser.add_subparsers(dest="command", required=True)
 
     keygen = commands.add_parser("generate-keypair", help="Create an issuer keypair")
     keygen.add_argument("--private-key", type=Path, required=True)
     keygen.add_argument("--public-key", type=Path, required=True)
 
-    issue = commands.add_parser("issue", help="Sign a ClinicPulse license token")
+    issue = commands.add_parser("issue", help="Sign a Medora license token")
     issue.add_argument("--private-key", type=Path, required=True)
     issue.add_argument("--customer-id", required=True)
     issue.add_argument("--status", choices=sorted(LICENSE_STATUSES), default="PAID")

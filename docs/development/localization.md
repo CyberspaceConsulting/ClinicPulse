@@ -41,7 +41,7 @@ sollen diese Platzhalter nutzen; der Katalogtest prüft, dass jeder Platzhalter 
 seine Sprache definiert ist, und ignoriert sie beim Abgleich der Sprachen.
 
 `locale` ist eine reaktive Vue-Referenz. Die Einstellung wird unter
-`clinicpulse-locale` lokal im Browser gespeichert und setzt das `lang`-Attribut
+`medora-locale` lokal im Browser gespeichert und setzt das `lang`-Attribut
 des Dokuments. Deutsch bleibt die Standardeinstellung; unbekannte Werte werden
 als Deutsch behandelt. `t` ist reaktiv, wenn es während eines Renderings oder
 innerhalb von `computed` aufgerufen wird. Einmalig außerhalb davon ausgewertete

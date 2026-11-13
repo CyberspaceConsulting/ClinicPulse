@@ -26,7 +26,7 @@ Die Tests ersetzen keine unabhängige Datenschutzprüfung und keine Datenschutz-
 Der Prüfname ist `Datenschutz`. In den Repository-Einstellungen unter **Settings → Branches** (oder **Rules → Rulesets**) für `alpha` und `main` die Regel „Require status checks to pass before merging“ aktivieren und `Datenschutz` auswählen. Der Check erscheint dort erst, nachdem der Workflow einmal gelaufen ist. Per CLI, mit Administratorrechten:
 
 ```bash
-gh api -X PUT repos/CyberspaceConsulting/ClinicPulse/branches/alpha/protection \
+gh api -X PUT repos/CyberspaceConsulting/Medora/branches/alpha/protection \
   -H "Accept: application/vnd.github+json" \
   -F required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=Datenschutz \
@@ -35,4 +35,4 @@ gh api -X PUT repos/CyberspaceConsulting/ClinicPulse/branches/alpha/protection \
   -F restrictions=null
 ```
 
-Der Befehl ersetzt die bestehenden Schutzregeln des Branches. Zurzeit ist `alpha` ungeschützt; vorhandene Regeln vorher mit `gh api repos/CyberspaceConsulting/ClinicPulse/branches/alpha/protection` prüfen.
+Der Befehl ersetzt die bestehenden Schutzregeln des Branches. Zurzeit ist `alpha` ungeschützt; vorhandene Regeln vorher mit `gh api repos/CyberspaceConsulting/Medora/branches/alpha/protection` prüfen.

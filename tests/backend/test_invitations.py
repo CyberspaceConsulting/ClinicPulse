@@ -8,13 +8,13 @@ from app import invitations
 def test_invitation_uses_starttls_and_sends_one_time_link(monkeypatch, tmp_path):
     password_file = tmp_path / "smtp_password"
     password_file.write_text("test-smtp-password", encoding="utf-8")
-    monkeypatch.setenv("CLINICPULSE_SMTP_HOST", "mail.example.test")
-    monkeypatch.setenv("CLINICPULSE_PUBLIC_URL", "https://clinic.example.test")
-    monkeypatch.setenv("CLINICPULSE_SMTP_USERNAME", "clinicpulse")
-    monkeypatch.setenv("CLINICPULSE_SMTP_PASSWORD_FILE", str(password_file))
-    monkeypatch.setenv("CLINICPULSE_SMTP_FROM", "clinicpulse@example.test")
-    monkeypatch.setenv("CLINICPULSE_SMTP_USE_SSL", "false")
-    monkeypatch.setenv("CLINICPULSE_SMTP_USE_STARTTLS", "true")
+    monkeypatch.setenv("MEDORA_SMTP_HOST", "mail.example.test")
+    monkeypatch.setenv("MEDORA_PUBLIC_URL", "https://clinic.example.test")
+    monkeypatch.setenv("MEDORA_SMTP_USERNAME", "medora")
+    monkeypatch.setenv("MEDORA_SMTP_PASSWORD_FILE", str(password_file))
+    monkeypatch.setenv("MEDORA_SMTP_FROM", "medora@example.test")
+    monkeypatch.setenv("MEDORA_SMTP_USE_SSL", "false")
+    monkeypatch.setenv("MEDORA_SMTP_USE_STARTTLS", "true")
     sent_messages = []
     events = []
 
@@ -43,7 +43,7 @@ def test_invitation_uses_starttls_and_sends_one_time_link(monkeypatch, tmp_path)
     assert events == [
         ("connect", "mail.example.test", 587, 15),
         ("starttls",),
-        ("login", "clinicpulse", "test-smtp-password"),
+        ("login", "medora", "test-smtp-password"),
     ]
     assert sent_messages[0]["To"] == "staff@example.test"
     assert "one-time-token" in sent_messages[0].get_content()
@@ -51,8 +51,8 @@ def test_invitation_uses_starttls_and_sends_one_time_link(monkeypatch, tmp_path)
 
 
 def test_invitation_rejects_non_https_public_urls(monkeypatch):
-    monkeypatch.setenv("CLINICPULSE_SMTP_HOST", "mail.example.test")
-    monkeypatch.setenv("CLINICPULSE_PUBLIC_URL", "http://clinic.example.test")
+    monkeypatch.setenv("MEDORA_SMTP_HOST", "mail.example.test")
+    monkeypatch.setenv("MEDORA_PUBLIC_URL", "http://clinic.example.test")
 
     with pytest.raises(RuntimeError, match="Public instance URL"):
         invitations.send_invitation("staff@example.test", "staff-user", "one-time-token")
@@ -84,7 +84,7 @@ def test_test_email_sends_using_saved_mail_configuration(monkeypatch):
         smtp_port=587,
         smtp_username="",
         smtp_password="",
-        from_address="clinicpulse@example.test",
+        from_address="medora@example.test",
         use_ssl=False,
         use_starttls=True,
     )

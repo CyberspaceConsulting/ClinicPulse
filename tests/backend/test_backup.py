@@ -60,7 +60,7 @@ def _restore_headers(headers, key_file, passphrase=KEY_PASSPHRASE, confirm=CONFI
     }
 
 
-def test_encryption_is_only_readable_with_the_matching_private_key():
+def test_encryption_is_only_readable_with_the_matching_private_key(monkeypatch):
     public_a, file_a = backup_core.generate_recovery_key(KEY_PASSPHRASE)
     public_b, file_b = backup_core.generate_recovery_key(KEY_PASSPHRASE)
     blob = backup_core.encrypt_payload({"format": 1, "tables": {}}, [public_a])
@@ -75,6 +75,14 @@ def test_encryption_is_only_readable_with_the_matching_private_key():
     both = backup_core.encrypt_payload({"format": 1, "tables": {}}, [public_a, public_b])
     for key_file in (file_a, file_b):
         assert backup_core.decrypt_payload(both, backup_core.load_recovery_key(key_file, KEY_PASSPHRASE))["format"] == 1
+    monkeypatch.setattr(backup_core, "WRAP_INFO", backup_core.LEGACY_WRAP_INFO)
+    legacy_blob = backup_core.encrypt_payload({"format": 1, "tables": {}}, [public_a])
+    monkeypatch.setattr(backup_core, "WRAP_INFO", b"medora-backup-wrap-v2")
+    legacy_key_file = file_a.replace(b"MEDORA RECOVERY KEY v1", b"CLINICPULSE RECOVERY KEY v1", 1)
+    assert backup_core.decrypt_payload(
+        legacy_blob, backup_core.load_recovery_key(legacy_key_file, KEY_PASSPHRASE)
+    )["format"] == 1
+    assert backup_core.is_backup_filename("clinicpulse-20260101-000000.cpbak")
     with pytest.raises(BackupError):
         backup_core.encrypt_payload({}, [])
     with pytest.raises(BackupError):
@@ -136,7 +144,7 @@ def test_backup_requires_recipient_and_admin(client):
 
 
 def test_local_target_run_retention_and_restore(client, monkeypatch, tmp_path):
-    monkeypatch.setenv("CLINICPULSE_BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDORA_BACKUP_DIR", str(tmp_path))
     headers = auth_header(client)
     _seed(client, headers)
     _, key_file = _recovery_key(client, headers)
@@ -150,11 +158,11 @@ def test_local_target_run_retention_and_restore(client, monkeypatch, tmp_path):
     assert client.post(f"/api/admin/backup/targets/{target_id}/test", headers=headers).status_code == 200
 
     for index in range(3):
-        monkeypatch.setattr("app.backup_api.backup_filename", lambda i=index: f"clinicpulse-20260101-00000{i}.cpbak")
+        monkeypatch.setattr("app.backup_api.backup_filename", lambda i=index: f"medora-20260101-00000{i}.cpbak")
         run = client.post(f"/api/admin/backup/targets/{target_id}/run", headers=headers)
         assert run.status_code == 200 and run.json()["status"] == "success", run.text
     files = client.get(f"/api/admin/backup/targets/{target_id}/files", headers=headers).json()
-    assert [item["name"] for item in files] == ["clinicpulse-20260101-000002.cpbak", "clinicpulse-20260101-000001.cpbak"]
+    assert [item["name"] for item in files] == ["medora-20260101-000002.cpbak", "medora-20260101-000001.cpbak"]
     assert (tmp_path / "weekly" / files[0]["name"]).stat().st_mode & 0o777 == 0o600
     assert b"Alex Beispiel" not in (tmp_path / "weekly" / files[0]["name"]).read_bytes()
     assert len(client.get("/api/admin/backup/runs", headers=headers).json()) == 3
@@ -168,7 +176,7 @@ def test_local_target_run_retention_and_restore(client, monkeypatch, tmp_path):
 
 
 def test_target_validation_masks_secrets_and_blocks_traversal(client, monkeypatch, tmp_path):
-    monkeypatch.setenv("CLINICPULSE_BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDORA_BACKUP_DIR", str(tmp_path))
     headers = auth_header(client)
     traversal = client.post("/api/admin/backup/targets", json={"name": "x", "kind": "local", "config": {"subdir": "../etc"}}, headers=headers)
     assert traversal.status_code == 422
@@ -203,7 +211,7 @@ def test_schedule_slots_and_due_run(client, monkeypatch, tmp_path):
     assert latest_slot(datetime(2026, 11, 8, 2, 0, tzinfo=zone), "weekly", 6, "03:00") == datetime(2026, 11, 1, 3, 0, tzinfo=zone)
     assert latest_slot(datetime(2026, 11, 8, 2, 0, tzinfo=zone), "daily", 0, "03:00") == datetime(2026, 11, 7, 3, 0, tzinfo=zone)
 
-    monkeypatch.setenv("CLINICPULSE_BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDORA_BACKUP_DIR", str(tmp_path))
     headers = auth_header(client)
     _seed(client, headers)
     assert client.post("/api/admin/backup/targets", json={"name": "Lokal", "kind": "local", "config": {}}, headers=headers).status_code == 201
@@ -221,4 +229,4 @@ def test_schedule_slots_and_due_run(client, monkeypatch, tmp_path):
         runs = run_due_backup(db)
         assert [run.status for run in runs] == ["success"]
         assert run_due_backup(db) == []  # the same slot is never run twice
-    assert len(list(tmp_path.glob("clinicpulse-*.cpbak"))) == 1
+    assert len(list(tmp_path.glob("medora-*.cpbak"))) == 1

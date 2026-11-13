@@ -1,5 +1,5 @@
 # Release artifact template. CI replaces __IMAGE_TAG__ (e.g. v-0.2.1-alpha).
-name: clinicpulse
+name: medora
 
 services:
   db:
@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: clinicpulse
       POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
-      - clinicpulse_data:/var/lib/postgresql
+      - medora_data:/var/lib/postgresql
     networks:
       - database
     healthcheck:
@@ -20,27 +20,27 @@ services:
     restart: unless-stopped
 
   backend:
-    image: ghcr.io/cyberspaceconsulting/clinicpulse-backend:__IMAGE_TAG__
+    image: ghcr.io/cyberspaceconsulting/medora-backend:__IMAGE_TAG__
     environment:
       DB_HOST: db
       DB_NAME: clinicpulse
       DB_USER: clinicpulse
       DB_PASSWORD: ${POSTGRES_PASSWORD:-}
-      CLINICPULSE_MANAGED_KEY_FILE: /var/lib/clinicpulse-secrets/data_encryption_key
-      CLINICPULSE_MANAGED_SMTP_PASSWORD_FILE: /var/lib/clinicpulse-secrets/smtp_password
-      CLINICPULSE_LICENSE_API_URL: ${CLINICPULSE_LICENSE_API_URL:-https://lic.api.cyberspaceconsulting.de/api/v1}
-      CLINICPULSE_PUBLIC_URL: ${CLINICPULSE_PUBLIC_URL:-}
-      CLINICPULSE_SMTP_HOST: ${CLINICPULSE_SMTP_HOST:-}
-      CLINICPULSE_SMTP_PORT: ${CLINICPULSE_SMTP_PORT:-587}
-      CLINICPULSE_SMTP_USERNAME: ${CLINICPULSE_SMTP_USERNAME:-}
-      CLINICPULSE_SMTP_PASSWORD_FILE: ${CLINICPULSE_SMTP_PASSWORD_FILE:-}
-      CLINICPULSE_SMTP_FROM: ${CLINICPULSE_SMTP_FROM:-}
-      CLINICPULSE_SMTP_USE_SSL: ${CLINICPULSE_SMTP_USE_SSL:-false}
-      CLINICPULSE_SMTP_USE_STARTTLS: ${CLINICPULSE_SMTP_USE_STARTTLS:-true}
-      CLINICPULSE_BACKUP_DIR: /backups
+      MEDORA_MANAGED_KEY_FILE: /var/lib/medora-secrets/data_encryption_key
+      MEDORA_MANAGED_SMTP_PASSWORD_FILE: /var/lib/medora-secrets/smtp_password
+      MEDORA_LICENSE_API_URL: ${MEDORA_LICENSE_API_URL:-https://lic.api.cyberspaceconsulting.de/api/v1}
+      MEDORA_PUBLIC_URL: ${MEDORA_PUBLIC_URL:-}
+      MEDORA_SMTP_HOST: ${MEDORA_SMTP_HOST:-}
+      MEDORA_SMTP_PORT: ${MEDORA_SMTP_PORT:-587}
+      MEDORA_SMTP_USERNAME: ${MEDORA_SMTP_USERNAME:-}
+      MEDORA_SMTP_PASSWORD_FILE: ${MEDORA_SMTP_PASSWORD_FILE:-}
+      MEDORA_SMTP_FROM: ${MEDORA_SMTP_FROM:-}
+      MEDORA_SMTP_USE_SSL: ${MEDORA_SMTP_USE_SSL:-false}
+      MEDORA_SMTP_USE_STARTTLS: ${MEDORA_SMTP_USE_STARTTLS:-true}
+      MEDORA_BACKUP_DIR: /backups
     volumes:
-      - ${CLINICPULSE_BACKUP_HOST_DIR:-./backups}:/backups
-      - clinicpulse_keys:/var/lib/clinicpulse-secrets
+      - ${MEDORA_BACKUP_HOST_DIR:-./backups}:/backups
+      - medora_keys:/var/lib/medora-secrets
     depends_on:
       db:
         condition: service_healthy
@@ -50,9 +50,9 @@ services:
     restart: unless-stopped
 
   web:
-    image: ghcr.io/cyberspaceconsulting/clinicpulse-web:__IMAGE_TAG__
+    image: ghcr.io/cyberspaceconsulting/medora-web:__IMAGE_TAG__
     ports:
-      - "${CLINICPULSE_PORT:-8080}:80"
+      - "${MEDORA_PORT:-8080}:80"
     depends_on:
       - backend
     networks:
@@ -65,5 +65,7 @@ networks:
   application:
 
 volumes:
-  clinicpulse_data:
-  clinicpulse_keys:
+  medora_data:
+    name: clinicpulse_clinicpulse_data
+  medora_keys:
+    name: clinicpulse_clinicpulse_keys

@@ -30,7 +30,7 @@ def mock_registry(monkeypatch, backend_tags, web_tags, page_size=None):
         if url.path == "/token":
             return RegistryResponse({"token": "public-registry-token"})
         assert request.get_header("Authorization") == "Bearer public-registry-token"
-        tags = backend_tags if "clinicpulse-backend" in url.path else web_tags
+        tags = backend_tags if "medora-backend" in url.path else web_tags
         params = parse_qs(url.query)
         last = params.get("last", [None])[0]
         start = tags.index(last) + 1 if last is not None else 0
@@ -119,9 +119,9 @@ def test_invalid_registry_response(monkeypatch):
 
 def test_version_from_image_takes_precedence_over_legacy_compose():
     env = os.environ.copy()
-    env.update({"PYTHONPATH": str(Path(__file__).resolve().parents[2] / "backend"), "CLINICPULSE_VERSION": "-0.2.1-alpha"})
-    env.pop("CLINICPULSE_IMAGE_VERSION", None)
+    env.update({"PYTHONPATH": str(Path(__file__).resolve().parents[2] / "backend"), "MEDORA_VERSION": "-0.2.1-alpha"})
+    env.pop("MEDORA_IMAGE_VERSION", None)
     command = [sys.executable, "-c", "from app.update_checker import APP_VERSION, default_update_channel; print(APP_VERSION, default_update_channel())"]
     assert subprocess.check_output(command, env=env, text=True).strip() == "v-0.2.1-alpha test"
-    env["CLINICPULSE_IMAGE_VERSION"] = "v-0.2.2-alpha"
+    env["MEDORA_IMAGE_VERSION"] = "v-0.2.2-alpha"
     assert subprocess.check_output(command, env=env, text=True).strip() == "v-0.2.2-alpha test"

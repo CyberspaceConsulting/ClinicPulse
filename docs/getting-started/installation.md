@@ -1,6 +1,6 @@
 # Installation
 
-ClinicPulse wird als Release mit Docker Compose gestartet. Weboberfläche, API und PostgreSQL laufen dabei in getrennten Containern.
+Medora wird als Release mit Docker Compose gestartet. Weboberfläche, API und PostgreSQL laufen dabei in getrennten Containern.
 
 ## Voraussetzungen
 
@@ -10,17 +10,17 @@ ClinicPulse wird als Release mit Docker Compose gestartet. Weboberfläche, API u
 
 ## Release installieren
 
-Wähle ein Release auf [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases) und ersetze den Tag im Beispiel. Das Skript prüft die Sigstore-Signatur der Release-Prüfsummen und die Prüfsummen von Installer und Compose-Datei. Die Compose-Datei pinnt Backend und Web per Image-Digest. Alpha-Releases werden von GitHubs `releases/latest` nicht erfasst.
+Wähle ein Release auf [GitHub Releases](https://github.com/CyberspaceConsulting/Medora/releases) und ersetze den Tag im Beispiel. Das Skript prüft die Sigstore-Signatur der Release-Prüfsummen und die Prüfsummen von Installer und Compose-Datei. Die Compose-Datei pinnt Backend und Web per Image-Digest. Alpha-Releases werden von GitHubs `releases/latest` nicht erfasst.
 
 Bei einem Update mit bestehender Datenbank kann `v-0.3.4.1-alpha` beim Start scheitern; siehe [Fehlerbehebung](../troubleshooting.md#fehlende-fahrzeugspalte-beim-start).
 
 ```sh
 (
   set -eu
-  target="$(pwd)/clinicpulse"
+  target="$(pwd)/medora"
   tmpdir=$(mktemp -d)
   trap 'rm -rf "$tmpdir"' EXIT
-  url=https://github.com/CyberspaceConsulting/ClinicPulse/releases/download/v-0.3.4.1-alpha
+  url=https://github.com/CyberspaceConsulting/Medora/releases/download/v-0.3.4.1-alpha
   curl -fsSL -o "$tmpdir/install.sh" "$url/install.sh"
   curl -fsSL -o "$tmpdir/compose.yaml" "$url/compose.yaml"
   curl -fsSL -o "$tmpdir/SHA256SUMS" "$url/SHA256SUMS"
@@ -29,7 +29,7 @@ Bei einem Update mit bestehender Datenbank kann `v-0.3.4.1-alpha` beim Start sch
   cd "$tmpdir"
   cosign verify-blob \
     --bundle SHA256SUMS.sigstore.json \
-    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+    --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/Medora/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     SHA256SUMS
   awk '$2 == "install.sh" || $2 == "compose.yaml" || $2 == "verify-integrity.sh" { print; count++ } END { if (count != 3) exit 1 }' SHA256SUMS > install.sha256
@@ -48,15 +48,15 @@ Sichere den Datenverschlüsselungsschlüssel getrennt von der Datenbank. Ohne de
 
 | Speicher | Zweck |
 | --- | --- |
-| Docker-Volume `clinicpulse_data` | PostgreSQL-Datenbank |
-| Docker-Volume `clinicpulse_keys` | Automatisch verwalteter Schlüssel und optionales SMTP-Passwort |
-| `clinicpulse/backups` | Verschlüsselte Anwendungssicherungen |
+| Docker-Volume `medora_data` | PostgreSQL-Datenbank |
+| Docker-Volume `medora_keys` | Automatisch verwalteter Schlüssel und optionales SMTP-Passwort |
+| `medora/backups` | Verschlüsselte Anwendungssicherungen |
 
-Die Volume-Verwaltung gilt für den aktuellen Quellcode und künftige Releases mit dieser Funktion. Das Beispielrelease `v-0.3.4.1-alpha` verwendet weiterhin Dateien unter `clinicpulse/secrets`. Beide Volumes bleiben beim Neustart und Update erhalten und dürfen nicht gelöscht werden, solange Daten benötigt werden.
+Die Volume-Verwaltung gilt für den aktuellen Quellcode und künftige Releases mit dieser Funktion. Das Beispielrelease `v-0.3.4.1-alpha` verwendet weiterhin Dateien unter `medora/secrets`. Beide Volumes bleiben beim Neustart und Update erhalten und dürfen nicht gelöscht werden, solange Daten benötigt werden.
 
 ## Anderer Port
 
-Setze vor der Installation `CLINICPULSE_PORT`, zum Beispiel `export CLINICPULSE_PORT=9090`. Damit spätere Compose-Aufrufe denselben Port verwenden, trage `CLINICPULSE_PORT=9090` in `clinicpulse/.env` ein. Die Anwendung ist dann unter `http://localhost:9090` erreichbar.
+Setze vor der Installation `MEDORA_PORT`, zum Beispiel `export MEDORA_PORT=9090`. Damit spätere Compose-Aufrufe denselben Port verwenden, trage `MEDORA_PORT=9090` in `medora/.env` ein. Die Anwendung ist dann unter `http://localhost:9090` erreichbar.
 
 ## Updates
 
@@ -71,7 +71,7 @@ Der Installer prüft die signierte Release-Prüfsummenliste automatisch. Für di
   set -eu
   tmpdir=$(mktemp -d)
   trap 'rm -rf "$tmpdir"' EXIT
-  url=https://github.com/CyberspaceConsulting/ClinicPulse/releases/download/v-0.3.4.1-alpha
+  url=https://github.com/CyberspaceConsulting/Medora/releases/download/v-0.3.4.1-alpha
   for asset in compose.yaml SHA256SUMS SHA256SUMS.sigstore.json verify-integrity.sh; do
     curl -fsSL -o "$tmpdir/$asset" "$url/$asset"
   done
@@ -79,7 +79,7 @@ Der Installer prüft die signierte Release-Prüfsummenliste automatisch. Für di
     cd "$tmpdir"
     cosign verify-blob \
       --bundle SHA256SUMS.sigstore.json \
-      --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/ClinicPulse/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
+      --certificate-identity-regexp '^https://github\.com/CyberspaceConsulting/Medora/.github/workflows/release-images\.yml@refs/tags/v[^/]+$' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com \
       SHA256SUMS
     awk '$2 == "compose.yaml" || $2 == "verify-integrity.sh" { print; count++ } END { if (count != 2) exit 1 }' SHA256SUMS > assets.sha256
@@ -94,9 +94,9 @@ Die manuelle Prüfung läuft außerhalb der Anwendung. Cosign prüft die Signatu
 ## Aus dem Quellcode
 
 ```sh
-git clone https://github.com/CyberspaceConsulting/ClinicPulse.git
-cd ClinicPulse
-sh deploy/install.sh ./clinicpulse
+git clone https://github.com/CyberspaceConsulting/Medora.git
+cd Medora
+sh deploy/install.sh ./medora
 ```
 
 ## Nächste Schritte

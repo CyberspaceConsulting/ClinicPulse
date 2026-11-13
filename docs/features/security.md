@@ -12,7 +12,7 @@ Neue Passwörter können gegen „Have I Been Pwned“ geprüft werden. Dabei wi
 
 ## Verschlüsselung
 
-Sensible Datenbankfelder werden mit einem Schlüssel aus dem Docker-Volume `clinicpulse_keys` verschlüsselt. Das Volume ist selbst nicht automatisch verschlüsselt und für Docker-Administratoren zugänglich. Anwendungsbackups und separate Schlüssel-Backups sind verschlüsselt, siehe [Backup](backup.md). Die Datenbank liegt in einem internen Docker-Netzwerk.
+Sensible Datenbankfelder werden mit einem Schlüssel aus dem Docker-Volume `medora_keys` verschlüsselt. Das Volume ist selbst nicht automatisch verschlüsselt und für Docker-Administratoren zugänglich. Anwendungsbackups und separate Schlüssel-Backups sind verschlüsselt, siehe [Backup](backup.md). Die Datenbank liegt in einem internen Docker-Netzwerk.
 
 ## Datenschutz im Betrieb
 

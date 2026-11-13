@@ -1,11 +1,11 @@
 name: Feature Request
-description: Suggest an improvement to ClinicPulse
+description: Suggest an improvement to Medora
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Share the problem you are trying to solve and how the proposed change would help ClinicPulse users.
+        Share the problem you are trying to solve and how the proposed change would help Medora users.
 
   - type: textarea
     id: problem

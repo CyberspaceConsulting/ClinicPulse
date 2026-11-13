@@ -1,8 +1,8 @@
-# Zu ClinicPulse beitragen
+# Zu Medora beitragen
 
-Danke für dein Interesse an ClinicPulse! Dieses Dokument beschreibt, wie du das Projekt lokal einrichtest, welche Regeln für Beiträge gelten und wie Änderungen eingereicht werden.
+Danke für dein Interesse an Medora! Dieses Dokument beschreibt, wie du das Projekt lokal einrichtest, welche Regeln für Beiträge gelten und wie Änderungen eingereicht werden.
 
-ClinicPulse befindet sich in einer frühen Alpha-Phase. Für das Repository ist derzeit keine Lizenzdatei hinterlegt (siehe [README.md](README.md)).
+Medora befindet sich in einer frühen Alpha-Phase. Für das Repository ist derzeit keine Lizenzdatei hinterlegt (siehe [README.md](README.md)).
 
 ## Inhalt
 
@@ -26,7 +26,7 @@ Sei respektvoll, konstruktiv und geduldig. Reviews beziehen sich auf den Code, n
 
 ## Möglichkeiten beizutragen
 
-- Fehler aus den [Issues](https://github.com/CyberspaceConsulting/ClinicPulse/issues) beheben.
+- Fehler aus den [Issues](https://github.com/CyberspaceConsulting/Medora/issues) beheben.
 - Funktionen umsetzen, die in einem Issue besprochen und akzeptiert wurden.
 - Dokumentation verbessern (`README.md`, `TEST.md`, diese Datei).
 - Tests ergänzen, besonders für Berechtigungen, Validierung und Arbeitszeitprüfungen.
@@ -36,7 +36,7 @@ Bei größeren Änderungen bitte **zuerst ein Issue eröffnen**, um den Umfang a
 
 ## Projektübersicht
 
-ClinicPulse ist eine selbst gehostete Webanwendung für die Dienstplanung in Teams mit Schichtbetrieb. Das Backend ist eine Python-API, das Frontend eine Vue-3-Anwendung mit Vite und TypeScript. Betrieben wird alles über Docker Compose.
+Medora ist eine selbst gehostete Webanwendung für die Dienstplanung in Teams mit Schichtbetrieb. Das Backend ist eine Python-API, das Frontend eine Vue-3-Anwendung mit Vite und TypeScript. Betrieben wird alles über Docker Compose.
 
 ```
 backend/
@@ -71,11 +71,11 @@ deploy/           # Installations- und Hilfsskripte
 
 ```bash
 # 1. Repository auf GitHub forken und den Fork klonen
-git clone https://github.com/<dein-benutzername>/ClinicPulse.git
-cd ClinicPulse
+git clone https://github.com/<dein-benutzername>/Medora.git
+cd Medora
 
 # 2. Upstream hinzufügen, um den Fork aktuell zu halten
-git remote add upstream https://github.com/CyberspaceConsulting/ClinicPulse.git
+git remote add upstream https://github.com/CyberspaceConsulting/Medora.git
 
 # 3. Frontend-Abhängigkeiten installieren
 npm --prefix frontend ci
@@ -168,18 +168,18 @@ Reviews sind ein Austausch. Rechne mit ein bis zwei Feedbackrunden.
 ## Branches und Releases
 
 - Änderungen laufen per Pull Request in den Hauptbranch des Repositorys. Eine Vorgabe für die Zielbranch klären die Maintainer im Issue.
-- Releases und Versionsnummern verwalten die Maintainer. Installationsartefakte stehen unter [GitHub Releases](https://github.com/CyberspaceConsulting/ClinicPulse/releases).
+- Releases und Versionsnummern verwalten die Maintainer. Installationsartefakte stehen unter [GitHub Releases](https://github.com/CyberspaceConsulting/Medora/releases).
 
 ## Fehler melden und Features vorschlagen
 
-- Nutze die [Issues](https://github.com/CyberspaceConsulting/ClinicPulse/issues).
-- Bei Fehlern: ClinicPulse-Version bzw. Commit, Betriebsart (Docker Compose oder lokal), Schritte zur Reproduktion, erwartetes und tatsächliches Verhalten sowie bereinigte Logs (`docker compose logs --tail 100`).
+- Nutze die [Issues](https://github.com/CyberspaceConsulting/Medora/issues).
+- Bei Fehlern: Medora-Version bzw. Commit, Betriebsart (Docker Compose oder lokal), Schritte zur Reproduktion, erwartetes und tatsächliches Verhalten sowie bereinigte Logs (`docker compose logs --tail 100`).
 - Bei Feature-Wünschen: zuerst das Problem beschreiben, dann die Lösungsidee.
 
 ## Sicherheit und Datenschutz
 
 **Eröffne kein öffentliches Issue für Sicherheitslücken.** Schreibe stattdessen eine E-Mail an **info@cyberspaceconsulting.de** mit Beschreibung und Reproduktion.
 
-ClinicPulse ist ein Entwicklungsprojekt und nicht für den produktiven Einsatz in Kliniken freigegeben. Bitte keine Zugangsdaten, Lizenz-Tokens, Schlüssel oder echten Personen- und Gesundheitsdaten in Issues, Pull Requests oder Testdaten veröffentlichen.
+Medora ist ein Entwicklungsprojekt und nicht für den produktiven Einsatz in Kliniken freigegeben. Bitte keine Zugangsdaten, Lizenz-Tokens, Schlüssel oder echten Personen- und Gesundheitsdaten in Issues, Pull Requests oder Testdaten veröffentlichen.
 
 Danke für deinen Beitrag! 🩺

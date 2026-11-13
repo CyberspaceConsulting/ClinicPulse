@@ -15,15 +15,15 @@ class Base(DeclarativeBase):
     pass
 
 
-database_url = os.environ.get("DATABASE_URL", "sqlite:///./clinicpulse.db")
+database_url = os.environ.get("DATABASE_URL", "sqlite:///./medora.db")
 if os.environ.get("DB_HOST"):
     database_url = URL.create(
         "postgresql+psycopg",
-        username=os.environ.get("DB_USER", "clinicpulse"),
+        username=os.environ.get("DB_USER", "medora"),
         password=os.environ.get("DB_PASSWORD") or None,
         host=os.environ["DB_HOST"],
         port=int(os.environ.get("DB_PORT", "5432")),
-        database=os.environ.get("DB_NAME", "clinicpulse"),
+        database=os.environ.get("DB_NAME", "medora"),
     )
 engine_options: dict[str, object] = {"pool_pre_ping": True}
 if str(database_url).startswith("sqlite"):
@@ -33,23 +33,23 @@ if str(database_url).startswith("sqlite"):
 
 engine = create_engine(database_url, **engine_options)
 if engine.dialect.name == "sqlite" and not str(database_url).endswith(":memory:"):
-    raise RuntimeError("SQLite is supported only for in-memory tests; ClinicPulse requires PostgreSQL")
+    raise RuntimeError("SQLite is supported only for in-memory tests; Medora requires PostgreSQL")
 
-managed_key_file = os.environ.get("CLINICPULSE_MANAGED_KEY_FILE")
+managed_key_file = os.environ.get("MEDORA_MANAGED_KEY_FILE")
 if (engine.dialect.name == "postgresql" and managed_key_file
-        and not os.environ.get("CLINICPULSE_DATA_ENCRYPTION_KEY_FILE")
-        and not os.environ.get("CLINICPULSE_DATA_ENCRYPTION_KEY")):
+        and not os.environ.get("MEDORA_DATA_ENCRYPTION_KEY_FILE")
+        and not os.environ.get("MEDORA_DATA_ENCRYPTION_KEY")):
     ensure_managed_key(managed_key_file, lambda: bool(inspect(engine).get_table_names()))
     engine.dispose()
-    os.environ["CLINICPULSE_DATA_ENCRYPTION_KEY_FILE"] = managed_key_file
+    os.environ["MEDORA_DATA_ENCRYPTION_KEY_FILE"] = managed_key_file
 
-managed_smtp_file = os.environ.get("CLINICPULSE_MANAGED_SMTP_PASSWORD_FILE")
-smtp_file = os.environ.get("CLINICPULSE_SMTP_PASSWORD_FILE")
+managed_smtp_file = os.environ.get("MEDORA_MANAGED_SMTP_PASSWORD_FILE")
+smtp_file = os.environ.get("MEDORA_SMTP_PASSWORD_FILE")
 if managed_smtp_file and smtp_file in (None, "", "/run/secrets/smtp_password"):
     smtp_path = Path(managed_smtp_file)
     smtp_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     smtp_path.touch(mode=0o600, exist_ok=True)
-    os.environ["CLINICPULSE_SMTP_PASSWORD_FILE"] = managed_smtp_file
+    os.environ["MEDORA_SMTP_PASSWORD_FILE"] = managed_smtp_file
 
 
 @event.listens_for(engine, "connect")
@@ -59,7 +59,7 @@ def configure_database_encryption(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute(
-                "SELECT set_config('clinicpulse.data_encryption_key', %s, false)",
+                "SELECT set_config('medora.data_encryption_key', %s, false)",
                 (key,),
             )
             # Without a commit, a later rollback would revert the session setting.
