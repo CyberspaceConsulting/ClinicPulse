@@ -72,12 +72,12 @@ backend_container="$(compose ps --quiet backend)"
 [ -n "$backend_container" ]
 [ "$(docker inspect --format '{{.State.Status}}' "$backend_container")" = "running" ]
 
-compose exec -T db pg_dump -Fc -U medora -d medora > "$temporary_directory/database.dump"
+compose exec -T db pg_dump -Fc -U clinicpulse -d clinicpulse > "$temporary_directory/database.dump"
 compose exec -T db pg_restore --list < "$temporary_directory/database.dump" > /dev/null
-compose exec -T db createdb -U medora medora_restore_test
-compose exec -T db pg_restore --exit-on-error --no-owner --no-acl -U medora \
+compose exec -T db createdb -U clinicpulse medora_restore_test
+compose exec -T db pg_restore --exit-on-error --no-owner --no-acl -U clinicpulse \
   -d medora_restore_test < "$temporary_directory/database.dump"
-restored_tables="$(compose exec -T db psql -U medora -d medora_restore_test -tAc \
+restored_tables="$(compose exec -T db psql -U clinicpulse -d medora_restore_test -tAc \
   "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
 [ "$restored_tables" -gt 0 ]
 
