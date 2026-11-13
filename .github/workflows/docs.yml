@@ -43,7 +43,7 @@ jobs:
       - name: Build documentation
         id: build
         run: npm run build --prefix docs
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         id: upload
         with:
           path: docs/.vitepress/dist
